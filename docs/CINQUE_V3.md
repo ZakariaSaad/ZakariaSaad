@@ -183,9 +183,15 @@ model compiler/parser tests.
 From the existing checkout (no additional worktree is needed):
 
 ```sh
+# Ubuntu build prerequisites:
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends clang capnproto libcapnp-dev
 uv sync --frozen --all-extras
 source .venv/bin/activate
-scons --minimal -j4 openpilot/common/libparams_c.so
+scons --minimal -j4 \
+  openpilot/common/libparams_c.so \
+  msgq_repo/msgq/ipc_pyx.so \
+  msgq_repo/msgq/visionipc/visionipc_pyx.so
 DEV=CPU python -m unittest \
   openpilot.sunnypilot.modeld_v2.tests.test_cinque_guard \
   openpilot.sunnypilot.modeld_v2.tests.test_stateful \

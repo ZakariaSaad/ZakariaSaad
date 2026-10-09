@@ -29,7 +29,12 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang capnproto libcapnp-dev
       - run: uv sync --frozen --all-extras
       - name: Build native test prerequisites
-        run: .venv/bin/scons --minimal -j4 openpilot/common/libparams_c.so
+        run: |
+          source .venv/bin/activate
+          scons --minimal -j4 \
+            openpilot/common/libparams_c.so \
+            msgq_repo/msgq/ipc_pyx.so \
+            msgq_repo/msgq/visionipc/visionipc_pyx.so
       - name: Stateful startup, selection, fault persistence, and upgrade tests
         run: >-
           .venv/bin/python -m unittest
