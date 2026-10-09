@@ -26,7 +26,7 @@ jobs:
         with:
           submodules: recursive
       - uses: astral-sh/setup-uv@v7
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang capnproto libcapnp-dev
       - run: uv sync --frozen --all-extras
       - name: Build native test prerequisites
         run: .venv/bin/scons --minimal -j4 openpilot/common/libparams_c.so
