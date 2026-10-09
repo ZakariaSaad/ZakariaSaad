@@ -1,0 +1,47 @@
+name: Cinque V3 compatibility and recovery
+on:
+  pull_request:
+    paths:
+      - 'openpilot/sunnypilot/modeld_v2/**'
+      - 'openpilot/common/params_keys.h'
+      - 'openpilot/sunnypilot/models/helpers.py'
+      - 'tools/cinque_v3.py'
+      - '.github/workflows/cinque_v3.yaml'
+  push:
+    branches: [mvl-cinque-v3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stateful_and_fallback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      DEV: CPU
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: astral-sh/setup-uv@v7
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang
+      - run: uv sync --frozen --all-extras
+      - name: Build native test prerequisites
+        run: .venv/bin/scons --minimal -j4 openpilot/common/libparams_c.so
+      - name: Stateful startup, selection, fault persistence, and upgrade tests
+        run: >-
+          .venv/bin/python -m unittest
+          openpilot.sunnypilot.modeld_v2.tests.test_cinque_guard
+          openpilot.sunnypilot.modeld_v2.tests.test_stateful
+          openpilot.sunnypilot.modeld_v2.tests.test_cinque_adapter
+          openpilot.sunnypilot.modeld_v2.tests.test_compile_cinque
+          opendbc.car.honda.tests.test_honda
+          opendbc.car.honda.tests.test_lane_path
+          opendbc.car.honda.tests.test_nidec_speed_lead -v
+      - name: Legacy model compiler and parser regressions
+        run: >-
+          .venv/bin/python tools/test_runner.py -j4
+          openpilot/sunnypilot/modeld_v2/tests/test_parse_model_outputs.py
+          openpilot/sunnypilot/modeld_v2/tests/test_compile_modeld.py

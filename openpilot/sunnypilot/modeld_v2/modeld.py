@@ -55,6 +55,7 @@ from openpilot.sunnypilot.modeld_v2.modeld_base import ModelStateBase
 from openpilot.sunnypilot.modeld_v2.helpers import load_oob
 from openpilot.sunnypilot.models.helpers import get_active_bundle
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
+from openpilot.sunnypilot.modeld_v2.cinque_guard import CinqueGuard
 
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld_tinygrad"
 BIG_MODEL_TIMEOUT = 60
@@ -176,6 +177,9 @@ class ModelState(ModelStateBase):
       self.constants = SplitModelConstants()
     else:
       self.constants = ModelConstants()
+    from openpilot.sunnypilot.modeld_v2.constants import Meta
+    from openpilot.sunnypilot.modeld_v2.meta_20hz import Meta20hz
+    self.meta_constants = Meta20hz if is_20hz else Meta
 
     self.parser = Parser()
     self.prev_desire = np.zeros(self.constants.DESIRE_LEN, dtype=np.float32)
@@ -198,6 +202,8 @@ class ModelState(ModelStateBase):
     else:
       for v in self.numpy_inputs.values():
         v[:] = 0
+      for value in self.input_queues.values():
+        value.assign(0).realize()
       self.full_frames.clear()
       self._blob_cache.clear()
     self.prev_desire[:] = 0
@@ -359,7 +365,14 @@ def main(demo=False):
   st = time.monotonic()
 
   model = None
-  if CHESTNUT:
+  v3_requested = params.get_bool('CinqueV3Enabled') or bool(params.get('CinqueV3Fault'))
+  v3_guard = None
+  if v3_requested:
+    from openpilot.sunnypilot.modeld_v2.cinque import CinqueModelState, load_fallback
+    v3_guard = CinqueGuard(params, lambda: load_fallback(vipc_client_main.width, vipc_client_main.height),
+                          lambda: CinqueModelState(vipc_client_main.width, vipc_client_main.height))
+    model = v3_guard.start()
+  if CHESTNUT and not v3_requested:
     big_model = None
     def load_big():
       nonlocal big_model
@@ -379,9 +392,12 @@ def main(demo=False):
     if model is not None:
       params.remove("ChestnutModelError")
 
-  small_model = ModelState(cam_w=vipc_client_main.width, cam_h=vipc_client_main.height, chestnut=False) if model is None or CHESTNUT else None
+  small_model = (v3_guard.fallback if v3_guard is not None else
+                 ModelState(cam_w=vipc_client_main.width, cam_h=vipc_client_main.height, chestnut=False) if model is None or CHESTNUT else None)
   if model is None:
     model = small_model
+  if v3_guard is not None:
+    params.put_bool('ChestnutActive', model.chestnut)
   params.put_bool("ChestnutLoading", False)
   assert model is not None
   cloudlog.warning(f"models loaded in {time.monotonic() - st:.1f}s, modeld starting")
@@ -420,8 +436,22 @@ def main(demo=False):
   prev_action = log.ModelDataV2.Action()
 
   DH = DesireHelper()
-  meta_constants = load_meta_constants()
+  meta_constants = model.meta_constants if v3_guard is not None else load_meta_constants()
   RELC = RoadEdgeLaneChangeController()
+
+  def recover_v3(error):
+    nonlocal model, prev_action, publish_state, DH, RELC, meta_constants, long_delay, frame_dropped_filter, run_count
+    cloudlog.error('V3 disabled, resetting to verified fallback: %s', error)
+    model = v3_guard.recover(error)
+    params.put_bool('ChestnutActive', False)
+    if chestnut_state is not None:
+      chestnut_state.big = False
+    prev_action, publish_state = log.ModelDataV2.Action(), PublishState()
+    DH, RELC = DesireHelper(), RoadEdgeLaneChangeController()
+    meta_constants = model.meta_constants
+    long_delay = CP.longitudinalActuatorDelay + model.LONG_SMOOTH_SECONDS
+    frame_dropped_filter = FirstOrderFilter(0., 10., 1. / model.constants.MODEL_FREQ)
+    run_count = 0
 
   while True:
     # Keep receiving frames until we are at least 1 frame ahead of previous extra frame
@@ -457,6 +487,10 @@ def main(demo=False):
       meta_extra = meta_main
 
     sm.update(0)
+    if v3_guard is not None and v3_guard.active and not params.get_bool('CinqueV3Enabled'):
+      recover_v3(RuntimeError('V3 disabled by operator'))
+      last_vipc_frame_id = meta_main.frame_id
+      continue
     desire = DH.desire
     is_rhd = sm["driverMonitoringState"].isRHD
     frame_id = sm["narrowRoadCameraState"].frameId
@@ -515,8 +549,16 @@ def main(demo=False):
     try:
       send_chestnut = (chestnut_state is not None and
                        run_count % round(model.constants.MODEL_FREQ / SERVICE_LIST['chestnutState'].frequency) == 0)
-      model_output = model.run(bufs, transforms, inputs, chestnut_state.send if send_chestnut else None)
-    except Exception:
+      runner = v3_guard if v3_guard is not None else model
+      model_output = runner.run(bufs, transforms, inputs, chestnut_state.send if send_chestnut else None)
+    except Exception as error:
+      if v3_guard is not None and v3_guard.active:
+        recover_v3(error)
+        last_vipc_frame_id = meta_main.frame_id
+        continue
+      if v3_guard is not None:
+        v3_guard.disable(f'Fallback inference failed: {error}')
+        raise
       if not params.get_bool("ChestnutActive"):
         raise
       cloudlog.exception("chestnut failed, falling back to small")
@@ -532,36 +574,43 @@ def main(demo=False):
     model_execution_time = mt2 - mt1
 
     if model_output is not None:
-      modelv2_send = messaging.new_message('modelV2')
-      drivingdata_send = messaging.new_message('drivingModelData')
-      posenet_send = messaging.new_message('cameraOdometry')
-      mdv2sp_send = messaging.new_message('modelDataV2SP')
+      try:
+        modelv2_send = messaging.new_message('modelV2')
+        drivingdata_send = messaging.new_message('drivingModelData')
+        posenet_send = messaging.new_message('cameraOdometry')
+        mdv2sp_send = messaging.new_message('modelDataV2SP')
 
-      action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
-      prev_action = action
-      fill_model_msg(drivingdata_send, modelv2_send, model_output, action,
-                     publish_state, meta_main.frame_id, meta_extra.frame_id, frame_id,
-                     frame_drop_ratio, meta_main.timestamp_eof, model_execution_time, live_calib_seen, meta_constants)
-      modelv2_send.modelV2.big = model.chestnut
+        action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
+        if v3_guard is not None and v3_guard.active and not np.all(np.isfinite([action.desiredCurvature, action.desiredAcceleration])):
+          raise ValueError('Nonfinite V3 action')
+        prev_action = action
+        fill_model_msg(drivingdata_send, modelv2_send, model_output, action,
+                       publish_state, meta_main.frame_id, meta_extra.frame_id, frame_id,
+                       frame_drop_ratio, meta_main.timestamp_eof, model_execution_time, live_calib_seen, meta_constants)
+        modelv2_send.modelV2.big = model.chestnut
 
-      desire_state = modelv2_send.modelV2.meta.desireState
-      l_lane_change_prob = desire_state[log.Desire.laneChangeLeft]
-      r_lane_change_prob = desire_state[log.Desire.laneChangeRight]
-      lane_change_prob = l_lane_change_prob + r_lane_change_prob
-      left_edge, right_edge = RELC.update_and_fill(modelv2_send.modelV2, mdv2sp_send.modelDataV2SP, v_ego)
-      DH.update(sm['carState'], sm['carControl'].latActive, lane_change_prob, left_edge, right_edge)
-      modelv2_send.modelV2.meta.laneChangeState = DH.lane_change_state
-      modelv2_send.modelV2.meta.laneChangeDirection = DH.lane_change_direction
-      mdv2sp_send.valid = modelv2_send.valid
-      mdv2sp_send.modelDataV2SP.laneTurnDirection = DH.lane_turn_direction
-      drivingdata_send.drivingModelData.meta.laneChangeState = DH.lane_change_state
-      drivingdata_send.drivingModelData.meta.laneChangeDirection = DH.lane_change_direction
+        desire_state = modelv2_send.modelV2.meta.desireState
+        l_lane_change_prob = desire_state[log.Desire.laneChangeLeft]
+        r_lane_change_prob = desire_state[log.Desire.laneChangeRight]
+        lane_change_prob = l_lane_change_prob + r_lane_change_prob
+        left_edge, right_edge = RELC.update_and_fill(modelv2_send.modelV2, mdv2sp_send.modelDataV2SP, v_ego)
+        DH.update(sm['carState'], sm['carControl'].latActive, lane_change_prob, left_edge, right_edge)
+        modelv2_send.modelV2.meta.laneChangeState = DH.lane_change_state
+        modelv2_send.modelV2.meta.laneChangeDirection = DH.lane_change_direction
+        mdv2sp_send.valid = modelv2_send.valid
+        mdv2sp_send.modelDataV2SP.laneTurnDirection = DH.lane_turn_direction
+        drivingdata_send.drivingModelData.meta.laneChangeState = DH.lane_change_state
+        drivingdata_send.drivingModelData.meta.laneChangeDirection = DH.lane_change_direction
 
-      fill_pose_msg(posenet_send, model_output, meta_main.frame_id, vipc_dropped_frames, meta_main.timestamp_eof, live_calib_seen)
-      pm.send('modelV2', modelv2_send)
-      pm.send('drivingModelData', drivingdata_send)
-      pm.send('cameraOdometry', posenet_send)
-      pm.send('modelDataV2SP', mdv2sp_send)
+        fill_pose_msg(posenet_send, model_output, meta_main.frame_id, vipc_dropped_frames, meta_main.timestamp_eof, live_calib_seen)
+        pm.send('modelV2', modelv2_send)
+        pm.send('drivingModelData', drivingdata_send)
+        pm.send('cameraOdometry', posenet_send)
+        pm.send('modelDataV2SP', mdv2sp_send)
+      except Exception as error:
+        if v3_guard is None or not v3_guard.active:
+          raise
+        recover_v3(error)
     last_vipc_frame_id = meta_main.frame_id
 
 if __name__ == "__main__":

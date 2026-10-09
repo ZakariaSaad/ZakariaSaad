@@ -178,10 +178,16 @@ def validate_active_bundles(params: Params, source_bundles: dict[str, list[custo
 def get_active_model_runner(params: Params | None = None, force_check: bool = False) -> int:
   params = params or Params()
   cached_runner_type = params.get("ModelRunnerTypeCache")
-  if cached_runner_type is not None and not force_check:
+  v3_requested = params.get_bool('CinqueV3Enabled') or bool(params.get('CinqueV3Fault'))
+  if cached_runner_type is not None and not force_check and not v3_requested:
     return cached_runner_type
   runner_type = custom.ModelManagerSP.Runner.stock
-  if active_bundle := get_active_bundle(params):
+  active_bundle = get_selected_bundle(params, 'qcom') if v3_requested else get_active_bundle(params)
+  if v3_requested and (active_bundle is None or active_bundle.runner != custom.ModelManagerSP.Runner.tinygrad):
+    from openpilot.sunnypilot.modeld_v2.cinque_guard import CinqueGuard
+    CinqueGuard(params, None, None).disable('Select a verified small legacy Tinygrad fallback before enabling V3')
+    active_bundle = get_active_bundle(params)
+  if active_bundle:
     runner_type = active_bundle.runner.raw
 
   if cached_runner_type != runner_type:
