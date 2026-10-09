@@ -119,7 +119,11 @@ def _parse_active_bundle(raw_bundle) -> "custom.ModelManagerSP.ModelBundle | Non
 
 def get_selected_bundle(params: Params | None = None, source: str = "qcom") -> "custom.ModelManagerSP.ModelBundle | None":
   params = params or Params()
-  return _parse_active_bundle(params.get(ACTIVE_BUNDLE_KEYS[source]))
+  try:
+    return _parse_active_bundle(params.get(ACTIVE_BUNDLE_KEYS[source]))
+  except (ValueError, TypeError):
+    cloudlog.exception('Invalid selected model JSON for %s', source)
+    return None
 
 
 def get_active_source(chestnut: bool | None = None, chestnut_active: bool | None = None,
@@ -152,7 +156,11 @@ def _validate_active_bundle(params: Params, source: str, available_bundles: list
   global _LAST_VALIDATED_RAW
 
   key = ACTIVE_BUNDLE_KEYS[source]
-  raw_bundle = params.get(key)
+  try:
+    raw_bundle = params.get(key)
+  except (ValueError, TypeError):
+    cloudlog.exception('Invalid selected model JSON for %s; retaining diagnostic data', source)
+    return
   if not raw_bundle:
     return
 
@@ -177,15 +185,26 @@ def validate_active_bundles(params: Params, source_bundles: dict[str, list[custo
 
 def get_active_model_runner(params: Params | None = None, force_check: bool = False) -> int:
   params = params or Params()
-  cached_runner_type = params.get("ModelRunnerTypeCache")
-  v3_requested = params.get_bool('CinqueV3Enabled') or bool(params.get('CinqueV3Fault'))
-  if cached_runner_type is not None and not force_check and not v3_requested:
+  from openpilot.sunnypilot.modeld_v2.cinque_guard import disable_v3, v3_start_requested
+  v3_requested = v3_start_requested(params)
+  recovering = params.get_bool('CinqueV3UseFallback') or (params.get_bool('CinqueV3Active') and bool(params.get('CinqueV3Fault')))
+  try:
+    cached_runner_type = params.get("ModelRunnerTypeCache")
+  except (ValueError, TypeError):
+    cloudlog.exception('Invalid model runner cache; resolving selected bundle')
+    cached_runner_type = None
+    params.remove('ModelRunnerTypeCache')
+  if cached_runner_type is not None and cached_runner_type not in (custom.ModelManagerSP.Runner.stock, custom.ModelManagerSP.Runner.tinygrad):
+    cloudlog.warning('Unusable model runner cache: %s; resolving selected bundle', cached_runner_type)
+    params.remove('ModelRunnerTypeCache')
+    cached_runner_type = None
+  if cached_runner_type is not None and not force_check and not v3_requested and not recovering and not params.get('CinqueV3Fault'):
     return cached_runner_type
   runner_type = custom.ModelManagerSP.Runner.stock
-  active_bundle = get_selected_bundle(params, 'qcom') if v3_requested else get_active_bundle(params)
-  if v3_requested and (active_bundle is None or active_bundle.runner != custom.ModelManagerSP.Runner.tinygrad):
-    from openpilot.sunnypilot.modeld_v2.cinque_guard import CinqueGuard
-    CinqueGuard(params, None, None).disable('Select a verified small legacy Tinygrad fallback before enabling V3')
+  active_bundle = get_selected_bundle(params, 'qcom') if v3_requested or recovering else get_active_bundle(params)
+  if (v3_requested or recovering) and (active_bundle is None or active_bundle.runner != custom.ModelManagerSP.Runner.tinygrad):
+    disable_v3(params, f'{params.get("CinqueV3Fault") or "V3 request rejected"}; select a verified small legacy Tinygrad fallback')
+    params.put_bool('CinqueV3UseFallback', False, block=True)
     active_bundle = get_active_bundle(params)
   if active_bundle:
     runner_type = active_bundle.runner.raw

@@ -2,6 +2,7 @@
 import os
 import base64
 import pickle
+import re
 import numpy as np
 from tinygrad import Tensor, Context
 from tinygrad.engine.jit import TinyJit
@@ -38,9 +39,21 @@ def load_fallback(cam_w, cam_h):
   if bundle is None or str(bundle.runner) != 'tinygrad':
     raise ValueError('Select and download a working legacy Tinygrad fallback before enabling V3')
   artifacts = _bundle_artifacts(bundle)
+  # Each chunk must be authenticated, not merely enough chunks to match the
+  # number of models. The general catalog helper can omit missing checksums.
+  for model in bundle.models:
+    artifact = model.artifact
+    if not artifact.fileName or os.path.basename(artifact.fileName) != artifact.fileName:
+      raise ValueError('Fallback artifact must be a safe model filename')
+    checksums = [chunk.sha256 for chunk in artifact.chunks] if artifact.chunks else [artifact.downloadUri.sha256]
+    if not checksums or any(not re.fullmatch(r'[0-9a-fA-F]{64}', digest) for digest in checksums):
+      raise ValueError('Fallback model artifacts must have complete verified checksums')
   if len(artifacts) < len(bundle.models) or not artifacts or not _bundle_is_valid_locally(bundle):
     raise ValueError('Fallback model artifacts must have verified checksums')
-  return VerifiedFallback(cam_w, cam_h, chestnut=False)
+  model = VerifiedFallback(cam_w, cam_h, chestnut=False)
+  if model.chestnut or 'AMD' in model.WARP_DEV.upper() or 'AMD' in model.DEV.upper():
+    raise ValueError('Verified V3 fallback must run and warp on the built-in device')
+  return model
 
 
 class CinqueModelState(ModelState):

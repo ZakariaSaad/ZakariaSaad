@@ -3,6 +3,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -27,7 +28,8 @@ class TestCinqueGuard(unittest.TestCase):
 
   def test_default_retains_legacy_model(self):
     guard = self.guard()
-    self.assertIs(guard.start(), self.fallback)
+    self.assertIsNone(guard.start())
+    self.fallback_factory.assert_not_called()
     self.candidate_factory.assert_not_called()
     self.assertFalse(self.params.get_bool('CinqueV3Active'))
 
@@ -40,7 +42,7 @@ class TestCinqueGuard(unittest.TestCase):
     self.assertTrue(self.params.get_bool('CinqueV3Active'))
     self.assertIsNone(self.params.get('CinqueV3Fault'))
 
-  def test_model_selection_uses_small_fallback_despite_chestnut_cache(self):
+  def test_explicit_request_bypasses_cache_but_fault_returns_to_normal(self):
     small = custom.ModelManagerSP.ModelBundle(runner='tinygrad', minimumSelectorVersion=19, ref='working-small')
     self.params.put('ModelManager_ActiveBundle', small.to_dict(), block=True)
     self.params.put('ModelRunnerTypeCache', int(custom.ModelManagerSP.Runner.stock), block=True)
@@ -48,7 +50,7 @@ class TestCinqueGuard(unittest.TestCase):
     with patch('openpilot.sunnypilot.models.helpers.get_active_bundle', return_value=None):
       self.assertEqual(get_active_model_runner(self.params), custom.ModelManagerSP.Runner.tinygrad)
       self.guard().disable('V3 failed')
-      self.assertEqual(get_active_model_runner(self.params), custom.ModelManagerSP.Runner.tinygrad)
+      self.assertEqual(get_active_model_runner(self.params), custom.ModelManagerSP.Runner.stock)
     self.assertEqual(self.params.get('ModelManager_ActiveBundle')['ref'], 'working-small')
 
   def test_invalid_fallback_selection_disables_v3(self):
@@ -70,8 +72,7 @@ class TestCinqueGuard(unittest.TestCase):
   def test_fallback_error_prevents_v3_start(self):
     self.params.put_bool('CinqueV3Enabled', True, block=True)
     self.fallback.warmup.side_effect = RuntimeError('fallback missing')
-    with self.assertRaisesRegex(RuntimeError, 'fallback missing'):
-      self.guard().start()
+    self.assertIsNone(self.guard().start())
     self.candidate_factory.assert_not_called()
     self.assertFalse(self.params.get_bool('CinqueV3Enabled'))
 
@@ -103,7 +104,8 @@ class TestCinqueGuard(unittest.TestCase):
     self.guard().disable('latched error')
     self.params = Params(self.tmp.name)
     self.params.put_bool('CinqueV3Enabled', True, block=True)
-    self.assertIs(self.guard().start(), self.fallback)
+    self.assertIsNone(self.guard().start())
+    self.fallback_factory.assert_not_called()
     self.candidate_factory.assert_not_called()
     self.assertEqual(self.params.get('CinqueV3Fault'), 'latched error')
     self.assertFalse(self.params.get_bool('CinqueV3Enabled'))
@@ -138,6 +140,22 @@ CinqueGuard(p, None, None).checked_call(lambda: threading.Event().wait(), .05, '
     with self.assertRaises(TimeoutError):
       guard.checked_call(lambda: time.sleep(.04), .01, 'inference')
     self.assertFalse(self.params.get_bool('CinqueV3Enabled'))
+
+  def test_late_return_waits_for_fault_and_restart_writes(self):
+    guard = CinqueGuard(self.params, None, None, terminate=Mock())
+    writing, finished = threading.Event(), threading.Event()
+    original_disable = guard.disable
+    def slow_disable(reason):
+      writing.set()
+      time.sleep(.03)
+      original_disable(reason)
+      finished.set()
+    guard.disable = slow_disable
+    with self.assertRaises(TimeoutError):
+      guard.checked_call(lambda: writing.wait(1), .01, 'inference')
+    self.assertTrue(finished.is_set())
+    self.assertIn('timeout', self.params.get('CinqueV3Fault'))
+    self.assertTrue(self.params.get_bool('CinqueV3RecoveryPending'))
 
   def test_install_and_upgrade_leave_fallback_files_and_flags_unchanged(self):
     root = Path(self.tmp.name) / 'models'

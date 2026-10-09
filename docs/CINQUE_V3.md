@@ -11,6 +11,9 @@ Do not merge or deploy for assisted driving until review, live-model behavior,
 and fallback transitions have been validated. Synthetic CPU tests and a single
 GPU warmup do not establish driving readiness.
 
+For the startup audit, in-place SSH switch, first-boot checklist, and exact-baseline
+device recovery, follow [MVL first boot](MVL_FIRST_BOOT.md).
+
 ## Source and artifact identity
 
 - Official model commit: `c6d13eb723e0f6eee47ea7d56e47a700fba21380`.
@@ -91,17 +94,24 @@ this CPU-only environment.
 
 ## Fault handling and persistence
 
-`CinqueV3Enabled` is false by default. `CinqueV3Manifest` and `CinqueV3Fault`
-persist across modeld/manager restarts and reboots. `CinqueV3Active` is runtime
-status. Installation creates a fault/review latch; successful offroad checks do
+`CinqueV3Enabled` is false by default. `CinqueV3Manifest`, `CinqueV3Fault`, and
+`CinqueV3InitJournal` persist across modeld/manager restarts and reboots.
+`CinqueV3Active`, `CinqueV3UseFallback`, and `CinqueV3RecoveryPending` are runtime
+status cleared by manager at startup/road transitions. Installation creates a
+fault/review latch; successful offroad checks do
 not automatically clear it or enable the model.
 
 Before V3 starts, its selected legacy fallback is checksum-verified and warmed.
-Initialization is journaled with a persistent interruption latch; a crash or
+Initialization is journaled before fallback verification; a crash or
 reboot during loading cannot repeatedly retry the same artifact. V3 becomes
-active only after startup checks succeed. Legacy model selection is unchanged.
-While V3 is enabled or fault-latched, runner selection uses the selected small
-QCOM bundle even if Chestnut settings/cache normally choose another model.
+active only after startup checks succeed. Success removes only its own journal,
+never a recorded fault. When V3 is disabled, an old fault does not impose a
+fallback requirement: ordinary MVL Chestnut/QCOM/default selection works normally.
+During an explicit V3 request or live-session recovery, runner selection uses
+the verified small QCOM bundle. Reboot/manager restart clears runtime recovery
+and restores ordinary selection while retaining the fault and keeping V3 off.
+If prerequisites fail before fallback verification, use ordinary MVL instead
+or hand off to stock modeld; missing ordinary models are fatal, not predictions.
 Stored model selections are retained. Clearing a fault is an explicit validation
 action, not part of reboot or automatic model selection.
 
@@ -115,11 +125,12 @@ On initialization, inference, parsing, publication, or output-validation errors:
    processing a fresh frame. Use fallback-specific delays and metadata.
 4. If the fallback fails, stop modeld; do not resume V3 or invent predictions.
 
-V3 initialization has a 60-second watchdog; live inference has a 250-ms hard
+Each V3 initialization/recovery phase has a 60-second watchdog; live inference has a 250-ms hard
 deadline, including output synchronization/validation. The native GPU wait is
 also bounded to 3 seconds. A wedged call cannot safely be abandoned in a Python
-thread: the watchdog records the fault and exits modeld. The manager restarts
-with V3 latched off and loads the fallback. Existing missing-model/control
+thread: the watchdog records the fault and exits modeld. A bounded restart request
+lets manager restart modeld with V3 latched off and reverify fallback.
+A fault string alone does not request restarts. Existing missing-model/control
 health checks cover the interruption; seamless or uninterrupted assisted
 control is not claimed. Validate this transition on the target system.
 
@@ -154,16 +165,17 @@ While offroad, run:
 python tools/cinque_v3.py --rollback
 ```
 
-This persistently disables V3 and Experimental Mode while retaining the existing
-legacy model selection, artifact files, and Honda tuning. The next modeld startup
-verifies and warms that fallback. Inspect `CinqueV3Fault` and verify ordinary
-legacy-model operation before any later use. If the fallback is invalid, restore
+This persistently disables V3 and Experimental Mode, clears runtime V3 recovery,
+and retains the existing legacy model selection, artifact files, and Honda tuning.
+The next startup follows ordinary MVL selection. Inspect `CinqueV3Fault` and verify ordinary
+legacy-model operation before any later use. If the selected model is invalid, restore
 the previously working bundle/artifacts while offroad and rerun its checks;
 do not clear the V3 fault to bypass the failure.
 
-For a code rollback, first preserve/commit local work and verify the checkout is
-clean. In the isolated checkout, switch to the exact baseline and restore its
-submodules:
+For device recovery, use the complete known-working checkout procedure in
+[MVL first boot](MVL_FIRST_BOOT.md). The commands below are for an isolated
+development checkout, not a device updater target. First preserve/commit local
+work and verify the checkout is clean, then switch to the exact baseline:
 
 ```sh
 git switch --detach 73dca34cece29339f43835f1c9296a5809586f4b
@@ -197,6 +209,10 @@ DEV=CPU python -m unittest \
   openpilot.sunnypilot.modeld_v2.tests.test_stateful \
   openpilot.sunnypilot.modeld_v2.tests.test_cinque_adapter \
   openpilot.sunnypilot.modeld_v2.tests.test_compile_cinque \
+  openpilot.sunnypilot.modeld_v2.tests.test_startup \
+  openpilot.sunnypilot.modeld_v2.tests.test_boot_smoke \
+  openpilot.sunnypilot.modeld_v2.tests.test_modeld_loop \
+  openpilot.sunnypilot.modeld_v2.tests.test_update_switch \
   opendbc.car.honda.tests.test_honda \
   opendbc.car.honda.tests.test_lane_path \
   opendbc.car.honda.tests.test_nidec_speed_lead -v
@@ -211,8 +227,8 @@ installation, repeat installation, offroad gating, and Tinygrad upgrades.
 
 ## Local validation result
 
-The compatibility/recovery/compiler/adapter suite and existing Honda tests
-passed: **40 tests**. The existing legacy model compiler/parser suites passed
+The compatibility/recovery/compiler/adapter/startup/import/manager/updater suite
+and existing Honda tests passed: **88 tests**. The legacy compiler/parser suites passed
 **40 tests**, with **one skipped**. Ruff and `git diff --check` passed. The native
 Params prerequisite was rebuilt with the new keys. The original ONNX's digest,
 size, typed input/output contract, and all three state pairs were verified.

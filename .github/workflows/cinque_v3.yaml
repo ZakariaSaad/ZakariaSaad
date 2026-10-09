@@ -6,6 +6,8 @@ on:
       - 'openpilot/common/params_keys.h'
       - 'openpilot/sunnypilot/models/helpers.py'
       - 'tools/cinque_v3.py'
+      - 'tools/mvl_startup_check.py'
+      - 'openpilot/system/manager/process_config.py'
       - '.github/workflows/cinque_v3.yaml'
   push:
     branches: [mvl-cinque-v3]
@@ -26,8 +28,22 @@ jobs:
         with:
           submodules: recursive
       - uses: astral-sh/setup-uv@v7
+      - name: Preserve MVL controls, safety, launcher, updater, and dependency baseline
+        run: |
+          git fetch --no-tags --depth=1 origin 73dca34cece29339f43835f1c9296a5809586f4b
+          git diff --exit-code 73dca34cece29339f43835f1c9296a5809586f4b HEAD -- \
+            opendbc_repo panda .gitmodules pyproject.toml uv.lock \
+            launch_chffrplus.sh launch_env.sh openpilot/common/hardware \
+            openpilot/system/updated openpilot/system/manager/manager.py \
+            openpilot/selfdrive/controls openpilot/selfdrive/selfdrived \
+            openpilot/sunnypilot/selfdrive/controls
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang capnproto libcapnp-dev
       - run: uv sync --frozen --all-extras
+      - name: Lint compatibility and startup code
+        run: >-
+          .venv/bin/ruff check openpilot/sunnypilot/modeld_v2
+          openpilot/sunnypilot/models/helpers.py openpilot/system/manager/process_config.py
+          tools/cinque_v3.py tools/mvl_startup_check.py
       - name: Build native test prerequisites
         run: |
           source .venv/bin/activate
@@ -42,6 +58,10 @@ jobs:
           openpilot.sunnypilot.modeld_v2.tests.test_stateful
           openpilot.sunnypilot.modeld_v2.tests.test_cinque_adapter
           openpilot.sunnypilot.modeld_v2.tests.test_compile_cinque
+          openpilot.sunnypilot.modeld_v2.tests.test_startup
+          openpilot.sunnypilot.modeld_v2.tests.test_boot_smoke
+          openpilot.sunnypilot.modeld_v2.tests.test_modeld_loop
+          openpilot.sunnypilot.modeld_v2.tests.test_update_switch
           opendbc.car.honda.tests.test_honda
           opendbc.car.honda.tests.test_lane_path
           opendbc.car.honda.tests.test_nidec_speed_lead -v

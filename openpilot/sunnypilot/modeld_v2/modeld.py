@@ -10,7 +10,6 @@ from collections.abc import Callable
 import os
 os.environ['GMMU'] = '0'
 import numpy as np
-import threading
 import time
 from setproctitle import setproctitle
 from tinygrad.tensor import Tensor
@@ -45,7 +44,6 @@ from openpilot.selfdrive.modeld.compile_modeld import (
 from openpilot.sunnypilot.modeld_v2.fill_model_msg import fill_model_msg, fill_pose_msg, PublishState, get_curvature_from_output
 from openpilot.sunnypilot.modeld_v2.parse_model_outputs import Parser
 from openpilot.sunnypilot.modeld_v2.constants import ModelConstants, Plan
-from openpilot.sunnypilot.modeld_v2.meta_helper import load_meta_constants
 from openpilot.sunnypilot.modeld_v2.camera_offset_helper import CameraOffsetHelper
 from openpilot.sunnypilot.modeld_v2.compile_modeld import (derive_frame_skip, make_split_input_queues,
                                                            make_supercombo_input_queues, nv12_copy_size,
@@ -55,10 +53,9 @@ from openpilot.sunnypilot.modeld_v2.modeld_base import ModelStateBase
 from openpilot.sunnypilot.modeld_v2.helpers import load_oob
 from openpilot.sunnypilot.models.helpers import get_active_bundle
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
-from openpilot.sunnypilot.modeld_v2.cinque_guard import CinqueGuard
+from openpilot.sunnypilot.modeld_v2.startup import load_models
 
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld_tinygrad"
-BIG_MODEL_TIMEOUT = 60
 
 
 def _pkl_exists(path):
@@ -335,7 +332,7 @@ def main(demo=False):
     os.environ['HCQDEV_WAIT_TIMEOUT_MS'] = '3000'
 
   params = Params()
-  params.put_bool("ChestnutLoading", CHESTNUT)
+  params.put_bool("ChestnutLoading", CHESTNUT, block=True)
   params.remove("ChestnutActive")
 
   # visionipc clients
@@ -364,42 +361,8 @@ def main(demo=False):
   cloudlog.warning("loading model")
   st = time.monotonic()
 
-  model = None
-  v3_requested = params.get_bool('CinqueV3Enabled') or bool(params.get('CinqueV3Fault'))
-  v3_guard = None
-  if v3_requested:
-    from openpilot.sunnypilot.modeld_v2.cinque import CinqueModelState, load_fallback
-    v3_guard = CinqueGuard(params, lambda: load_fallback(vipc_client_main.width, vipc_client_main.height),
-                          lambda: CinqueModelState(vipc_client_main.width, vipc_client_main.height))
-    model = v3_guard.start()
-  if CHESTNUT and not v3_requested:
-    big_model = None
-    def load_big():
-      nonlocal big_model
-      try:
-        m = ModelState(cam_w=vipc_client_main.width, cam_h=vipc_client_main.height, chestnut=True)
-        m.warmup()
-        big_model = m
-      except Exception:
-        cloudlog.exception("chestnut load failed")
-    loader = threading.Thread(target=load_big, daemon=True)
-    loader.start()
-    loader.join(BIG_MODEL_TIMEOUT)
-    model = big_model
-    if model is None:
-      params.put_bool("ChestnutModelError", True)
-    params.put_bool("ChestnutActive", model is not None)
-    if model is not None:
-      params.remove("ChestnutModelError")
-
-  small_model = (v3_guard.fallback if v3_guard is not None else
-                 ModelState(cam_w=vipc_client_main.width, cam_h=vipc_client_main.height, chestnut=False) if model is None or CHESTNUT else None)
-  if model is None:
-    model = small_model
-  if v3_guard is not None:
-    params.put_bool('ChestnutActive', model.chestnut)
-  params.put_bool("ChestnutLoading", False)
-  assert model is not None
+  startup = load_models(params, vipc_client_main.width, vipc_client_main.height, CHESTNUT, ModelState)
+  model, small_model, v3_guard = startup.model, startup.small_model, startup.guard
   cloudlog.warning(f"models loaded in {time.monotonic() - st:.1f}s, modeld starting")
 
   # messaging
@@ -436,22 +399,25 @@ def main(demo=False):
   prev_action = log.ModelDataV2.Action()
 
   DH = DesireHelper()
-  meta_constants = model.meta_constants if v3_guard is not None else load_meta_constants()
+  meta_constants = model.meta_constants
   RELC = RoadEdgeLaneChangeController()
 
-  def recover_v3(error):
+  def reset_runtime_model(next_model):
     nonlocal model, prev_action, publish_state, DH, RELC, meta_constants, long_delay, frame_dropped_filter, run_count
-    cloudlog.error('V3 disabled, resetting to verified fallback: %s', error)
-    model = v3_guard.recover(error)
-    params.put_bool('ChestnutActive', False)
+    model = next_model
+    params.put_bool('ChestnutActive', model.chestnut, block=True)
     if chestnut_state is not None:
-      chestnut_state.big = False
+      chestnut_state.big = model.chestnut
     prev_action, publish_state = log.ModelDataV2.Action(), PublishState()
     DH, RELC = DesireHelper(), RoadEdgeLaneChangeController()
     meta_constants = model.meta_constants
     long_delay = CP.longitudinalActuatorDelay + model.LONG_SMOOTH_SECONDS
     frame_dropped_filter = FirstOrderFilter(0., 10., 1. / model.constants.MODEL_FREQ)
     run_count = 0
+
+  def recover_v3(error):
+    cloudlog.error('V3 disabled, resetting to verified fallback: %s', error)
+    reset_runtime_model(v3_guard.recover(error))
 
   while True:
     # Keep receiving frames until we are at least 1 frame ahead of previous extra frame
@@ -487,8 +453,8 @@ def main(demo=False):
       meta_extra = meta_main
 
     sm.update(0)
-    if v3_guard is not None and v3_guard.active and not params.get_bool('CinqueV3Enabled'):
-      recover_v3(RuntimeError('V3 disabled by operator'))
+    if v3_guard is not None and v3_guard.active and (not params.get_bool('CinqueV3Enabled') or params.get('CinqueV3Fault')):
+      recover_v3(RuntimeError(params.get('CinqueV3Fault') or 'V3 disabled by operator'))
       last_vipc_frame_id = meta_main.frame_id
       continue
     desire = DH.desire
@@ -557,18 +523,16 @@ def main(demo=False):
         last_vipc_frame_id = meta_main.frame_id
         continue
       if v3_guard is not None:
-        v3_guard.disable(f'Fallback inference failed: {error}')
+        v3_guard.disable(f'Fallback inference failed: {error}', use_fallback=False)
         raise
       if not params.get_bool("ChestnutActive"):
         raise
       cloudlog.exception("chestnut failed, falling back to small")
-      params.put_bool("ChestnutModelError", True)
-      params.put_bool("ChestnutActive", False)
-      assert small_model is not None
-      model = small_model
-      if chestnut_state is not None:
-        chestnut_state.big = False
-      run_count = 0
+      params.put_bool("ChestnutModelError", True, block=True)
+      params.put_bool("ChestnutActive", False, block=True)
+      if small_model is None:
+        raise RuntimeError('Chestnut failed and no small MVL model is available') from error
+      reset_runtime_model(small_model)
       model_output = None
     mt2 = time.perf_counter()
     model_execution_time = mt2 - mt1
@@ -603,10 +567,13 @@ def main(demo=False):
         drivingdata_send.drivingModelData.meta.laneChangeDirection = DH.lane_change_direction
 
         fill_pose_msg(posenet_send, model_output, meta_main.frame_id, vipc_dropped_frames, meta_main.timestamp_eof, live_calib_seen)
-        pm.send('modelV2', modelv2_send)
-        pm.send('drivingModelData', drivingdata_send)
-        pm.send('cameraOdometry', posenet_send)
-        pm.send('modelDataV2SP', mdv2sp_send)
+        outbound = [('modelV2', modelv2_send), ('drivingModelData', drivingdata_send),
+                    ('cameraOdometry', posenet_send), ('modelDataV2SP', mdv2sp_send)]
+        if v3_guard is not None and v3_guard.active:
+          # Validate serialization of every V3 message before publishing any.
+          outbound = [(service, message.to_bytes()) for service, message in outbound]
+        for service, message in outbound:
+          pm.send(service, message)
       except Exception as error:
         if v3_guard is None or not v3_guard.active:
           raise
