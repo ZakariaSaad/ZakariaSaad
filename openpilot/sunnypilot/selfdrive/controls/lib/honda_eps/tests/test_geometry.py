@@ -56,9 +56,10 @@ def test_geometry_rejects_nonfinite_inputs(car_factory, value, index):
   CP, _ = car_factory()
   inputs = [10., .0, .001]
   inputs[index] = value
+  speed, roll, curvature = inputs
   for mode in ("mvl", "james"):
     with pytest.raises(ValueError):
-      desired_angle_no_offset(VehicleModel(CP), *inputs, mode)
+      desired_angle_no_offset(VehicleModel(CP), speed, roll, curvature, mode)
 
 
 def test_geometry_rejects_unknown_mode_and_invalid_dimensions(car_factory):

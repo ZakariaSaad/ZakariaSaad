@@ -120,18 +120,20 @@ def run_comparison(james_root, nrdr_root):
       nrdr_commands.append(-4096. * nrdr_output)
       if speed == 12. and frame in (0, 50, 100, 500, 799, 825, 900, 999, 1400, 1999):
         golden.append({"frame": frame, "input": args, "canonical_output": src})
-    ours, reference, nrdr_commands = map(np.asarray, (ours, reference, nrdr_commands))
-    maximum_error = float(np.max(np.abs(ours - reference)))
+    ours_array = np.asarray(ours)
+    reference_array = np.asarray(reference)
+    nrdr_array = np.asarray(nrdr_commands)
+    maximum_error = float(np.max(np.abs(ours_array - reference_array)))
     if maximum_error > 1e-8:
       raise AssertionError(f"physical command parity failed at {speed} m/s: {maximum_error}")
     results.append({
-      "speed_m_s": speed, "frames": len(ours), "port_vs_james_max_abs_e4": maximum_error,
-      "port_vs_james_rms_e4": float(np.sqrt(np.mean((ours - reference) ** 2))),
+      "speed_m_s": speed, "frames": len(ours_array), "port_vs_james_max_abs_e4": maximum_error,
+      "port_vs_james_rms_e4": float(np.sqrt(np.mean((ours_array - reference_array) ** 2))),
       # MVL transport uses int interpolation. This checks pre-rate-limit identity mapping only.
-      "port_vs_james_integer_e4_mismatches": int(np.count_nonzero(ours.astype(int) != reference.astype(int))),
-      "nrdr_vs_james_max_abs_e4": float(np.max(np.abs(nrdr_commands - reference))),
-      "nrdr_vs_james_rms_e4": float(np.sqrt(np.mean((nrdr_commands - reference) ** 2))),
-      "max_abs_source_e4": float(np.max(np.abs(reference))),
+      "port_vs_james_integer_e4_mismatches": int(np.count_nonzero(ours_array.astype(int) != reference_array.astype(int))),
+      "nrdr_vs_james_max_abs_e4": float(np.max(np.abs(nrdr_array - reference_array))),
+      "nrdr_vs_james_rms_e4": float(np.sqrt(np.mean((nrdr_array - reference_array) ** 2))),
+      "max_abs_source_e4": float(np.max(np.abs(reference_array))),
     })
   src_rack = rack.HondaEpsRackMap(2.7, (vgr.INSIGHT_TXM_A040_VGR_LINEAR_BP, vgr.INSIGHT_TXM_A040_VGR_ANGLE_BP), rack.INSIGHT_TXM_A040_RACK)
   port_rack = geometry.InsightRackMap(2.7)

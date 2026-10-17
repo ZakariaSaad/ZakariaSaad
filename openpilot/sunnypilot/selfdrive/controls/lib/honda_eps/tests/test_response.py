@@ -24,11 +24,13 @@ def test_unknown_or_unnamed_responses_rejected(name, car_factory):
   with pytest.raises(ValueError):
     resolve_response_profile(name)
   with pytest.raises(ValueError):
-    LatControlFirmware(*car_factory(), None, .01, response_profile=name)
+    cp, sp = car_factory()
+    LatControlFirmware(cp, sp, None, .01, response_profile=name)
 
 
 def test_direct_wrapper_keeps_source_response_default(car_factory):
-  controller = LatControlFirmware(*car_factory(), None, .01)
+  cp, sp = car_factory()
+  controller = LatControlFirmware(cp, sp, None, .01)
   assert controller.response_profile is SOURCE_RESPONSE
   assert controller.core.output_lpf_tau == OUTPUT_LPF_TAU == (.07, .05, .01)
   assert controller.delivery.fade_down_s == 0.

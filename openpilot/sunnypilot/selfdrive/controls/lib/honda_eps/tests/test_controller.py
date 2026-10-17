@@ -70,7 +70,8 @@ def test_unsupported_initialization_rejected(change):
 
 @pytest.mark.parametrize("mode", ("mvl", "james"))
 def test_disengagement_warms_history_and_reset_retains_last_target(mode):
-  control = LatControlFirmware(*car(), None, .01, geometry_mode=mode)
+  cp, sp = car()
+  control = LatControlFirmware(cp, sp, None, .01, geometry_mode=mode)
   for frame in range(50):
     output, _, logged = tick(control, active=False, curvature=-.002 * frame, speed=5.)
     assert output == 0. and not logged.active
@@ -86,7 +87,8 @@ def test_disengagement_warms_history_and_reset_retains_last_target(mode):
 
 
 def test_complete_output_and_logged_terms_convert_once_to_mvl_normalization():
-  control = LatControlFirmware(*car(), None, .01)
+  cp, sp = car()
+  control = LatControlFirmware(cp, sp, None, .01)
   for _ in range(200):
     output, _, logged = tick(control)
   assert output * 4096. == pytest.approx(control.core.output * 3840.)
@@ -97,7 +99,8 @@ def test_complete_output_and_logged_terms_convert_once_to_mvl_normalization():
 
 
 def test_output_physical_saturation_never_exceeds_james_source_rail():
-  control = LatControlFirmware(*car(), None, .01)
+  cp, sp = car()
+  control = LatControlFirmware(cp, sp, None, .01)
   for _ in range(200):
     output, _, logged = tick(control, curvature=-1000., angle=-500.)
     assert abs(output * 4096.) <= 3840.
@@ -106,7 +109,8 @@ def test_output_physical_saturation_never_exceeds_james_source_rail():
 
 
 def test_active_rate_limit_and_no_second_output_filter():
-  control = LatControlFirmware(*car(), None, .01)
+  cp, sp = car()
+  control = LatControlFirmware(cp, sp, None, .01)
   output, angle, _ = tick(control, curvature=-100., speed=30.)
   assert angle == pytest.approx(3.)
   assert output == pytest.approx(control.core.output * .9375 * control.delivery.ramp)
@@ -116,7 +120,8 @@ def test_active_rate_limit_and_no_second_output_filter():
 @pytest.mark.parametrize("field", ("curvature", "speed", "angle", "torque"))
 @pytest.mark.parametrize("value", (np.nan, np.inf, -np.inf))
 def test_nonfinite_input_clears_every_state_then_fails_closed(field, value):
-  control = LatControlFirmware(*car(), None, .01)
+  cp, sp = car()
+  control = LatControlFirmware(cp, sp, None, .01)
   for _ in range(25):
     tick(control)
   with pytest.raises(ValueError):
