@@ -1,11 +1,12 @@
 # Validation record
 
 Validation ran on Linux x86_64 with Python 3.12.14, pycapnp 2.1.0, NumPy 2.5.4,
-pytest 9.1.1, Ruff 0.17.1, ty 0.0.89 and SCons 4.10.1. Existing pinned opendbc,
+pytest 9.1.1, Ruff 0.17.1 and SCons 4.10.1. Type checks used both the CI-pinned
+ty 0.0.73 and host ty 0.0.89. Existing pinned opendbc,
 msgq, rednose, Panda, tinygrad, teleoprtc and neural-network-data submodules were
 initialized for testing without changing any gitlink or dependency lockfile.
 Runtime import checks used the pinned tinygrad source, not a substitute model
-engine. No inference, device deployment or EPS flashing was performed.
+engine. Local checks did not run inference, deploy to a device or flash EPS.
 
 ## Executed checks
 
@@ -19,6 +20,8 @@ engine. No inference, device deployment or EPS flashing was performed.
 | Native Cap'n Proto C++ generation and Params build | Passed |
 | PID diagnostics ordinals and native message round trip | Passed; old ordinals 0–9 retained, new fields 10–16 |
 | Schema compatibility against the untouched MVL base | Passed using the repository's compatibility checker; 286 reachable structs |
+| GitHub CI release and macOS builds | Passed at `4294dd2`; release checks and tests passed |
+| GitHub CI upstream schema compatibility | Passed at `4294dd2` |
 | Python compilation and whitespace checks | Passed |
 | Read-only uploaded RWD verification | Passed: exact RWD/payload hashes, checksums and all checked tables |
 | Pinned-source deterministic comparison | 10,000 core frames; zero physical-E4 error before delivery for the source preset |
@@ -91,12 +94,16 @@ vehicle logs are not committed.
 
 ## Checks with limitations
 
-Repository-wide `ty check openpilot` reports two existing errors and five existing
-warnings in untouched files. The errors are a `str` appended to a `list[Path]` in
-`selfdrive/ui/sunnypilot/layouts/settings/osm.py:69` and a mutable `should_run`
-override in `system/manager/process.py:193`. They are unchanged from the target
-base and were not fixed as unrelated work. The feature and edited integration
-files pass their scoped type checks.
+The new package passes CI-pinned ty 0.0.73 with warnings treated as errors.
+Repository-wide local checks with that version report eight diagnostics, all
+reproduced with the same environment in a separate checkout of the untouched
+target base. They concern the existing optional radar-interface assignment,
+CasADi model typing, model-compiler monkeypatches, Toyota migration keys and
+model metadata typing. Host ty 0.0.89 instead reports two existing errors and
+five warnings, including the UI OSM path list and manager `should_run` override.
+These local dependency/type-checker differences are not a claim about remote CI.
+Unrelated baseline issues were not changed. The pinned-checker compatibility
+fix preserves the deterministic source comparison output exactly.
 
 A genuine `SKIP_TINYGRAD_COMPILE=1 DEV=CPU scons --minimal -j2` attempt compiled
 common/msgq components, the existing longitudinal acados solver and locationd
@@ -107,10 +114,13 @@ FileNotFoundError: [Errno 2] No such file or directory: 'clang'
 scons: *** [openpilot/selfdrive/modeld/models/dm_warp_1344x760_tinygrad.pkl] Error 1
 ```
 
-The host has no Clang executable. This is a partial host build, not a successful
-complete build. Neural-model compilation was excluded; no large model assets
-were downloaded. A complete device/release build, actual AI/Chestnut inference,
-USB cameras, Panda hardware and on-vehicle timing remain untested here.
+The host has no Clang executable. This local attempt is a partial build.
+Neural-model compilation was excluded locally; no large model assets were
+downloaded into this workspace. GitHub CI subsequently passed its complete
+release build/checks/tests and macOS build at `4294dd2`. The later pinned-type
+compatibility change affects comparison helpers and test setup only.
+Actual AI/Chestnut inference on a device, USB cameras, Panda hardware and
+on-vehicle timing remain untested here.
 
 ## What the evidence establishes
 
