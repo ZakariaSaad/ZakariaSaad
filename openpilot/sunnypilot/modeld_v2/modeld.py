@@ -55,6 +55,8 @@ from openpilot.sunnypilot.modeld_v2.modeld_base import ModelStateBase
 from openpilot.sunnypilot.modeld_v2.helpers import load_oob
 from openpilot.sunnypilot.models.helpers import get_active_bundle
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import drive_config_for_model
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.timing import prediction_delay
 
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld_tinygrad"
 BIG_MODEL_TIMEOUT = 60
@@ -414,6 +416,7 @@ def main(demo=False):
   else:
     CP = messaging.log_from_bytes(params.get("CarParams", block=True), car.CarParams)
   cloudlog.info("modeld got CarParams: %s", CP.brand)
+  firmware_config = None if demo else drive_config_for_model(params, CP)
 
   # TODO Move smooth seconds to action function
   long_delay = CP.longitudinalActuatorDelay + model.LONG_SMOOTH_SECONDS
@@ -462,9 +465,12 @@ def main(demo=False):
     frame_id = sm["narrowRoadCameraState"].frameId
     v_ego = max(sm["carState"].vEgo, 0.)
     if sm.frame % 60 == 0:
-      model.lat_delay = get_lat_delay(params, sm["lateralDelay"].lateralDelay)
+      if firmware_config is None:
+        model.lat_delay = get_lat_delay(params, sm["lateralDelay"].lateralDelay)
       model.PLANPLUS_CONTROL = params.get("PlanplusControl", return_default=True)
       camera_offset_helper.set_offset(params.get("CameraOffset", return_default=True))
+    if firmware_config is not None:
+      model.lat_delay = prediction_delay(v_ego)
     lat_delay = model.lat_delay + model.LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)

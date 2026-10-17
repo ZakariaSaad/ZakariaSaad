@@ -1,0 +1,203 @@
+{
+  "kind": "deterministic injected-input source comparison; no route replay or road validation",
+  "james_commit": "bfcbbf24bc857f9dbf93af52b7bb72852f4540bb",
+  "james_calibration_commit": "f3a6a124bdad3151f875f4f29c8d7396c7617702",
+  "source_file_sha256": {
+    "james/selfdrive/controls/lib/honda_eps_rack_map.py": "3bb4e341afd7587ba49e67fc700f446238bd391be104f8f5c7948117871f025e",
+    "james/selfdrive/controls/lib/honda_eps_firmware_ff.py": "9b425853c5c9d5b0b47845e38e71031b838204a14ac7b8d83847ac60522577a1",
+    "james/common/pid.py": "b31a9876368eb3c00b7f63a510046c4a3b84b705dbdf7073a95da390f5b15d0a",
+    "james/common/filter_simple.py": "881243e472986ff0ba65c4044fa192ab5dd5e22c1d9fac3067ef953262a5fe3d",
+    "james/opendbc_repo/opendbc/car/honda/steer_ratio.py": "a1f9b46296dcfaaefdb69a8b12381a5db82e789fffaedac49599057bc6fdc5d1",
+    "nrdr/openpilot/nrdr/features/lateral/vfn_eps_core.py": "b26ecdfe1a32b2405d7e7b948430a471d1e1ff51dba5c9df5e3bc1eda123fb2b",
+    "nrdr/openpilot/common/pid.py": "87cf8669f4e9ba3ff22c6937393d082de6fa834e4889094ff1c67a0a8738402a",
+    "nrdr/openpilot/common/filter_simple.py": "5b242cb50a14b0f479eb75b144f38f699f9d6b19969cdc0e0b1a34e6f6532d1d",
+    "nrdr/openpilot/nrdr/features/lateral/integral_pid.py": "90a5e383f5b5272b76b149049f3298fda24d4c44d6ac2996021fc9a079042330"
+  },
+  "canonical_to_mvl_scale": 0.9375,
+  "results": [
+    {
+      "speed_m_s": 3.0,
+      "frames": 2000,
+      "port_vs_james_max_abs_e4": 0.0,
+      "port_vs_james_rms_e4": 0.0,
+      "port_vs_james_integer_e4_mismatches": 0,
+      "nrdr_vs_james_max_abs_e4": 255.9994845566912,
+      "nrdr_vs_james_rms_e4": 83.19329497516398,
+      "max_abs_source_e4": 3839.9951137254607
+    },
+    {
+      "speed_m_s": 8.0,
+      "frames": 2000,
+      "port_vs_james_max_abs_e4": 0.0,
+      "port_vs_james_rms_e4": 0.0,
+      "port_vs_james_integer_e4_mismatches": 0,
+      "nrdr_vs_james_max_abs_e4": 255.99951726236532,
+      "nrdr_vs_james_rms_e4": 73.0478033807405,
+      "max_abs_source_e4": 3839.995953611774
+    },
+    {
+      "speed_m_s": 12.0,
+      "frames": 2000,
+      "port_vs_james_max_abs_e4": 0.0,
+      "port_vs_james_rms_e4": 0.0,
+      "port_vs_james_integer_e4_mismatches": 0,
+      "nrdr_vs_james_max_abs_e4": 255.99999726303304,
+      "nrdr_vs_james_rms_e4": 60.229976062222676,
+      "max_abs_source_e4": 3839.9999702209816
+    },
+    {
+      "speed_m_s": 22.0,
+      "frames": 2000,
+      "port_vs_james_max_abs_e4": 0.0,
+      "port_vs_james_rms_e4": 0.0,
+      "port_vs_james_integer_e4_mismatches": 0,
+      "nrdr_vs_james_max_abs_e4": 255.99999857725334,
+      "nrdr_vs_james_rms_e4": 97.80030046280584,
+      "max_abs_source_e4": 3839.9999699840982
+    },
+    {
+      "speed_m_s": 30.0,
+      "frames": 2000,
+      "port_vs_james_max_abs_e4": 0.0,
+      "port_vs_james_rms_e4": 0.0,
+      "port_vs_james_integer_e4_mismatches": 0,
+      "nrdr_vs_james_max_abs_e4": 256.0,
+      "nrdr_vs_james_rms_e4": 111.34106568890391,
+      "max_abs_source_e4": 3840.0
+    }
+  ],
+  "geometry_max_abs_angle_deg": 0.0,
+  "james_golden_trace": [
+    {
+      "frame": 0,
+      "input": [
+        0.0,
+        0.2,
+        -1.4394471036974978,
+        12.0,
+        0.0,
+        false,
+        false
+      ],
+      "canonical_output": 0.016693832474577824
+    },
+    {
+      "frame": 50,
+      "input": [
+        9.763314415996122,
+        0.2,
+        7.48023863994923,
+        12.0,
+        0.002495835416170704,
+        false,
+        false
+      ],
+      "canonical_output": 0.3227565918605221
+    },
+    {
+      "frame": 100,
+      "input": [
+        15.500887789856352,
+        0.2,
+        15.731736943919092,
+        12.0,
+        0.004966733269876531,
+        false,
+        false
+      ],
+      "canonical_output": 0.17636980756334725
+    },
+    {
+      "frame": 500,
+      "input": [
+        4.035072616649357,
+        0.2,
+        5.653765902563958,
+        12.0,
+        0.021036774620197415,
+        false,
+        false
+      ],
+      "canonical_output": -0.19958028478364773
+    },
+    {
+      "frame": 799,
+      "input": [
+        -28.733877600327343,
+        0.2,
+        -29.983056085625634,
+        12.0,
+        0.024990750072515885,
+        false,
+        false
+      ],
+      "canonical_output": -0.031058524884660575
+    },
+    {
+      "frame": 825,
+      "input": [
+        -29.75403676288963,
+        0.2,
+        -29.462328696888004,
+        12.0,
+        0.024921625711347973,
+        true,
+        true
+      ],
+      "canonical_output": 0.008957349512730035
+    },
+    {
+      "frame": 900,
+      "input": [
+        -21.906579339878455,
+        0.2,
+        -24.069839835303178,
+        12.0,
+        0.02434619077195488,
+        false,
+        true
+      ],
+      "canonical_output": 0.1163748086388168
+    },
+    {
+      "frame": 999,
+      "input": [
+        -9.020556407570954,
+        0.2,
+        -9.924966294959953,
+        12.0,
+        0.022753197533741654,
+        false,
+        true
+      ],
+      "canonical_output": 0.10983836427692488
+    },
+    {
+      "frame": 1400,
+      "input": [
+        26.798803264985246,
+        0.2,
+        26.355926523808773,
+        12.0,
+        0.008374703753897617,
+        false,
+        false
+      ],
+      "canonical_output": 0.866351484160702
+    },
+    {
+      "frame": 1999,
+      "input": [
+        -17.072036787912932,
+        0.2,
+        -17.440102670070498,
+        12.0,
+        -0.018887342383331004,
+        false,
+        false
+      ],
+      "canonical_output": 0.03982932607505957
+    }
+  ],
+  "limits": "pre-carcontroller E4 identity mapping; excludes CAN delivery, rate limits, Panda and vehicle dynamics"
+}

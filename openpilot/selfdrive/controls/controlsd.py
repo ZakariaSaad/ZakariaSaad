@@ -23,6 +23,9 @@ from openpilot.selfdrive.modeld.modeld import LAT_SMOOTH_SECONDS
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
 
 from openpilot.sunnypilot.selfdrive.controls.controlsd_ext import ControlsExt
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.latcontrol_fw import LatControlFirmware
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.geometry import curvature_from_angle
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.timing import prediction_delay
 
 State = log.SelfdriveState.OpenpilotState
 LaneChangeState = log.LaneChangeState
@@ -89,6 +92,11 @@ class Controls(ControlsExt):
 
     steer_angle_without_offset = math.radians(CS.steeringAngleDeg - lp.angleOffsetDeg)
     self.curvature = -self.VM.calc_curvature(steer_angle_without_offset, CS.vEgo, lp.roll)
+    if isinstance(self.LaC, LatControlFirmware) and self.LaC.geometry_mode == "james":
+      # Keep engagement/current-curvature feedback in the selected local rack
+      # geometry, without changing the shared VehicleModel or live parameters.
+      self.curvature = curvature_from_angle(self.VM, CS.vEgo, lp.roll,
+                                            CS.steeringAngleDeg - lp.angleOffsetDeg, "james")
 
     # Update Torque Params
     if self.CP.lateralTuning.which() == 'torque':
@@ -157,11 +165,17 @@ class Controls(ControlsExt):
 
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll)
     lat_delay = self.sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS
+    if isinstance(self.LaC, LatControlFirmware):
+      lat_delay = prediction_delay(CS.vEgo) + LAT_SMOOTH_SECONDS
 
     actuators.curvature = self.desired_curvature
     steer, lateral_output, lac_log = self.LaC.update(CC.latActive, CS, self.VM, lp,
                                                      self.steer_limited_by_safety, self.desired_curvature,
                                                      self.calibrated_pose, curvature_limited, lat_delay)
+    if isinstance(self.LaC, LatControlFirmware) and self.LaC.driver_override_active:
+      # The firmware controller retains its override history while the driver
+      # holds the wheel, but the transmitted LKAS request must be off.
+      CC.latActive = False
     actuators.torque = float(steer)
     if self.CP.steerControlType == car.CarParams.SteerControlType.curvature:
       actuators.curvature = float(lateral_output)
@@ -213,7 +227,8 @@ class Controls(ControlsExt):
         self.steer_limited_by_safety = abs(CC.actuators.steeringAngleDeg - CO.actuatorsOutput.steeringAngleDeg) > \
                                               STEER_ANGLE_SATURATION_THRESHOLD
       else:
-        self.steer_limited_by_safety = abs(CC.actuators.torque - CO.actuatorsOutput.torque) > 1e-2
+        limit_threshold = 1e-2 * self.LaC.output_scale if isinstance(self.LaC, LatControlFirmware) else 1e-2
+        self.steer_limited_by_safety = abs(CC.actuators.torque - CO.actuatorsOutput.torque) > limit_threshold
 
     # TODO: both controlsState and carControl valids should be set by
     #       sm.all_checks(), but this creates a circular dependency

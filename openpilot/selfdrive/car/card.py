@@ -24,6 +24,7 @@ from openpilot.selfdrive.car.helpers import convert_carControlSP, convert_to_cap
 
 from openpilot.sunnypilot.mads.helpers import set_alternative_experience, set_car_specific_params
 from openpilot.sunnypilot.selfdrive.car import interfaces as sunnypilot_interfaces
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import prepare_drive_config
 
 REPLAY = "REPLAY" in os.environ
 
@@ -121,6 +122,10 @@ class Car:
     else:
       self.CI, self.CP, self.CP_SP = CI, CI.CP, CI.CP_SP
       self.RI = RI
+
+    # Also publish an explicit latch for injected interfaces/replay. This is a
+    # no-op for the normal setup_interfaces path and precedes both CP records.
+    prepare_drive_config(self.params, self.CP, self.CP_SP)
 
     self.CP.alternativeExperience = 0
     # mads

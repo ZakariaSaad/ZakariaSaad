@@ -1,0 +1,1675 @@
+{
+  "route": "f133facb1b9b7420|00000032--212d34d24d",
+  "kind": "recorded wheel-angle input core replay",
+  "metadata": {
+    "git_commit": "f3a6a124bdad3151f875f4f29c8d7396c7617702",
+    "git_branch": "ns-bosch-radar-testing",
+    "dirty": false,
+    "recorded_settings": {
+      "HondaEpsAngleRateLimit": "300",
+      "HondaEpsController": "1",
+      "HondaEpsFirmwareVgr": "0",
+      "HondaOverrideFadeDownSecs": "0.1",
+      "HondaOverrideFadeUpSecs": "1.5",
+      "HondaOverrideTorqueScale": "0",
+      "HondaTorqueOutputLowPassFilter": "1",
+      "HondaTorqueOutputLpfTauHighway": "0.1",
+      "HondaTorqueOutputLpfTauLowSpeed": "0.1",
+      "HondaTorqueOutputLpfTauStandard": "0.1",
+      "NrdrDriverOverrideThreshold": "2400",
+      "NrdrLearnAngleOffset": "1",
+      "NrdrLearnSteerRatio": "1",
+      "NrdrLearnStiffness": "1",
+      "SteerDelay": "0.30000000149011613",
+      "UseAutoSteerDelay": "1"
+    },
+    "car": {
+      "fingerprint": "HONDA_INSIGHT",
+      "flags": 141316,
+      "eps_identifiers": [
+        "39990-TXM,A040"
+      ],
+      "pid": {
+        "kpBP": [
+          0.0,
+          11.175000190734863,
+          11.175999641418457,
+          22.351999282836914
+        ],
+        "kpV": [
+          0.017999999225139618,
+          0.024000000208616257,
+          0.04800000041723251,
+          0.05999999865889549
+        ],
+        "kiBP": [
+          0.0,
+          11.175000190734863,
+          11.175999641418457,
+          22.351999282836914
+        ],
+        "kiV": [
+          0.006000000052154064,
+          0.00800000037997961,
+          0.01600000075995922,
+          0.019999999552965164
+        ],
+        "kf": 3.5999998999614036e-06
+      },
+      "torque_map": {
+        "torqueBP": [
+          0,
+          3840
+        ],
+        "torqueV": [
+          0,
+          3840
+        ]
+      },
+      "model": {
+        "mass": 1490.8792724609375,
+        "rotationalInertia": 2549.38330078125,
+        "wheelbase": 2.700000047683716,
+        "centerToFront": 1.0529999732971191,
+        "steerRatioRear": 0.0,
+        "tireStiffnessFront": 163353.3125,
+        "tireStiffnessRear": 165096.765625,
+        "steerRatio": 15.0
+      }
+    }
+  },
+  "reference_source_file_sha256": {
+    "james/selfdrive/controls/lib/honda_eps_rack_map.py": "3bb4e341afd7587ba49e67fc700f446238bd391be104f8f5c7948117871f025e",
+    "james/selfdrive/controls/lib/honda_eps_firmware_ff.py": "3ce23082671e3c4b527138bc1957e0a202d603c776825b9c650369d4197fb054",
+    "james/common/pid.py": "b31a9876368eb3c00b7f63a510046c4a3b84b705dbdf7073a95da390f5b15d0a",
+    "james/common/filter_simple.py": "881243e472986ff0ba65c4044fa192ab5dd5e22c1d9fac3067ef953262a5fe3d",
+    "james/opendbc_repo/opendbc/car/honda/steer_ratio.py": "a1f9b46296dcfaaefdb69a8b12381a5db82e789fffaedac49599057bc6fdc5d1",
+    "nrdr/openpilot/nrdr/features/lateral/vfn_eps_core.py": "b26ecdfe1a32b2405d7e7b948430a471d1e1ff51dba5c9df5e3bc1eda123fb2b",
+    "nrdr/openpilot/common/pid.py": "87cf8669f4e9ba3ff22c6937393d082de6fa834e4889094ff1c67a0a8738402a",
+    "nrdr/openpilot/common/filter_simple.py": "5b242cb50a14b0f479eb75b144f38f699f9d6b19969cdc0e0b1a34e6f6532d1d",
+    "nrdr/openpilot/nrdr/features/lateral/integral_pid.py": "90a5e383f5b5272b76b149049f3298fda24d4c44d6ac2996021fc9a079042330"
+  },
+  "observed_eps_calibrations": [
+    "insight_txm_a040"
+  ],
+  "observed_eps_command_delay_range_s": [
+    0.0,
+    0.15000000596046448
+  ],
+  "observed_eps_logged_model_delay_range_s": [
+    0.18000029027462006,
+    0.30690282583236694
+  ],
+  "full_rate_rlog_segments": [
+    5,
+    16,
+    19,
+    56
+  ],
+  "qlog_segments": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57
+  ],
+  "qlog_summary": [
+    {
+      "segment": 0,
+      "sha256": "dee42eddf7facc9dcceb0b7e00318d4624b3a5ce8d12c613429ac5755a7a5d23",
+      "duration_seconds": 60.117491094,
+      "message_counts": {
+        "controlsState": 599,
+        "carState": 598
+      },
+      "active_controls_samples": 0,
+      "raw_steering_pressed_car_state_samples": 208,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {},
+      "speed_min_m_s": -0.020469415932893753,
+      "speed_max_m_s": 1.2637020349502563
+    },
+    {
+      "segment": 1,
+      "sha256": "89f0d8662fd380f57c071018a1cf6605f0f4978e14ec4b3f804c0c2e45902cc2",
+      "duration_seconds": 59.97925869100001,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 598
+      },
+      "active_controls_samples": 0,
+      "raw_steering_pressed_car_state_samples": 64,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {},
+      "speed_min_m_s": -0.02560974285006523,
+      "speed_max_m_s": 11.250316619873047
+    },
+    {
+      "segment": 2,
+      "sha256": "b121e73095b481a993c9c5db78d883ef9311dbe6a773a54454cf1502082e858f",
+      "duration_seconds": 59.88477802800003,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 597
+      },
+      "active_controls_samples": 568,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 459,
+        "low_below_25mph": 109
+      },
+      "speed_min_m_s": 5.1596245765686035,
+      "speed_max_m_s": 18.533761978149414
+    },
+    {
+      "segment": 3,
+      "sha256": "4b3c3cddbd6c48ae73789e768fad2834f58430f646b115bdc0a5abef4833d363",
+      "duration_seconds": 59.974989799000014,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 598
+      },
+      "active_controls_samples": 598,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 598
+      },
+      "speed_min_m_s": 14.533014297485352,
+      "speed_max_m_s": 20.861164093017578
+    },
+    {
+      "segment": 4,
+      "sha256": "a7e4337c2f4f8e106f23b5a15b0f283c41da8cfe8b37cabcb171703445e1f4d4",
+      "duration_seconds": 59.960894302999975,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 598
+      },
+      "active_controls_samples": 598,
+      "raw_steering_pressed_car_state_samples": 1,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 450,
+        "low_below_25mph": 148
+      },
+      "speed_min_m_s": 1.7192925214767456,
+      "speed_max_m_s": 20.653629302978516
+    },
+    {
+      "segment": 5,
+      "sha256": "159bf7ca1b8e2591ec84795c18c1f17ccc0a914457e5db79e66f2e52259d397e",
+      "duration_seconds": 60.042120042999954,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 598
+      },
+      "active_controls_samples": 498,
+      "raw_steering_pressed_car_state_samples": 21,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 36,
+        "medium_25_to_50mph": 462
+      },
+      "speed_min_m_s": -0.05002036690711975,
+      "speed_max_m_s": 20.682052612304688
+    },
+    {
+      "segment": 6,
+      "sha256": "a377d0dd223ab6bd11905ae720a4c9a441a212e177753d90c95a0dd2ae8b351c",
+      "duration_seconds": 60.03456526700006,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 598
+      },
+      "active_controls_samples": 598,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 598
+      },
+      "speed_min_m_s": 11.416548728942871,
+      "speed_max_m_s": 20.87726402282715
+    },
+    {
+      "segment": 7,
+      "sha256": "7d318ce61bf80ab471b1ba97159a076883dce8514ea7a072f6377b9beba5322d",
+      "duration_seconds": 59.96647861600002,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 597
+      },
+      "speed_min_m_s": 16.87946319580078,
+      "speed_max_m_s": 20.85488510131836
+    },
+    {
+      "segment": 8,
+      "sha256": "eeafe01739ecf8f80ad8ad9918224667fe6e514ef311c8dd4167e675dabc3804",
+      "duration_seconds": 59.87992193899993,
+      "message_counts": {
+        "controlsState": 597,
+        "carState": 597
+      },
+      "active_controls_samples": 596,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 92,
+        "medium_25_to_50mph": 504
+      },
+      "speed_min_m_s": -0.031150629743933678,
+      "speed_max_m_s": 20.167631149291992
+    },
+    {
+      "segment": 9,
+      "sha256": "083cbaab9c5b537f6bfda490192ff596e9c3d059d8ed058b0159735627eed51a",
+      "duration_seconds": 59.95144975400001,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 598
+      },
+      "active_controls_samples": 598,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 541,
+        "medium_25_to_50mph": 57
+      },
+      "speed_min_m_s": -2.868453358954165e-14,
+      "speed_max_m_s": 17.23088264465332
+    },
+    {
+      "segment": 10,
+      "sha256": "a79d535796157269947e5acb614c73f99e67f5724072fbdf4b4339d1863b94d2",
+      "duration_seconds": 59.966086018000055,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 597
+      },
+      "speed_min_m_s": 16.035511016845703,
+      "speed_max_m_s": 18.426544189453125
+    },
+    {
+      "segment": 11,
+      "sha256": "57c47d7c7b68cac3bb618f8386a7e728173e127f0dad3fc67f46f7e3c4cb01e6",
+      "duration_seconds": 59.96354540700008,
+      "message_counts": {
+        "controlsState": 598,
+        "carState": 597
+      },
+      "active_controls_samples": 598,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 269,
+        "medium_25_to_50mph": 329
+      },
+      "speed_min_m_s": -0.007224721368402243,
+      "speed_max_m_s": 17.860464096069336
+    },
+    {
+      "segment": 12,
+      "sha256": "ada1982597f5228f5c9028546333f86e354a1c7a47c8825f632c70d96e173b2b",
+      "duration_seconds": 59.91003222799998,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 500,
+        "low_below_25mph": 97
+      },
+      "speed_min_m_s": 8.66740608215332,
+      "speed_max_m_s": 18.570266723632812
+    },
+    {
+      "segment": 13,
+      "sha256": "f9691970c38fafcc8ecd5c2d214f96bcc2c8e2e07505dc81f1051501050b68df",
+      "duration_seconds": 59.96378930700007,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 402,
+        "low_below_25mph": 195
+      },
+      "speed_min_m_s": 5.552093505859375,
+      "speed_max_m_s": 18.463199615478516
+    },
+    {
+      "segment": 14,
+      "sha256": "3fcf517acf866a572ed0df63e0c1ad126bd1eb7a4fb15ca5df401361c24d1c85",
+      "duration_seconds": 59.95900785499998,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 598
+      },
+      "active_controls_samples": 598,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 121,
+        "medium_25_to_50mph": 477
+      },
+      "speed_min_m_s": 2.1524863243103027,
+      "speed_max_m_s": 18.34537124633789
+    },
+    {
+      "segment": 15,
+      "sha256": "c23cc720cc08cb779bf2040b59589dd1a74314eb4c8702018c4b531909c9abff",
+      "duration_seconds": 59.955574636000165,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 597
+      },
+      "active_controls_samples": 595,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 221,
+        "low_below_25mph": 374
+      },
+      "speed_min_m_s": -0.011104107834398746,
+      "speed_max_m_s": 17.706132888793945
+    },
+    {
+      "segment": 16,
+      "sha256": "3ba8a7585a2e62384aca15e09f10ce4f5ddf028bd9f89a4ffedadd4a3e58e74a",
+      "duration_seconds": 59.96669880799982,
+      "message_counts": {
+        "controlsState": 598,
+        "carState": 597
+      },
+      "active_controls_samples": 598,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 1,
+        "medium_25_to_50mph": 597
+      },
+      "speed_min_m_s": 12.678470611572266,
+      "speed_max_m_s": 18.613290786743164
+    },
+    {
+      "segment": 17,
+      "sha256": "67515df86c78642113987c1f4d289384296d90869c0900afd18e3a465b1e21ba",
+      "duration_seconds": 59.896089071999995,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 228,
+        "low_below_25mph": 369
+      },
+      "speed_min_m_s": -0.0058503164909780025,
+      "speed_max_m_s": 16.518259048461914
+    },
+    {
+      "segment": 18,
+      "sha256": "c9104fedf8b888706ef668170788551bacb2c5d01add1ccb75bd189b6d88c19d",
+      "duration_seconds": 59.95995652099987,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 454,
+        "medium_25_to_50mph": 143
+      },
+      "speed_min_m_s": -0.03199593350291252,
+      "speed_max_m_s": 17.765655517578125
+    },
+    {
+      "segment": 19,
+      "sha256": "e1b0474d141307a8145063c8273d9e947bf147d3727c2e18be9b63e16fa686c5",
+      "duration_seconds": 59.96414665799989,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 598
+      },
+      "active_controls_samples": 598,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 158,
+        "medium_25_to_50mph": 440
+      },
+      "speed_min_m_s": 0.0,
+      "speed_max_m_s": 18.604717254638672
+    },
+    {
+      "segment": 20,
+      "sha256": "1f08e676f4ec503c47f6ae04c00d315b47e0c86c9226fc1b6328c21acce91fe5",
+      "duration_seconds": 59.880100272999925,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 597
+      },
+      "active_controls_samples": 596,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 332,
+        "low_below_25mph": 264
+      },
+      "speed_min_m_s": -0.029213735833764076,
+      "speed_max_m_s": 17.166427612304688
+    },
+    {
+      "segment": 21,
+      "sha256": "fc828536d40df5f9c456f6ca35b9b368e14605177562ee8ec9e6c135544fd963",
+      "duration_seconds": 59.97638475299982,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 598
+      },
+      "active_controls_samples": 598,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 322,
+        "medium_25_to_50mph": 276
+      },
+      "speed_min_m_s": -0.005902610253542662,
+      "speed_max_m_s": 16.651565551757812
+    },
+    {
+      "segment": 22,
+      "sha256": "ca48044faec3ccf7fbea7ad43d4d0e5e95ae14923df7ba33d3bc89dbd3403e92",
+      "duration_seconds": 59.885839527999906,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 597
+      },
+      "active_controls_samples": 463,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 460,
+        "low_below_25mph": 3
+      },
+      "speed_min_m_s": 10.562311172485352,
+      "speed_max_m_s": 18.373462677001953
+    },
+    {
+      "segment": 23,
+      "sha256": "78caa67578b9e4ba9d61b123b057e3d96ad18b89acfd2a55f754b7820da2d9f8",
+      "duration_seconds": 59.88318137500005,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 597
+      },
+      "active_controls_samples": 503,
+      "raw_steering_pressed_car_state_samples": 21,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 417,
+        "medium_25_to_50mph": 86
+      },
+      "speed_min_m_s": -0.04084213823080063,
+      "speed_max_m_s": 14.452265739440918
+    },
+    {
+      "segment": 24,
+      "sha256": "e074cc49915ea4292b4c84c498d561f540721a62178a0d217c8839aac34a30e1",
+      "duration_seconds": 59.966672445000086,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 598
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 368,
+        "medium_25_to_50mph": 229
+      },
+      "speed_min_m_s": -0.01673005521297455,
+      "speed_max_m_s": 18.097347259521484
+    },
+    {
+      "segment": 25,
+      "sha256": "10cfa1077ad1f6b62237ce0d94ac39ea1f4f87de6d5fbd44050311531ab093ca",
+      "duration_seconds": 59.88168066600019,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 597
+      },
+      "speed_min_m_s": 12.89718246459961,
+      "speed_max_m_s": 17.663043975830078
+    },
+    {
+      "segment": 26,
+      "sha256": "5721aef8be48756ecfc09b752a10b0c62f8b7809f548dffcd08eeb43ce570f26",
+      "duration_seconds": 59.964743850000104,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 146,
+        "low_below_25mph": 451
+      },
+      "speed_min_m_s": -0.006562539376318455,
+      "speed_max_m_s": 16.407949447631836
+    },
+    {
+      "segment": 27,
+      "sha256": "f91ade0241fba37cd14f50675d95e2e0b2edafdd51b0a4eac8405da5f018a9b0",
+      "duration_seconds": 59.96360532599988,
+      "message_counts": {
+        "controlsState": 598,
+        "carState": 597
+      },
+      "active_controls_samples": 598,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 3,
+        "medium_25_to_50mph": 595
+      },
+      "speed_min_m_s": 10.941600799560547,
+      "speed_max_m_s": 18.664148330688477
+    },
+    {
+      "segment": 28,
+      "sha256": "375b08baae7b580eb501ff07a583ac9f749760eec4833281933b82549b8454cd",
+      "duration_seconds": 59.86981637700001,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 473,
+        "medium_25_to_50mph": 124
+      },
+      "speed_min_m_s": -0.008774429559707642,
+      "speed_max_m_s": 15.73184871673584
+    },
+    {
+      "segment": 29,
+      "sha256": "500b6fb9478d10943a5f2c6a6ee195893554445af0467c940cad73174785abe2",
+      "duration_seconds": 59.96735578699986,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 598
+      },
+      "active_controls_samples": 598,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 547,
+        "low_below_25mph": 51
+      },
+      "speed_min_m_s": 9.761994361877441,
+      "speed_max_m_s": 18.631141662597656
+    },
+    {
+      "segment": 30,
+      "sha256": "9badb31e1e130daf35b90e19aa6051ddbcea6abe439b853c7a8f03173219e4cc",
+      "duration_seconds": 59.95861783100008,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 393,
+        "low_below_25mph": 204
+      },
+      "speed_min_m_s": 3.444066047668457,
+      "speed_max_m_s": 18.342504501342773
+    },
+    {
+      "segment": 31,
+      "sha256": "4acc4ab94e81f077b2f99a3defbc189fd80ea40713d7c28301d94e0e6e52ee1f",
+      "duration_seconds": 59.86932654999987,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 30,
+        "medium_25_to_50mph": 567
+      },
+      "speed_min_m_s": 6.550661087036133,
+      "speed_max_m_s": 18.392763137817383
+    },
+    {
+      "segment": 32,
+      "sha256": "0316299c99f6b62642aecde86435d9f71cf02586e51be206589e46ef916b78f3",
+      "duration_seconds": 59.97877382699971,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 598
+      },
+      "active_controls_samples": 598,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 176,
+        "low_below_25mph": 422
+      },
+      "speed_min_m_s": -0.006739404052495956,
+      "speed_max_m_s": 16.51874542236328
+    },
+    {
+      "segment": 33,
+      "sha256": "df5816543962395a85d674f1285bae2647ad8ca0caf97fc36767456c5d777f30",
+      "duration_seconds": 59.874326516999645,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 115,
+        "medium_25_to_50mph": 482
+      },
+      "speed_min_m_s": 0.0,
+      "speed_max_m_s": 17.49867820739746
+    },
+    {
+      "segment": 34,
+      "sha256": "3b03f37dab0632a589ce7d7be79b5b7313da7f6626d0d8bf9101f25f5d1050b6",
+      "duration_seconds": 59.883369095000035,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 597
+      },
+      "speed_min_m_s": 15.010974884033203,
+      "speed_max_m_s": 18.529268264770508
+    },
+    {
+      "segment": 35,
+      "sha256": "42167a4558e804ba77abcd2c49628e607f5bd38a829867dbf7e9416d98575c52",
+      "duration_seconds": 59.980778783999995,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 598
+      },
+      "active_controls_samples": 594,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 405,
+        "low_below_25mph": 189
+      },
+      "speed_min_m_s": -0.03726748004555702,
+      "speed_max_m_s": 18.617599487304688
+    },
+    {
+      "segment": 36,
+      "sha256": "33633f42fddf0ff59bc6f89e698af68ef9eb2338c4d6561fff03c23e50d8c7a3",
+      "duration_seconds": 59.87934868100001,
+      "message_counts": {
+        "controlsState": 597,
+        "carState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 87,
+        "medium_25_to_50mph": 510
+      },
+      "speed_min_m_s": 3.3210289478302,
+      "speed_max_m_s": 18.0291748046875
+    },
+    {
+      "segment": 37,
+      "sha256": "e565d342a4b135b2e7c74076740380dd26716354b2fbe2bffdc866b6b6a165c0",
+      "duration_seconds": 59.96086882600002,
+      "message_counts": {
+        "controlsState": 598,
+        "carState": 597
+      },
+      "active_controls_samples": 595,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 221,
+        "medium_25_to_50mph": 374
+      },
+      "speed_min_m_s": -0.03598453849554062,
+      "speed_max_m_s": 18.391647338867188
+    },
+    {
+      "segment": 38,
+      "sha256": "5224cb18b9628b385ba395548de33d777e3d0cba5a83af725e44ed517725183b",
+      "duration_seconds": 59.958074943000156,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 499,
+        "low_below_25mph": 98
+      },
+      "speed_min_m_s": 5.050045967102051,
+      "speed_max_m_s": 18.459575653076172
+    },
+    {
+      "segment": 39,
+      "sha256": "cef9e9dc661831bf5b1a35ba52765047cc7fda3f53697b0b484d8a0ce3359de9",
+      "duration_seconds": 59.90260866200015,
+      "message_counts": {
+        "controlsState": 597,
+        "carState": 597
+      },
+      "active_controls_samples": 355,
+      "raw_steering_pressed_car_state_samples": 25,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 324,
+        "medium_25_to_50mph": 31
+      },
+      "speed_min_m_s": -0.03456553444266319,
+      "speed_max_m_s": 13.372193336486816
+    },
+    {
+      "segment": 40,
+      "sha256": "27a19b7dfcc6617a31df44c73e2c11c7b673db2d7697c9284192bac59762c28c",
+      "duration_seconds": 59.96130301600033,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 598
+      },
+      "active_controls_samples": 489,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 489
+      },
+      "speed_min_m_s": -0.029554171487689018,
+      "speed_max_m_s": 10.418431282043457
+    },
+    {
+      "segment": 41,
+      "sha256": "b5ffd65fd7a017b5b357ab274e7946111678942c7ce6543dd34a5c875835c297",
+      "duration_seconds": 59.96247146399992,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 597
+      },
+      "active_controls_samples": 595,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 579,
+        "medium_25_to_50mph": 16
+      },
+      "speed_min_m_s": -0.025728020817041397,
+      "speed_max_m_s": 11.518393516540527
+    },
+    {
+      "segment": 42,
+      "sha256": "d933c1475e785d8169eb597d45d54912834f33443f73d95906759f67bd950301",
+      "duration_seconds": 59.96198075200027,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 598
+      },
+      "active_controls_samples": 593,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 593
+      },
+      "speed_min_m_s": -0.034115035086870193,
+      "speed_max_m_s": 10.641134262084961
+    },
+    {
+      "segment": 43,
+      "sha256": "1f8852dcd287e9e5b079cf033ee74b1e3a96775a3c65623c5f41080c892caa28",
+      "duration_seconds": 59.963414276000094,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 597
+      },
+      "active_controls_samples": 596,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 596
+      },
+      "speed_min_m_s": -0.03743172064423561,
+      "speed_max_m_s": 10.155876159667969
+    },
+    {
+      "segment": 44,
+      "sha256": "0a57e988d686487b53a6301233d1b77159fb67fe0eda96288f8677e69949f1b1",
+      "duration_seconds": 59.9068065929996,
+      "message_counts": {
+        "controlsState": 597,
+        "carState": 597
+      },
+      "active_controls_samples": 595,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 595
+      },
+      "speed_min_m_s": -0.03101201355457306,
+      "speed_max_m_s": 9.795731544494629
+    },
+    {
+      "segment": 45,
+      "sha256": "0833f7789542b92c4a9da18a20e5a02d608d38ea2dc0e452d486c0043e555193",
+      "duration_seconds": 59.97170903699998,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 598
+      },
+      "active_controls_samples": 593,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 588,
+        "medium_25_to_50mph": 5
+      },
+      "speed_min_m_s": -0.043440110981464386,
+      "speed_max_m_s": 11.21865463256836
+    },
+    {
+      "segment": 46,
+      "sha256": "088e5523ad1bc9ba7cfb4c74353872e94c459f2ca9ca1735ee4e5c42f2ef7d57",
+      "duration_seconds": 59.95750687300006,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 597
+      },
+      "active_controls_samples": 594,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 594
+      },
+      "speed_min_m_s": -0.023958705365657806,
+      "speed_max_m_s": 10.038436889648438
+    },
+    {
+      "segment": 47,
+      "sha256": "148880de50b53a4e1ce0f6129bc59ef2c492abc048ba9d372a37ccab744c5065",
+      "duration_seconds": 59.958262736999586,
+      "message_counts": {
+        "controlsState": 598,
+        "carState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 522,
+        "medium_25_to_50mph": 75
+      },
+      "speed_min_m_s": -0.0322561152279377,
+      "speed_max_m_s": 13.024641036987305
+    },
+    {
+      "segment": 48,
+      "sha256": "b01a8ddce5d44d28def942562dfb97c76f382733e5661120720091108998ac44",
+      "duration_seconds": 59.95545066500017,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 597
+      },
+      "active_controls_samples": 596,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 237,
+        "low_below_25mph": 359
+      },
+      "speed_min_m_s": -0.024922499433159828,
+      "speed_max_m_s": 13.370651245117188
+    },
+    {
+      "segment": 49,
+      "sha256": "7fc61a61b46466624fc0f737d22a008c11d22cc6c8ffca997d7578852986955d",
+      "duration_seconds": 59.91919263099999,
+      "message_counts": {
+        "controlsState": 597,
+        "carState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 301,
+        "medium_25_to_50mph": 296
+      },
+      "speed_min_m_s": -4.490885839913972e-05,
+      "speed_max_m_s": 13.878251075744629
+    },
+    {
+      "segment": 50,
+      "sha256": "387c9f91de8f294753024644d7178358218b127774cb3987147eabe1b40d4039",
+      "duration_seconds": 59.961769710000226,
+      "message_counts": {
+        "controlsState": 598,
+        "carState": 597
+      },
+      "active_controls_samples": 598,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 1,
+        "medium_25_to_50mph": 597
+      },
+      "speed_min_m_s": 12.18303394317627,
+      "speed_max_m_s": 14.106571197509766
+    },
+    {
+      "segment": 51,
+      "sha256": "399ece315c935cb1b22ffcaabb35e7619733919f03a78d645aab438fa115a057",
+      "duration_seconds": 59.90409469699989,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 557,
+        "low_below_25mph": 40
+      },
+      "speed_min_m_s": 10.62054443359375,
+      "speed_max_m_s": 16.0899715423584
+    },
+    {
+      "segment": 52,
+      "sha256": "8bab2e7382705164bd245b5da568e1da7185e917d17accb0494e971a2c3ad0a5",
+      "duration_seconds": 59.99382458499986,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 598
+      },
+      "active_controls_samples": 596,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 211,
+        "low_below_25mph": 385
+      },
+      "speed_min_m_s": -0.033422160893678665,
+      "speed_max_m_s": 16.224140167236328
+    },
+    {
+      "segment": 53,
+      "sha256": "0faff25207ddf61519cf6fda900dc05369d55f13f67ffc1f44ef34507f7217be",
+      "duration_seconds": 59.891821847999836,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 597
+      },
+      "active_controls_samples": 597,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "medium_25_to_50mph": 367,
+        "low_below_25mph": 230
+      },
+      "speed_min_m_s": 6.782161235809326,
+      "speed_max_m_s": 14.877498626708984
+    },
+    {
+      "segment": 54,
+      "sha256": "46b8586ae0b6570acc8a163bb9409ae9cb0e0a069684a9e243e0792636bce233",
+      "duration_seconds": 59.964651171999776,
+      "message_counts": {
+        "carState": 598,
+        "controlsState": 597
+      },
+      "active_controls_samples": 596,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 221,
+        "medium_25_to_50mph": 375
+      },
+      "speed_min_m_s": -0.03406795486807823,
+      "speed_max_m_s": 16.620447158813477
+    },
+    {
+      "segment": 55,
+      "sha256": "90258118b16eb22e196e7f464ff0a97f711193956bf07fd6b7b8e5da69966acc",
+      "duration_seconds": 59.95902546200023,
+      "message_counts": {
+        "controlsState": 598,
+        "carState": 597
+      },
+      "active_controls_samples": 429,
+      "raw_steering_pressed_car_state_samples": 60,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {
+        "low_below_25mph": 429
+      },
+      "speed_min_m_s": -0.03202337399125099,
+      "speed_max_m_s": 10.66370964050293
+    },
+    {
+      "segment": 56,
+      "sha256": "4dd7076b77b77c66a0b36c36cc67c0867fa73020bda7846c96daefe53ddac0da",
+      "duration_seconds": 59.88356985099972,
+      "message_counts": {
+        "carState": 597,
+        "controlsState": 597
+      },
+      "active_controls_samples": 0,
+      "raw_steering_pressed_car_state_samples": 2,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {},
+      "speed_min_m_s": -0.05359679460525513,
+      "speed_max_m_s": 1.7242358922958374
+    },
+    {
+      "segment": 57,
+      "sha256": "e69732687897f237e5d655ce89dc0a284d8500abf1eba9d775cdb4cc3f6b28b1",
+      "duration_seconds": 0.714800933999868,
+      "message_counts": {
+        "carState": 8,
+        "controlsState": 8
+      },
+      "active_controls_samples": 0,
+      "raw_steering_pressed_car_state_samples": 0,
+      "active_saturation_samples": 0,
+      "active_controls_speed_band_samples": {},
+      "speed_min_m_s": -0.0,
+      "speed_max_m_s": -0.0
+    }
+  ],
+  "decode_warnings": [
+    {
+      "segment": 57,
+      "file": "qlog.zst",
+      "issue": "incomplete Cap'n Proto tail; complete preceding messages retained"
+    }
+  ],
+  "compared_active_frames_after_warmup": 15730,
+  "driver_override_frames": 0,
+  "logged_saturation_frames": 0,
+  "port_route32_vs_reconstructed_james_truncated_e4_mismatches": 0,
+  "per_segment": [
+    {
+      "segment": 5,
+      "rlog_sha256": "2ef348b56e5c842073a33b13fe2daf9cfb56e6304bf2e0420b86061ba62cabce",
+      "recorded_controls_frames": 5979,
+      "compared_active_frames_after_warmup": 4781,
+      "duration_seconds": 60.03804909499996,
+      "control_dt_seconds": {
+        "samples": 4781,
+        "rms": 0.010100971850911779,
+        "mean": 0.01004308039740639,
+        "max_abs": 0.01948058100003891,
+        "p95_abs": 0.01183138900000813
+      },
+      "driver_override_frames": 0,
+      "logged_saturation_frames": 0,
+      "vs_james_recorded_response_e4": {
+        "port_source_response": {
+          "samples": 4781,
+          "rms": 20.70181650138681,
+          "mean": 0.03108621308851369,
+          "max_abs": 137.49196142500261,
+          "p95_abs": 41.21313123569041
+        },
+        "port_route32_response": {
+          "samples": 4781,
+          "rms": 2.3555259013505636e-06,
+          "mean": -2.2435211750566488e-06,
+          "max_abs": 8.256081287072448e-06,
+          "p95_abs": 2.9813821704749444e-06
+        },
+        "james_recorded_response": {
+          "samples": 4781,
+          "rms": 0.0,
+          "mean": 0.0,
+          "max_abs": 0.0,
+          "p95_abs": 0.0
+        },
+        "nrdr_source_response": {
+          "samples": 4781,
+          "rms": 26.03075193489091,
+          "mean": 9.16771867072219,
+          "max_abs": 168.33190227644457,
+          "p95_abs": 48.12232850928643
+        }
+      },
+      "port_route32_vs_reconstructed_james_truncated_e4_mismatches": 0,
+      "source_reconstruction_vs_logged_core_e4": {
+        "samples": 4781,
+        "rms": 0.07312605827939572,
+        "mean": 0.006292347433899476,
+        "max_abs": 0.40178602213137893,
+        "p95_abs": 0.16047732678511117
+      },
+      "reconstructed_integral_minus_logged_integral_e4": {
+        "samples": 4781,
+        "rms": 3.6378640702294187e-06,
+        "mean": 1.6083426183340039e-06,
+        "max_abs": 9.798460256504882e-06,
+        "p95_abs": 7.87266436041989e-06
+      },
+      "reconstructed_raw_ff_minus_logged_raw_ff_e4": {
+        "samples": 4781,
+        "rms": 0.1199131440559744,
+        "mean": 0.006548436655889059,
+        "max_abs": 1.0633900840781285,
+        "p95_abs": 0.2553517475596312
+      },
+      "mvl_minus_james_geometry_angle_deg": {
+        "samples": 4781,
+        "rms": 0.04902717408261787,
+        "mean": 0.04101764584760712,
+        "max_abs": 0.1195241758585528,
+        "p95_abs": 0.1036971956995496
+      }
+    },
+    {
+      "segment": 16,
+      "rlog_sha256": "3b8680bc890468122a0cdcab845b4916f8b59b9b9b0b10469cdb44b2acff103f",
+      "recorded_controls_frames": 5974,
+      "compared_active_frames_after_warmup": 5475,
+      "duration_seconds": 59.99629608400005,
+      "control_dt_seconds": {
+        "samples": 5475,
+        "rms": 0.010104659601808582,
+        "mean": 0.010044388941917793,
+        "max_abs": 0.020218727999917974,
+        "p95_abs": 0.011876772799973878
+      },
+      "driver_override_frames": 0,
+      "logged_saturation_frames": 0,
+      "vs_james_recorded_response_e4": {
+        "port_source_response": {
+          "samples": 5475,
+          "rms": 16.292076310005573,
+          "mean": -0.5582363171590285,
+          "max_abs": 85.67778400494169,
+          "p95_abs": 32.70117386117494
+        },
+        "port_route32_response": {
+          "samples": 5475,
+          "rms": 2.502449317067164e-06,
+          "mean": 2.418270794788412e-06,
+          "max_abs": 3.815263653450529e-06,
+          "p95_abs": 3.3858744501458204e-06
+        },
+        "james_recorded_response": {
+          "samples": 5475,
+          "rms": 0.0,
+          "mean": 0.0,
+          "max_abs": 0.0,
+          "p95_abs": 0.0
+        },
+        "nrdr_source_response": {
+          "samples": 5475,
+          "rms": 20.217893280299418,
+          "mean": -5.414123410029716,
+          "max_abs": 94.05133976799685,
+          "p95_abs": 38.219650844902425
+        }
+      },
+      "port_route32_vs_reconstructed_james_truncated_e4_mismatches": 0,
+      "source_reconstruction_vs_logged_core_e4": {
+        "samples": 5475,
+        "rms": 0.06269213635303637,
+        "mean": -9.980160363295181e-06,
+        "max_abs": 0.46894830923849895,
+        "p95_abs": 0.13388157926224836
+      },
+      "reconstructed_integral_minus_logged_integral_e4": {
+        "samples": 5475,
+        "rms": 7.657564560099446e-06,
+        "mean": -6.764013197320053e-06,
+        "max_abs": 1.747478122204882e-05,
+        "p95_abs": 1.2514730899582105e-05
+      },
+      "reconstructed_raw_ff_minus_logged_raw_ff_e4": {
+        "samples": 5475,
+        "rms": 0.10844312135542819,
+        "mean": -0.00021073290248238728,
+        "max_abs": 1.318566873401954,
+        "p95_abs": 0.2238675145903618
+      },
+      "mvl_minus_james_geometry_angle_deg": {
+        "samples": 5475,
+        "rms": 0.04748653008261086,
+        "mean": 0.01773137378322123,
+        "max_abs": 0.09632100966578294,
+        "p95_abs": 0.07133094513983118
+      }
+    },
+    {
+      "segment": 19,
+      "rlog_sha256": "ad96fd2281dc61decda5631faeb599eedd41f7f0e0afcc1b740693572d6037e1",
+      "recorded_controls_frames": 5973,
+      "compared_active_frames_after_warmup": 5474,
+      "duration_seconds": 59.98587107000003,
+      "control_dt_seconds": {
+        "samples": 5474,
+        "rms": 0.010102767339588783,
+        "mean": 0.010044565509682166,
+        "max_abs": 0.02188226599992049,
+        "p95_abs": 0.011807483350060008
+      },
+      "driver_override_frames": 0,
+      "logged_saturation_frames": 0,
+      "vs_james_recorded_response_e4": {
+        "port_source_response": {
+          "samples": 5474,
+          "rms": 20.800761490217734,
+          "mean": -0.1606196303034157,
+          "max_abs": 115.38085706354158,
+          "p95_abs": 43.01311424756472
+        },
+        "port_route32_response": {
+          "samples": 5474,
+          "rms": 5.536753381697872e-06,
+          "mean": -4.891373948540795e-06,
+          "max_abs": 1.5463537408777484e-05,
+          "p95_abs": 9.533923304161359e-06
+        },
+        "james_recorded_response": {
+          "samples": 5474,
+          "rms": 0.0,
+          "mean": 0.0,
+          "max_abs": 0.0,
+          "p95_abs": 0.0
+        },
+        "nrdr_source_response": {
+          "samples": 5474,
+          "rms": 25.55900313034064,
+          "mean": 1.4402041806866022,
+          "max_abs": 129.00386901266376,
+          "p95_abs": 51.14613874500213
+        }
+      },
+      "port_route32_vs_reconstructed_james_truncated_e4_mismatches": 0,
+      "source_reconstruction_vs_logged_core_e4": {
+        "samples": 5474,
+        "rms": 0.08339067421886667,
+        "mean": 0.0022197354218492166,
+        "max_abs": 0.8509149881591926,
+        "p95_abs": 0.1536911892136501
+      },
+      "reconstructed_integral_minus_logged_integral_e4": {
+        "samples": 5474,
+        "rms": 4.643258455366804e-06,
+        "mean": 2.8919375735118904e-06,
+        "max_abs": 1.2000488709418278e-05,
+        "p95_abs": 9.349276080483636e-06
+      },
+      "reconstructed_raw_ff_minus_logged_raw_ff_e4": {
+        "samples": 5474,
+        "rms": 0.13507713023737178,
+        "mean": 0.0022838343539026596,
+        "max_abs": 2.8079999903210062,
+        "p95_abs": 0.23909882103619948
+      },
+      "mvl_minus_james_geometry_angle_deg": {
+        "samples": 5474,
+        "rms": 0.062293217879296855,
+        "mean": 0.04391111846286847,
+        "max_abs": 0.15303087081291622,
+        "p95_abs": 0.13208575328235536
+      }
+    },
+    {
+      "segment": 56,
+      "rlog_sha256": "6a8fe614017cf7a0d253bf87e9b8f3fc1bfa5286ab5a71c48ae7777120ad512f",
+      "recorded_controls_frames": 5974,
+      "compared_active_frames_after_warmup": 0,
+      "duration_seconds": 59.98112447199992,
+      "control_dt_seconds": {
+        "samples": 0
+      },
+      "driver_override_frames": 0,
+      "logged_saturation_frames": 0,
+      "vs_james_recorded_response_e4": {
+        "port_source_response": {
+          "samples": 0
+        },
+        "port_route32_response": {
+          "samples": 0
+        },
+        "james_recorded_response": {
+          "samples": 0
+        },
+        "nrdr_source_response": {
+          "samples": 0
+        }
+      },
+      "port_route32_vs_reconstructed_james_truncated_e4_mismatches": 0,
+      "source_reconstruction_vs_logged_core_e4": {
+        "samples": 0
+      },
+      "reconstructed_integral_minus_logged_integral_e4": {
+        "samples": 0
+      },
+      "reconstructed_raw_ff_minus_logged_raw_ff_e4": {
+        "samples": 0
+      },
+      "mvl_minus_james_geometry_angle_deg": {
+        "samples": 0
+      }
+    }
+  ],
+  "vs_james_recorded_response_e4": {
+    "port_source_response": {
+      "samples": 15730,
+      "rms": 19.318743479318435,
+      "mean": -0.2407471397298406,
+      "max_abs": 137.49196142500261,
+      "p95_abs": 39.789240327180856
+    },
+    "port_route32_response": {
+      "samples": 15730,
+      "rms": 3.8123680740884062e-06,
+      "mean": -1.5423790928665986e-06,
+      "max_abs": 1.5463537408777484e-05,
+      "p95_abs": 6.40531249160858e-06
+    },
+    "james_recorded_response": {
+      "samples": 15730,
+      "rms": 0.0,
+      "mean": 0.0,
+      "max_abs": 0.0,
+      "p95_abs": 0.0
+    },
+    "nrdr_source_response": {
+      "samples": 15730,
+      "rms": 23.99081208674008,
+      "mean": 1.4031923064137672,
+      "max_abs": 168.33190227644457,
+      "p95_abs": 45.2785083523492
+    }
+  },
+  "by_speed_band_vs_james_e4": {
+    "low_below_25mph": {
+      "port_source_response": {
+        "samples": 1234,
+        "rms": 15.33508141488946,
+        "mean": 2.063050908483349,
+        "max_abs": 76.75756096623343,
+        "p95_abs": 34.00704882018661
+      },
+      "port_route32_response": {
+        "samples": 1234,
+        "rms": 5.929066447993875e-06,
+        "mean": -3.0368094250379116e-06,
+        "max_abs": 1.5463537408777484e-05,
+        "p95_abs": 9.857621961373297e-06
+      },
+      "james_recorded_response": {
+        "samples": 1234,
+        "rms": 0.0,
+        "mean": 0.0,
+        "max_abs": 0.0,
+        "p95_abs": 0.0
+      },
+      "nrdr_source_response": {
+        "samples": 1234,
+        "rms": 23.52594616171044,
+        "mean": 2.175584234067174,
+        "max_abs": 101.75755262223925,
+        "p95_abs": 52.59995510480821
+      }
+    },
+    "medium_25_to_50mph": {
+      "port_source_response": {
+        "samples": 14496,
+        "rms": 19.620538939066158,
+        "mean": -0.4368623985250308,
+        "max_abs": 137.49196142500261,
+        "p95_abs": 40.058767905515765
+      },
+      "port_route32_response": {
+        "samples": 14496,
+        "rms": 3.5747531889839068e-06,
+        "mean": -1.4151628242477106e-06,
+        "max_abs": 8.783093221609306e-06,
+        "p95_abs": 5.936251554317096e-06
+      },
+      "james_recorded_response": {
+        "samples": 14496,
+        "rms": 0.0,
+        "mean": 0.0,
+        "max_abs": 0.0,
+        "p95_abs": 0.0
+      },
+      "nrdr_source_response": {
+        "samples": 14496,
+        "rms": 24.02996934483749,
+        "mean": 1.3374409516452583,
+        "max_abs": 168.33190227644457,
+        "p95_abs": 45.03048688064102
+      }
+    }
+  },
+  "source_reconstruction_vs_logged_core_e4": {
+    "samples": 15730,
+    "rms": 0.07357489103013413,
+    "mean": 0.002681494176903176,
+    "max_abs": 0.8509149881591926,
+    "p95_abs": 0.14928061275863122
+  },
+  "logged_delivered_can_vs_logged_core_request_e4": {
+    "samples": 15730,
+    "rms": 41.263631284006344,
+    "mean": 1.8335922132774025,
+    "max_abs": 503.84215545654297,
+    "p95_abs": 21.452024078369128
+  },
+  "mvl_minus_james_geometry_angle_deg": {
+    "samples": 15730,
+    "rms": 0.05353340611427572,
+    "mean": 0.03391952312309522,
+    "max_abs": 0.15303087081291622,
+    "p95_abs": 0.1051225611030897
+  },
+  "sample_comparisons": [
+    {
+      "segment": 5,
+      "frame": 1500,
+      "speed_m_s": 13.287242889404297,
+      "logged_core_e4": -14.483160674571991,
+      "source_reconstructed_e4": -14.473337284077882,
+      "port_route32_e4": -14.47333894717286
+    },
+    {
+      "segment": 5,
+      "frame": 2000,
+      "speed_m_s": 18.66029930114746,
+      "logged_core_e4": -8.205390572547913,
+      "source_reconstructed_e4": -7.812845658857136,
+      "port_route32_e4": -7.812848363713974
+    },
+    {
+      "segment": 5,
+      "frame": 2500,
+      "speed_m_s": 20.13092613220215,
+      "logged_core_e4": 298.9111518859863,
+      "source_reconstructed_e4": 298.93755956636437,
+      "port_route32_e4": 298.93755799002366
+    },
+    {
+      "segment": 5,
+      "frame": 3000,
+      "speed_m_s": 20.599533081054688,
+      "logged_core_e4": 351.8833923339844,
+      "source_reconstructed_e4": 351.88753819720654,
+      "port_route32_e4": 351.88753598313775
+    },
+    {
+      "segment": 5,
+      "frame": 3500,
+      "speed_m_s": 20.421247482299805,
+      "logged_core_e4": 99.1624402999878,
+      "source_reconstructed_e4": 99.16217952430836,
+      "port_route32_e4": 99.16217664124751
+    },
+    {
+      "segment": 5,
+      "frame": 4000,
+      "speed_m_s": 20.228687286376953,
+      "logged_core_e4": 201.31708145141602,
+      "source_reconstructed_e4": 201.3660991103232,
+      "port_route32_e4": 201.36609670835304
+    },
+    {
+      "segment": 5,
+      "frame": 4500,
+      "speed_m_s": 20.12870979309082,
+      "logged_core_e4": 303.46489906311035,
+      "source_reconstructed_e4": 303.62844805007285,
+      "port_route32_e4": 303.62844618124785
+    },
+    {
+      "segment": 5,
+      "frame": 5000,
+      "speed_m_s": 20.354419708251953,
+      "logged_core_e4": 477.9542541503906,
+      "source_reconstructed_e4": 477.9672830503712,
+      "port_route32_e4": 477.967281865408
+    },
+    {
+      "segment": 5,
+      "frame": 5500,
+      "speed_m_s": 20.273235321044922,
+      "logged_core_e4": 61.95324182510376,
+      "source_reconstructed_e4": 62.029908133182424,
+      "port_route32_e4": 62.02990585545757
+    },
+    {
+      "segment": 16,
+      "frame": 500,
+      "speed_m_s": 14.481258392333984,
+      "logged_core_e4": 613.1633377075195,
+      "source_reconstructed_e4": 613.1633485200593,
+      "port_route32_e4": 613.1633484993512
+    }
+  ],
+  "limits": [
+    "Only the four available full-rate rlogs are replayed; 58 qlogs are summarized, not upsampled or treated as full-rate.",
+    "Uses logged desired wheel angles: geometry, command delay and model prediction are held outside the core comparison.",
+    "Excludes the first five seconds; seeds observable state once at that boundary, then never re-injects logged state during validation.",
+    "Latest preceding carState/liveParameters/carOutput approximate SubMaster snapshots; limited-state inference uses the recorded delivery difference.",
+    "Recorded float32 desired angles and gain tables limit exact reconstruction of original double-precision runtime state.",
+    "Port route32 response matches recorded LPF settings explicitly; source response retains original source default filters.",
+    "Geometry comparison uses the same path with recorded learned ratio/stiffness; it is not a replacement for the selected live mode.",
+    "Logged delivered CAN includes original carcontroller override fade/rate limits and is reported separately from core requests.",
+    "Uses recorded raw steeringPressed booleans; source threshold 2400 differs from MVL's preserved Insight threshold 1200; earlier override is possible.",
+    "No model inference, complete controlsd process replay, closed-loop dynamics, vehicle validation or firmware-revision proof."
+  ]
+}

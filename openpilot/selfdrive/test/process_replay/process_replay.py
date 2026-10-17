@@ -27,6 +27,7 @@ from openpilot.common.realtime import DT_CTRL
 from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
 from openpilot.system.manager.process_config import managed_processes
 from openpilot.selfdrive.car.card import convert_to_capnp
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import prepare_drive_config
 from openpilot.selfdrive.test.process_replay.vision_meta import meta_from_camera_state, available_streams
 from openpilot.selfdrive.test.process_replay.migration import migrate_all
 from openpilot.selfdrive.test.process_replay.capture import ProcessOutputCapture
@@ -374,6 +375,8 @@ def get_car_params_callback(rc, pm, msgs, fingerprint):
     _CI = get_car(can_recv, lambda _msgs: None, lambda obd: None, params.get_bool("AlphaLongitudinalEnabled"), False, cached_params=cached_params)
     CP, CP_SP = _CI.CP, _CI.CP_SP
 
+  # Match card's publication barrier even when replay fingerprints directly.
+  prepare_drive_config(params, CP, CP_SP)
   params.put("CarParams", CP.to_bytes(), block=True)
   params.put("CarParamsSP", convert_to_capnp(CP_SP).to_bytes(), block=True)
 
