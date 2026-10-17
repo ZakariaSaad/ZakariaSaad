@@ -132,12 +132,13 @@ includes controlsd's lateral smoothing interval in addition to its scheduled
 model delay. Matching core commands here does not validate that surrounding
 prediction timing in the vehicle.
 
-The recorded raw driver threshold is 2400, while MVL's existing Insight threshold
-remains 1200. The port can therefore override earlier. This replay consumes the
-recorded booleans and does not establish equivalence of those raw detectors.
-The threshold and safety restrictions were preserved. There are no active
-override examples in the available full-rate samples to validate the `route32`
-fade-down against an actual delivered override sequence.
+The recorded raw driver threshold is 2400. At the owner's request the admitted
+firmware mode now uses that same 2400-count threshold for published CarState and
+actuator state; disabled fallback retains MVL's original 1200 threshold. This
+replay consumes recorded booleans, so separate packed-CAN boundary tests validate
+the live threshold hook. There are no active override examples in the available
+full-rate samples to validate the `route32` fade-down against an actual delivered
+override sequence. CAN command and Panda restrictions remain unchanged.
 
 Logged delivered CAN commands are reported separately from core requests. They
 include the original carcontroller's rate limiting, override delivery and sample

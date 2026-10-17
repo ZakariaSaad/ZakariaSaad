@@ -1669,7 +1669,7 @@
     "Port route32 response matches recorded LPF settings explicitly; source response retains original source default filters.",
     "Geometry comparison uses the same path with recorded learned ratio/stiffness; it is not a replacement for the selected live mode.",
     "Logged delivered CAN includes original carcontroller override fade/rate limits and is reported separately from core requests.",
-    "Uses recorded raw steeringPressed booleans; source threshold 2400 differs from MVL's preserved Insight threshold 1200; earlier override is possible.",
+    "Recorded raw steeringPressed uses 2400 counts, matched by admitted firmware mode; disabled MVL fallback keeps its original 1200.",
     "No model inference, complete controlsd process replay, closed-loop dynamics, vehicle validation or firmware-revision proof."
   ]
 }

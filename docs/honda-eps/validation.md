@@ -11,7 +11,7 @@ engine. No inference, device deployment or EPS flashing was performed.
 
 | Check | Result |
 | --- | --- |
-| Firmware-controller and native baseline suite | 394 passed |
+| Firmware-controller and native baseline suite | 405 passed |
 | Existing MVL controls suite | 44 passed, 1 skipped; 8 subtests passed |
 | Existing Honda safety suite | 1,018 passed, 602 skipped; 1,156 subtests passed |
 | Repository-wide Ruff | Passed |
@@ -77,12 +77,12 @@ is 20.877 m/s, below the 50 mph highway gain boundary. One final qlog has a
 truncated Cap'n Proto tail; complete preceding messages were retained and the
 warning is recorded. Missing full-rate segments were not synthesized.
 
-MVL's raw 1200-count press threshold remains below the source route's 2400-count
-setting. Real packed-CAN tests verify that signed 1200 remains unpressed and 1201
-triggers the original MVL threshold, with opposing torque clearing actual CAN
-requests in both response presets. This deliberate preservation can cause earlier
-handover than the source route; matched recorded booleans do not prove identical
-raw-detector behavior.
+The admitted firmware mode uses the source route's 2400-count raw driver
+threshold, as explicitly requested by the owner. Real packed-CAN and card-path
+tests verify that equality at 2400 remains unpressed and 2401 triggers override
+for both torque directions and response presets. The published and actuator
+states agree. Disabled fallback retains MVL's original 1200 boundary; other
+vehicle/controller configurations and Panda restrictions are unchanged.
 
 See [source comparison](source-comparison.md) and [firmware verification JSON](firmware-verification.json)
 for numerical evidence and provenance. Replaying supplied logs requires a local

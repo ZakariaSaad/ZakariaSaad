@@ -149,11 +149,12 @@ Both use the original 1.5 s recovery and the same gains, FF, calibration and
 command scale. During a filtered driver press both clear the CAN steering request
 immediately; fade-down tracks the source's internal recovery authority. Choose
 `route32` explicitly to match the recorded response settings. No settings from a
-route are applied automatically. MVL's raw Insight driver-press threshold remains
-1200 sensor counts; the source route used a configurable 2400-count threshold. The
-port can therefore yield to the driver earlier, even with the recorded response
-preset. The robust direction/time filter does not replace that raw threshold. The recorded comparison reports what could be
-reconstructed and the differences introduced by MVL's existing delivery limits.
+route are applied automatically. The admitted firmware mode uses JamesL787's
+2400-count raw driver-press threshold in the published CarState and actuator
+state, including for lane-change and override consumers. Equality at 2400 does
+not trigger; values above 2400 do. The disabled MVL fallback retains its original
+1200-count threshold. The robust direction/time filter follows that raw check.
+The recorded comparison reports what could be reconstructed and the differences introduced by MVL's existing delivery limits.
 
 ## Enable after validation and roll back
 

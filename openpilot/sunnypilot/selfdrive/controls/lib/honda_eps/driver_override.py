@@ -6,6 +6,21 @@ Opposing driver torque and low-command presses retain immediate detection.
 import math
 
 OVERRIDE_FADE_UP_SECONDS = 1.5
+FIRMWARE_DRIVER_OVERRIDE_THRESHOLD = 2400.0
+
+
+def apply_firmware_driver_threshold(CS, firmware_config):
+  """Use James's raw press threshold only for an admitted firmware drive.
+
+  card applies this before publishing CarState, so controls, events and the
+  Honda actuator path see the same threshold. Native MVL fallback is untouched.
+  """
+  if firmware_config is not None:
+    torque = float(CS.steeringTorque)
+    if not math.isfinite(torque):
+      raise ValueError("nonfinite Honda EPS raw driver torque")
+    CS.steeringPressed = abs(torque) > FIRMWARE_DRIVER_OVERRIDE_THRESHOLD
+  return CS
 
 
 def eps_modified_steering_pressed(raw_pressed: bool, steering_torque: float, torque_command: float,
