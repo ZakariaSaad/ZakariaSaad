@@ -222,5 +222,5 @@ Existing files modified:
 - `openpilot/sunnypilot/modeld_v2/modeld.py`: same schedule for alternate/Chestnut models.
 
 The [file manifest](files.txt) lists every added/modified path. No longitudinal,
-Honda transport, Panda, submodule pointer, model inference or model asset file is
+Honda transport, Panda, submodule pointer, inference kernel, model weight or model asset file is
 changed by this port.
