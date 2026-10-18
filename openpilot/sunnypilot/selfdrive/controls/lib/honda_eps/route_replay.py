@@ -330,7 +330,7 @@ def replay(data, james_root, nrdr_root):
     "logged_delivered_can_vs_logged_core_request_e4": _stats(actual_can_difference),
     "mvl_minus_james_geometry_angle_deg": _stats(geometry_difference), "sample_comparisons": golden,
     "limits": [
-      "Only the four available full-rate rlogs are replayed; 58 qlogs are summarized, not upsampled or treated as full-rate.",
+      f"Replays {len(data['segments'])} full-rate rlogs; {len(data['qlogs'])} qlogs are summarized without upsampling or treating them as full-rate.",
       "Uses logged desired wheel angles: geometry, command delay and model prediction are held outside the core comparison.",
       "Excludes the first five seconds; seeds observable state once at that boundary, then never re-injects logged state during validation.",
       "Latest preceding carState/liveParameters/carOutput approximate SubMaster snapshots; limited-state inference uses the recorded delivery difference.",

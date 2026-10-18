@@ -134,7 +134,10 @@ python -m openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.compare_sources 
 
 The separately supplied route is evaluated in the
 [recorded-route comparison](recorded-route-comparison.md); its results remain
-distinct from the deterministic traces above. Neither comparison measures
+distinct from the deterministic traces above. Its completed 58-rlog analysis
+has one truncated integer E4 request mismatch across 287,710 active frames,
+superseding the earlier route subset's zero-mismatch result. The 10,000
+deterministic inputs above still match exactly. Neither comparison measures
 closed-loop oscillation, overshoot, perception feedback or steering timing in the
 vehicle with this port. Controlled vehicle validation is still required before
 ordinary use.

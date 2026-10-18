@@ -131,6 +131,10 @@ shared VehicleModel, live learned parameters, or other vehicle consumers.
 The modes are intentionally not declared equivalent. See the numerical comparison
 for desired angles across speeds and curvatures. The source rack fit has limited
 large-angle coverage and requires controlled validation on this vehicle.
+The complete recorded route shows why the choice matters: at 1.696 m/s, native
+MVL and James same-path angles differ by 74.419° during a large-angle turn.
+At 25–50 mph, the difference is RMS 0.087° and maximum 0.506°. Select `james`
+explicitly to use the original tight-turn conversion during controlled validation.
 
 ## Recorded response settings
 
@@ -155,6 +159,10 @@ state, including for lane-change and override consumers. Equality at 2400 does
 not trigger; values above 2400 do. The disabled MVL fallback retains its original
 1200-count threshold. The robust direction/time filter follows that raw check.
 The recorded comparison reports what could be reconstructed and the differences introduced by MVL's existing delivery limits.
+The complete 58-rlog analysis compares 287,710 active frames: `route32` has one
+truncated integer E4 request mismatch against reconstructed James, with maximum
+continuous difference 0.003247 E4. This supersedes the earlier subset's zero-mismatch
+claim; see the [recorded-route comparison](recorded-route-comparison.md).
 
 ## Enable after validation and roll back
 

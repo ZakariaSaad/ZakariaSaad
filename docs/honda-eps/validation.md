@@ -71,20 +71,32 @@ ruff check openpilot
 ty check openpilot/sunnypilot/selfdrive/controls/lib/honda_eps
 ```
 
-The supplied route has four full-rate rlogs (segments 5, 16, 19, 56) and 58
-qlogs. After an excluded five-second initialization window per segment, 15,730
-active full-rate frames were compared. The explicit `route32` core matches the
-reconstructed original source to within 0.0000155 E4 counts, with zero truncated
-integer-command mismatches. The original source reconstruction, initialized once
-from observable state, matches actually logged core requests with RMS 0.0736 and
-maximum 0.851 E4 counts. These are core-request comparisons, not proof that the
+The completed upload provides all 58 rlogs and 58 qlogs, segments 0–57. They
+contain 340,869 recorded controls frames. After the excluded five-second
+initialization window per segment, 287,710 active frames were compared. The
+explicit `route32` core differs from reconstructed James by RMS 0.00002543 E4
+and maximum 0.00324710 E4, with **one truncated integer-request mismatch** in
+segment 47. This supersedes the earlier four-log subset's zero-mismatch claim;
+its original per-segment results reproduce exactly. Original source
+reconstruction matches actual logged core requests with RMS 0.07018 and maximum
+2.94302 E4 counts. These are core-request comparisons, not proof that the
 complete MVL/model/transport pipeline will make identical on-road trajectories.
 
-The available active rlogs have low- and medium-speed data, no filtered driver
-override frames and no logged saturation frames. The qlogs' sampled maximum speed
-is 20.877 m/s, below the 50 mph highway gain boundary. One final qlog has a
-truncated Cap'n Proto tail; complete preceding messages were retained and the
-warning is recorded. Missing full-rate segments were not synthesized.
+The compared frames include 124,500 below 25 mph, 163,210 at 25–50 mph, and
+207 filtered driver override frames. Maximum recorded speed is 20.897 m/s,
+below the highway gain boundary. There are zero logged saturation flags, but
+192 recorded active requests have magnitude at least 0.999, with a peak of 1.0.
+Both final logs have truncated Cap'n Proto tails. Segment 57 has 322 inactive
+controls frames and no CarParams event; matching CarParams were independently
+verified in segments 0–56, and source/settings/calibration match across all 58.
+Complete preceding messages were retained; no missing messages were synthesized.
+
+The full-route geometry comparison finds RMS 6.582° and maximum 74.419°
+difference between native MVL and James conversions at the same path. The maximum
+occurs at 1.696 m/s with source angle −339.616°; at 25–50 mph the difference is
+RMS 0.087° and maximum 0.506°. These slow, large-angle turns were absent from the
+earlier subset. Optional `james` geometry selects the original rack; default
+`mvl` geometry does not reproduce its tight-turn conversion.
 
 The admitted firmware mode uses the source route's 2400-count raw driver
 threshold, as explicitly requested by the owner. Real packed-CAN and card-path
