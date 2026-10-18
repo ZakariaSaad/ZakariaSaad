@@ -123,6 +123,11 @@ jobs:
       run: sudo apt-get install -y --no-install-recommends libgles2 libegl1
     - name: Build openpilot
       run: scons
+    - name: Run Honda EPS controller tests
+      timeout-minutes: 3
+      env:
+        DEV: CPU
+      run: python -m pytest -q openpilot/sunnypilot/selfdrive/controls/lib/honda_eps/tests
     - name: Run unit tests
       timeout-minutes: ${{ contains(runner.name, 'nsc') && 2 || 999 }}
       env:

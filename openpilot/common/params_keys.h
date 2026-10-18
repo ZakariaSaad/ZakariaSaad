@@ -295,7 +295,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"CarParamsSPPersistent", {PERSISTENT, BYTES}},
     {"CarPlatformBundle", {PERSISTENT | BACKUP, JSON}},
     {"HondaEpsFirmwareEnabled", {PERSISTENT, BOOL, "0"}},
-    {"HondaEpsFirmwareVerifiedSha256", {PERSISTENT, STRING, ""}},
+    {"HondaEpsFirmwareVerifiedSha256", {PERSISTENT, STRING}},
     {"HondaEpsFirmwareGeometry", {PERSISTENT, STRING, "mvl"}},
     {"HondaEpsFirmwareResponse", {PERSISTENT, STRING, "source"}},
     {"HondaEpsFirmwareDriveConfig", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, JSON}},

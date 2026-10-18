@@ -221,6 +221,8 @@ Existing files modified:
 - `openpilot/selfdrive/test/process_replay/process_replay.py`: prepare the latch before replay publishes CarParams.
 - `openpilot/selfdrive/modeld/modeld.py`: optional shared prediction schedule.
 - `openpilot/sunnypilot/modeld_v2/modeld.py`: same schedule for alternate/Chestnut models.
+- `pyproject.toml` and `uv.lock`: declare pytest in the testing extra; retain existing dependency versions.
+- `.github/workflows/tests.yaml`: run the firmware function tests explicitly alongside the existing unittest runner.
 
 The [file manifest](files.txt) lists every added/modified path. No longitudinal,
 Honda transport, Panda, submodule pointer, inference kernel, model weight or model asset file is

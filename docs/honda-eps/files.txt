@@ -1,3 +1,4 @@
+.github/workflows/tests.yaml
 docs/honda-eps/README.md
 docs/honda-eps/files.txt
 docs/honda-eps/firmware-verification.json
@@ -43,3 +44,5 @@ openpilot/sunnypilot/selfdrive/controls/lib/honda_eps/tests/test_source_golden.p
 openpilot/sunnypilot/selfdrive/controls/lib/honda_eps/tests/test_stopping.py
 openpilot/sunnypilot/selfdrive/controls/lib/honda_eps/tests/test_timing.py
 openpilot/sunnypilot/selfdrive/controls/lib/honda_eps/timing.py
+pyproject.toml
+uv.lock

@@ -4,7 +4,9 @@ Validation ran on Linux x86_64 with Python 3.12.14, pycapnp 2.1.0, NumPy 2.5.4,
 pytest 9.1.1, Ruff 0.17.1 and SCons 4.10.1. Type checks used both the CI-pinned
 ty 0.0.73 and host ty 0.0.89. Existing pinned opendbc,
 msgq, rednose, Panda, tinygrad, teleoprtc and neural-network-data submodules were
-initialized for testing without changing any gitlink or dependency lockfile.
+initialized for testing without changing any gitlink. The testing extra now
+declares pytest; its lockfile additions preserve every existing dependency
+package and version.
 Runtime import checks used the pinned tinygrad source, not a substitute model
 engine. Local checks did not run inference, deploy to a device or flash EPS.
 
@@ -20,8 +22,12 @@ engine. Local checks did not run inference, deploy to a device or flash EPS.
 | Native Cap'n Proto C++ generation and Params build | Passed |
 | PID diagnostics ordinals and native message round trip | Passed; old ordinals 0–9 retained, new fields 10–16 |
 | Schema compatibility against the untouched MVL base | Passed using the repository's compatibility checker; 286 reachable structs |
-| GitHub CI release and macOS builds | Passed at `4294dd2`; release checks and tests passed |
-| GitHub CI upstream schema compatibility | Passed at `4294dd2` |
+| GitHub CI release and macOS builds | Passed at `d13f9df`; release checks and tests passed |
+| GitHub CI static analysis, upstream schema and documentation | Passed at `d13f9df` |
+| GitHub CI UI report | Passed at `d13f9df` |
+| Manager parameter-default regression | Reproduced and fixed locally; existing native manager test passed |
+| Existing unittest discovery of firmware tests | Zero collection errors with pytest installed; function tests have an explicit pytest CI step |
+| Frozen testing dependency setup | Dry run passed; existing dependency packages preserved |
 | Python compilation and whitespace checks | Passed |
 | Read-only uploaded RWD verification | Passed: exact RWD/payload hashes, checksums and all checked tables |
 | Pinned-source deterministic comparison | 10,000 core frames; zero physical-E4 error before delivery for the source preset |
@@ -94,6 +100,32 @@ vehicle logs are not committed.
 
 ## Checks with limitations
 
+The complete GitHub unit run at `d13f9df` reported 1,510 passed, 47 skipped,
+one expected failure, four failures and 12 collection errors. The feature's
+collection errors came from pytest not being declared in the testing extra.
+The manager-default failure came from registering an empty-string default for
+the firmware confirmation hash: native Params reads empty content as absent.
+The final follow-up declares pytest, explicitly runs the function tests in CI,
+and leaves the confirmation hash unset until supplied. The existing manager
+regression and all 405 controller/native tests pass after these changes.
+These fixes have not been rerun remotely because creating the requested
+independent publication repository was denied by GitHub permissions.
+
+Three location tests also failed in that CI run: calibration auto-reset,
+consistent gyro spikes and consistent timing spikes. Their implementations are
+unchanged by this port. They are not reported as passed or as empirically
+verified baseline failures. A local retry reproduced the calibration assertion;
+the other two could not initialize because their separate reference route was
+unavailable from the configured local log sources.
+
+Full process replay reported five changed comparisons, 61 passed and zero
+execution errors against upstream reference `27c132984df60e9ef42ebd1a805738b8c851356f`,
+not MVL base `cb15c04`. Source inspection traces the changed startup alerts,
+Honda longitudinal delay/telemetry, Nidec integral behavior and seven-frame
+steering ramp to existing MVL code and its pinned opendbc revision. No replay
+reference was rewritten. An unchanged-MVL baseline replay has not been run,
+so empirical baseline parity is unverified.
+
 The new package passes CI-pinned ty 0.0.73 with warnings treated as errors.
 Repository-wide local checks with that version report eight diagnostics, all
 reproduced with the same environment in a separate checkout of the untouched
@@ -117,8 +149,9 @@ scons: *** [openpilot/selfdrive/modeld/models/dm_warp_1344x760_tinygrad.pkl] Err
 The host has no Clang executable. This local attempt is a partial build.
 Neural-model compilation was excluded locally; no large model assets were
 downloaded into this workspace. GitHub CI subsequently passed its complete
-release build/checks/tests and macOS build at `4294dd2`. The later pinned-type
-compatibility change affects comparison helpers and test setup only.
+release build/checks/tests and macOS build at `d13f9df`. The later changes
+declare and run the test dependency and remove the unusable empty hash default;
+native Params was rebuilt and its manager-default regression passed locally.
 Actual AI/Chestnut inference on a device, USB cameras, Panda hardware and
 on-vehicle timing remain untested here.
 
