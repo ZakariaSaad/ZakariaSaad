@@ -38,6 +38,8 @@ from openpilot.selfdrive.modeld.helpers import chestnut_present, chestnut_compil
 from openpilot.sunnypilot.livedelay.helpers import get_lat_delay
 from openpilot.sunnypilot.modeld_v2.modeld_base import ModelStateBase
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import drive_config_for_model
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.timing import prediction_delay
 
 SEND_RAW_PRED = os.getenv('SEND_RAW_PRED')
 
@@ -344,6 +346,7 @@ def main(demo=False):
   else:
     CP = messaging.log_from_bytes(params.get("CarParams", block=True), car.CarParams)
   cloudlog.info("modeld got CarParams: %s", CP.brand)
+  firmware_config = None if demo else drive_config_for_model(params, CP)
 
   # TODO this needs more thought, use .2s extra for now to estimate other delays
   # TODO Move smooth seconds to action function
@@ -391,8 +394,12 @@ def main(demo=False):
     is_rhd = sm["driverMonitoringState"].isRHD
     frame_id = sm["narrowRoadCameraState"].frameId
     v_ego = max(sm["carState"].vEgo, 0.)
-    model.lat_delay = get_lat_delay(params, sm["lateralDelay"].lateralDelay)
-    lat_delay = sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS
+    if firmware_config is not None:
+      model.lat_delay = prediction_delay(v_ego)
+      lat_delay = model.lat_delay + LAT_SMOOTH_SECONDS
+    else:
+      model.lat_delay = get_lat_delay(params, sm["lateralDelay"].lateralDelay)
+      lat_delay = sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)
       dc = DEVICE_CAMERAS[(str(sm['deviceState'].deviceType), str(sm['narrowRoadCameraState'].sensor))]
