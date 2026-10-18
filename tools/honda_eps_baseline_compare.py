@@ -42,6 +42,12 @@ def replay_summary(text):
   return dict(zip(("changed", "passed", "errors"), map(int, match.groups()), strict=True))
 
 
+def verify_replay_reference(text, expected):
+  header = f"***** tested against commit {expected} *****"
+  if text.splitlines()[0:1] != [header]:
+    raise ValueError("Replay used a different reference commit from the fingerprinted fixtures")
+
+
 def unit_worker(root, output):
   # Only observe the original runner's final report; do not alter collection,
   # execution, warning handling, assertions, captures or its exit status.
@@ -130,6 +136,7 @@ def collect(root, output, expected_sha):
   result["replay_exit"] = run("replay", [str(python), "openpilot/selfdrive/test/process_replay/test_processes.py", "-j2"])
   replay_dir = root / "openpilot/selfdrive/test/process_replay"
   raw_diff = (replay_dir / "diff.txt").read_text()
+  verify_replay_reference(raw_diff, json.loads((output / "fixtures.json").read_text())["reference_commit"])
   (output / "normalized-diff.txt").write_text(normalize_diff(raw_diff))
   report = (replay_dir / "diff_report.txt").read_text()
   (output / "diff_report.txt").write_text(report)
@@ -195,6 +202,9 @@ def main():
   parser.add_argument("--baseline", type=Path)
   parser.add_argument("--candidate", type=Path)
   args = parser.parse_args()
+  # Resolve against the caller's directory before entering the source checkout.
+  # Artifact upload runs from the workspace and must see the same destination.
+  args.output = args.output.resolve()
   if args.mode == "compare":
     result = compare(args.baseline, args.candidate)
     write_json(args.output, result)

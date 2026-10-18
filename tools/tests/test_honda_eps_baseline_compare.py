@@ -4,8 +4,10 @@ from pathlib import Path
 import tempfile
 import unittest
 from typing import Any
+from unittest.mock import patch
 
-from tools.honda_eps_baseline_compare import BASELINE, compare, normalize_diff, replay_summary
+from tools import honda_eps_baseline_compare as helper
+from tools.honda_eps_baseline_compare import BASELINE, compare, normalize_diff, replay_summary, verify_replay_reference
 
 
 class TestBaselineComparison(unittest.TestCase):
@@ -44,6 +46,20 @@ class TestBaselineComparison(unittest.TestCase):
   def test_missing_replay_report_is_rejected(self):
     with self.assertRaises(ValueError):
       replay_summary("TEST FAILED")
+
+  def test_replay_reference_must_match_fingerprinted_fixtures(self):
+    verify_replay_reference("***** tested against commit ref-a *****\n", "ref-a")
+    for text in ("***** tested against commit ref-b *****\n", ""):
+      with self.assertRaises(ValueError):
+        verify_replay_reference(text, "ref-a")
+
+  def test_cli_resolves_output_before_changing_source_directory(self):
+    expected = Path("evidence").resolve()
+    command = ["helper", "collect", "--root", str(self.baseline), "--output", "evidence", "--expected-sha", BASELINE]
+    with patch.object(helper.sys, "argv", command), patch.object(helper.sys, "path", list(helper.sys.path)), \
+         patch.object(helper.os, "chdir"), patch.object(helper, "collect") as collect:
+      self.assertEqual(helper.main(), 0)
+    self.assertEqual(collect.call_args.args, (self.baseline, expected, BASELINE))
 
   def test_changed_replay_value_is_rejected(self):
     (self.candidate / "normalized-diff.txt").write_text("('change', 'carControl.accel', (1, 3))\n")
