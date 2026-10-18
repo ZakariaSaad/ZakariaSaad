@@ -50,7 +50,7 @@ Hyundai/Toyota `selfdrived` startup alert text, Honda `controlsd`, and Honda/Hon
 `card`. They compare MVL behavior with SunnyPilot's older upstream replay
 references. The paired comparison determines whether their complete numerical
 differences and assertion traces are inherited from the exact MVL foundation;
-these tests are not renamed, skipped, retuned or reported as passing.
+these tests keep their original assertions and remain reported as failures.
 
 ## Integration scope and limits
 
