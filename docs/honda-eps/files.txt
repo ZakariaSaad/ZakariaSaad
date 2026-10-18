@@ -1,5 +1,7 @@
+.github/workflows/honda-eps-baseline.yaml
 .github/workflows/tests.yaml
 docs/honda-eps/README.md
+docs/honda-eps/baseline-comparison.md
 docs/honda-eps/files.txt
 docs/honda-eps/firmware-verification.json
 docs/honda-eps/integration-plan.md
@@ -45,4 +47,6 @@ openpilot/sunnypilot/selfdrive/controls/lib/honda_eps/tests/test_stopping.py
 openpilot/sunnypilot/selfdrive/controls/lib/honda_eps/tests/test_timing.py
 openpilot/sunnypilot/selfdrive/controls/lib/honda_eps/timing.py
 pyproject.toml
+tools/honda_eps_baseline_compare.py
+tools/tests/test_honda_eps_baseline_compare.py
 uv.lock
