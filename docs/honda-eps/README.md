@@ -47,6 +47,8 @@ Intentional differences from unmodified NRDR:
 
 See [integration plan](integration-plan.md), [source/output and geometry comparison](source-comparison.md),
 [recorded-route comparison](recorded-route-comparison.md), and [validation results](validation.md).
+The remaining broad-suite and process-replay failures are investigated in the
+[exact MVL baseline comparison](baseline-comparison.md).
 
 ## Firmware evidence and admission
 

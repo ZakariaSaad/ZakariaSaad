@@ -22,9 +22,10 @@ engine. Local checks did not run inference, deploy to a device or flash EPS.
 | Native Cap'n Proto C++ generation and Params build | Passed |
 | PID diagnostics ordinals and native message round trip | Passed; old ordinals 0–9 retained, new fields 10–16 |
 | Schema compatibility against the untouched MVL base | Passed using the repository's compatibility checker; 286 reachable structs |
-| GitHub CI release and macOS builds | Passed at `d13f9df`; release checks and tests passed |
-| GitHub CI static analysis, upstream schema and documentation | Passed at `d13f9df` |
-| GitHub CI UI report | Passed at `d13f9df` |
+| GitHub CI release and macOS builds | Passed at `c7e77772` and verification follow-up `faf507dd`; release checks and tests passed |
+| GitHub CI static analysis, upstream schema and documentation | Passed at `c7e77772` |
+| GitHub CI UI report | Passed at `c7e77772` and `faf507dd` |
+| Dedicated firmware-only GitHub pytest step | 389 passed at `c7e77772` and `faf507dd` |
 | Manager parameter-default regression | Reproduced and fixed locally; existing native manager test passed |
 | Existing unittest discovery of firmware tests | Zero collection errors with pytest installed; function tests have an explicit pytest CI step |
 | Frozen testing dependency setup | Dry run passed; existing dependency packages preserved |
@@ -112,31 +113,35 @@ vehicle logs are not committed.
 
 ## Checks with limitations
 
-The complete GitHub unit run at `d13f9df` reported 1,510 passed, 47 skipped,
-one expected failure, four failures and 12 collection errors. The feature's
-collection errors came from pytest not being declared in the testing extra.
-The manager-default failure came from registering an empty-string default for
-the firmware confirmation hash: native Params reads empty content as absent.
-The final follow-up declares pytest, explicitly runs the function tests in CI,
-and leaves the confirmation hash unset until supplied. The existing manager
-regression and all 405 controller/native tests pass after these changes.
-These fixes have not been rerun remotely because creating the requested
-independent publication repository was denied by GitHub permissions.
+The complete GitHub unit runs at `c7e77772` and `faf507dd` report 1,511 passed,
+47 skipped, one expected failure, three failures and zero collection errors.
+Two earlier integration regressions are fixed and remotely verified: pytest
+is declared in the testing extra, and the firmware confirmation hash has no
+empty-string default (native Params reads empty content as absent). The explicit
+firmware pytest step executes all 389 function tests rather than relying on the
+existing unittest collector. The existing manager-default regression and all
+405 controller/native tests pass after these changes.
 
-Three location tests also failed in that CI run: calibration auto-reset,
+Three location tests still fail in those CI runs: calibration auto-reset,
 consistent gyro spikes and consistent timing spikes. Their implementations are
-unchanged by this port. They are not reported as passed or as empirically
-verified baseline failures. A local retry reproduced the calibration assertion;
-the other two could not initialize because their separate reference route was
-unavailable from the configured local log sources.
+unchanged by this port. They are not reported as passed. A local isolated retry
+reproduced the same calibration assertion on both untouched `cb15c04e` and the
+controller tree. Their separate scenario reference route was unavailable from
+the configured local log sources, so the paired GitHub workflow runs both full
+suites with the original fixtures and preserves every outcome/assertion trace.
+See [the exact-baseline record](baseline-comparison.md) and verification PR #3
+for the executed baseline classification and evidence.
 
 Full process replay reported five changed comparisons, 61 passed and zero
 execution errors against upstream reference `27c132984df60e9ef42ebd1a805738b8c851356f`,
 not MVL base `cb15c04`. Source inspection traces the changed startup alerts,
 Honda longitudinal delay/telemetry, Nidec integral behavior and seven-frame
 steering ramp to existing MVL code and its pinned opendbc revision. No replay
-reference was rewritten. An unchanged-MVL baseline replay has not been run,
-so empirical baseline parity is unverified.
+reference is rewritten. The paired
+[exact-baseline comparison](baseline-comparison.md) runs all 66 original cases
+on untouched MVL and the candidate. It requires identical full numerical diffs,
+input/reference hashes, reference commit, dependencies and pinned gitlinks.
+Its measured result and digest are preserved in verification PR #3.
 
 The new package passes CI-pinned ty 0.0.73 with warnings treated as errors.
 Repository-wide local checks with that version report eight diagnostics, all
@@ -161,11 +166,13 @@ scons: *** [openpilot/selfdrive/modeld/models/dm_warp_1344x760_tinygrad.pkl] Err
 The host has no Clang executable. This local attempt is a partial build.
 Neural-model compilation was excluded locally; no large model assets were
 downloaded into this workspace. GitHub CI subsequently passed its complete
-release build/checks/tests and macOS build at `d13f9df`. The later changes
+release build/checks/tests and macOS build at `c7e77772` and `faf507dd`. The integration fixes
 declare and run the test dependency and remove the unusable empty hash default;
 native Params was rebuilt and its manager-default regression passed locally.
 Actual AI/Chestnut inference on a device, USB cameras, Panda hardware and
-on-vehicle timing remain untested here.
+on-vehicle timing remain untested here. Enabled mode changes lateral model
+timing inputs; unchanged inference code and longitudinal delay do not establish
+identical joint neural-model outputs or closed-loop braking behavior.
 
 ## What the evidence establishes
 

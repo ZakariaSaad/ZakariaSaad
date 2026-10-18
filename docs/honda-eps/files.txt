@@ -1,6 +1,7 @@
 .github/workflows/honda-eps-baseline.yaml
 .github/workflows/tests.yaml
 docs/honda-eps/README.md
+docs/honda-eps/baseline-comparison.md
 docs/honda-eps/files.txt
 docs/honda-eps/firmware-verification.json
 docs/honda-eps/integration-plan.md
