@@ -1,0 +1,33 @@
+{
+  "removed": [
+    "openpilot.sunnypilot.modeld_v2.tests.test_combined_pkl_loader.TestStockEquivalence.test_split_queue_keys_match_stock",
+    "openpilot.sunnypilot.modeld_v2.tests.test_compile_modeld.TestReadFileChunkedToDisk.test_chunked_source_reassembled_on_disk",
+    "openpilot.sunnypilot.modeld_v2.tests.test_compile_modeld.TestReadFileChunkedToDisk.test_none_passthrough",
+    "openpilot.sunnypilot.modeld_v2.tests.test_compile_modeld.TestReadFileChunkedToDisk.test_unchunked_source_staged_on_disk",
+    "openpilot.sunnypilot.modeld_v2.tests.test_models.TestLegacyModels.test_legacy_model_load",
+    "openpilot.sunnypilot.models.tests.test_default_chestnut.TestDefaultChestnutDownloader.test_run_promotes_manifest_artifacts",
+    "openpilot.sunnypilot.models.tests.test_default_chestnut.TestDefaultChestnutHelpers.test_artifact_from_hf_bundle",
+    "openpilot.sunnypilot.models.tests.test_default_chestnut.TestDefaultChestnutHelpers.test_clear_stale_default_chestnut_artifacts",
+    "openpilot.sunnypilot.models.tests.test_default_chestnut.TestDefaultChestnutHelpers.test_needs_default_chestnut_download",
+    "openpilot.sunnypilot.models.tests.test_default_chestnut.TestDefaultChestnutHelpers.test_promote_to_canonical",
+    "openpilot.sunnypilot.models.tests.test_default_chestnut.TestDefaultChestnutHelpers.test_read_bundled_big_onnx_hash_from_lfs_pointer",
+    "openpilot.sunnypilot.models.tests.test_default_chestnut.TestResolveDefaultChestnutArtifact.test_allows_manifest_when_hf_confirms_ref",
+    "openpilot.sunnypilot.models.tests.test_default_chestnut.TestResolveDefaultChestnutArtifact.test_hf_name_fallback_requires_onnx_match",
+    "openpilot.sunnypilot.models.tests.test_default_chestnut.TestResolveDefaultChestnutArtifact.test_prefers_hf_onnx_hash_match",
+    "openpilot.sunnypilot.models.tests.test_default_chestnut.TestResolveDefaultChestnutArtifact.test_refuses_manifest_when_hf_onnx_mismatches",
+    "openpilot.sunnypilot.models.tests.test_default_model.TestDefaultModel.test_compare_big_onnx_hashes",
+    "openpilot.sunnypilot.models.tests.test_manager_download.TestManagerDownload.test_download_chunked_writes_all_chunks_and_manifest",
+    "openpilot.sunnypilot.models.tests.test_manager_download.TestManagerDownload.test_resume_skips_valid_chunks",
+    "openpilot.sunnypilot.models.tests.test_manager_download.TestManagerDownload.test_session_is_reused_across_chunks",
+    "openpilot.sunnypilot.models.tests.test_manager_download.TestManagerDownload.test_verify_reports_valid_fraction_then_cached"
+  ],
+  "added": [
+    "openpilot.sunnypilot.modeld_v2.tests.test_models.TestRegistryModels.test_model_loads",
+    "openpilot.sunnypilot.models.tests.test_default_model.TestDefaultModel.test_compare_big_pkl_hashes"
+  ],
+  "upstream_legacy_compiler_skips": [
+    "openpilot.sunnypilot.modeld_v2.tests.test_compile_modeld.TestStockCompileModeldEquivalence.test_get_policy_npy_shapes_matches_stock",
+    "openpilot.sunnypilot.modeld_v2.tests.test_compile_modeld.TestStockCompileModeldEquivalence.test_make_input_queues_full_stock_equivalence",
+    "openpilot.sunnypilot.modeld_v2.tests.test_compile_modeld.TestStockCompileModeldEquivalence.test_make_warp_queues_stock_equivalence"
+  ]
+}

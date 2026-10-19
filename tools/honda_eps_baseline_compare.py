@@ -6,6 +6,7 @@ are evidence to compare, not a reason to call a failed upstream test successful.
 """
 import argparse
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import importlib.metadata
 import json
@@ -19,6 +20,34 @@ from unittest.mock import patch
 
 BASELINE = "cb15c04e918b759688cb354b1bbc9b3c5a47a65c"
 EXTRA_PACKAGES = {"pytest", "iniconfig", "pluggy"}
+FIXTURE_MANIFEST = Path(__file__).resolve().parents[1] / "docs/honda-eps/replay-fixtures-original-mvl.json"
+SELECTOR21_REMOVED_TESTS = frozenset({
+  'openpilot.sunnypilot.modeld_v2.tests.test_combined_pkl_loader.TestStockEquivalence.test_split_queue_keys_match_stock',
+  'openpilot.sunnypilot.modeld_v2.tests.test_compile_modeld.TestReadFileChunkedToDisk.test_chunked_source_reassembled_on_disk',
+  'openpilot.sunnypilot.modeld_v2.tests.test_compile_modeld.TestReadFileChunkedToDisk.test_none_passthrough',
+  'openpilot.sunnypilot.modeld_v2.tests.test_compile_modeld.TestReadFileChunkedToDisk.test_unchunked_source_staged_on_disk',
+  'openpilot.sunnypilot.modeld_v2.tests.test_models.TestLegacyModels.test_legacy_model_load',
+  'openpilot.sunnypilot.models.tests.test_default_chestnut.TestDefaultChestnutDownloader.test_run_promotes_manifest_artifacts',
+  'openpilot.sunnypilot.models.tests.test_default_chestnut.TestDefaultChestnutHelpers.test_artifact_from_hf_bundle',
+  'openpilot.sunnypilot.models.tests.test_default_chestnut.TestDefaultChestnutHelpers.test_clear_stale_default_chestnut_artifacts',
+  'openpilot.sunnypilot.models.tests.test_default_chestnut.TestDefaultChestnutHelpers.test_needs_default_chestnut_download',
+  'openpilot.sunnypilot.models.tests.test_default_chestnut.TestDefaultChestnutHelpers.test_promote_to_canonical',
+  'openpilot.sunnypilot.models.tests.test_default_chestnut.TestDefaultChestnutHelpers.test_read_bundled_big_onnx_hash_from_lfs_pointer',
+  'openpilot.sunnypilot.models.tests.test_default_chestnut.TestResolveDefaultChestnutArtifact.test_allows_manifest_when_hf_confirms_ref',
+  'openpilot.sunnypilot.models.tests.test_default_chestnut.TestResolveDefaultChestnutArtifact.test_hf_name_fallback_requires_onnx_match',
+  'openpilot.sunnypilot.models.tests.test_default_chestnut.TestResolveDefaultChestnutArtifact.test_prefers_hf_onnx_hash_match',
+  'openpilot.sunnypilot.models.tests.test_default_chestnut.TestResolveDefaultChestnutArtifact.test_refuses_manifest_when_hf_onnx_mismatches',
+  'openpilot.sunnypilot.models.tests.test_default_model.TestDefaultModel.test_compare_big_onnx_hashes',
+  'openpilot.sunnypilot.models.tests.test_manager_download.TestManagerDownload.test_download_chunked_writes_all_chunks_and_manifest',
+  'openpilot.sunnypilot.models.tests.test_manager_download.TestManagerDownload.test_resume_skips_valid_chunks',
+  'openpilot.sunnypilot.models.tests.test_manager_download.TestManagerDownload.test_session_is_reused_across_chunks',
+  'openpilot.sunnypilot.models.tests.test_manager_download.TestManagerDownload.test_verify_reports_valid_fraction_then_cached',
+})
+SELECTOR21_LEGACY_SKIPS = frozenset(
+  "openpilot.sunnypilot.modeld_v2.tests.test_compile_modeld.TestStockCompileModeldEquivalence." + name
+  for name in ("test_get_policy_npy_shapes_matches_stock", "test_make_input_queues_full_stock_equivalence",
+               "test_make_warp_queues_stock_equivalence")
+)
 
 
 def write_json(path, value):
@@ -48,6 +77,20 @@ def verify_replay_reference(text, expected):
     raise ValueError("Replay used a different reference commit from the fingerprinted fixtures")
 
 
+def normalize_unit_records(records, root):
+  normalized = {}
+  for record in records:
+    key = record["id"]
+    value = {"status": record["status"], "detail": record["detail"].replace(str(root), "<source>")}
+    if key in normalized:
+      # Inherited hardware setUpClass hooks can run in several runner batches.
+      # These are repeated class skips, not repeated executed test methods.
+      if not (key.startswith("setUpClass (") and key.endswith(")") and value["status"] == "skipped" and normalized[key] == value):
+        raise ValueError(f"Duplicate unit result: {key}")
+    normalized[key] = value
+  return normalized
+
+
 def unit_worker(root, output):
   # Only observe the original runner's final report; do not alter collection,
   # execution, warning handling, assertions, captures or its exit status.
@@ -55,9 +98,11 @@ def unit_worker(root, output):
   original_report = test_runner.report
 
   def report(records, errors, duration_count, elapsed):
-    normalized = {r["id"]: {"status": r["status"], "detail": r["detail"].replace(str(root), "<source>")} for r in records}
-    if len(normalized) != len(records):
-      raise ValueError("Duplicate test records")
+    try:
+      normalized = normalize_unit_records(records, root)
+    except ValueError as error:
+      write_json(output, {"records": {}, "collection_errors": [str(error)], "raw_records": records})
+      raise
     write_json(output, {"records": normalized, "collection_errors": errors})
     return original_report(records, errors, duration_count, elapsed)
 
@@ -98,8 +143,46 @@ def fixture_worker(root, output):
       record(f"reference:{segment}:{cfg.proc_name}", str(local) if local.exists() else replay.BASE_URL + name)
   for index, url in enumerate(LogReader(TEST_ROUTE).logreader_identifiers):
     record(f"location-scenarios:{TEST_ROUTE}:{index}", url)
+  expected = json.loads(FIXTURE_MANIFEST.read_text())
+  if ref == expected["reference_commit"] and fixtures != expected["files"]:
+    raise ValueError("Original MVL fixture bytes differ from the verified manifest")
   # No raw logs, signed URLs or vehicle message contents are written to evidence.
   write_json(output, {"reference_commit": ref, "files": fixtures})
+  return 0
+
+
+def prepare_replay_references(root, output):
+  """Stage hash-verified original references using the replay CLI's normal local-file support."""
+  from openpilot.selfdrive.test.process_replay import test_processes as replay
+  from openpilot.tools.lib.filereader import FileReader
+
+  manifest = json.loads(FIXTURE_MANIFEST.read_text())
+  revision, ref = manifest["artifact_revision"], manifest["reference_commit"]
+  base_url = f"https://raw.githubusercontent.com/sunnypilot/ci-artifacts/{revision}/"
+  entries = [(key, value) for key, value in manifest["files"].items() if key.startswith("reference:")]
+  if len(entries) != 66:
+    raise ValueError("Expected all 66 original MVL reference logs")
+  directory = Path(replay.FAKEDATA)
+  directory.mkdir(parents=True, exist_ok=True)
+
+  def stage(entry):
+    key, expected = entry
+    _, segment, process = key.split(":")
+    name = f"{segment}_{process}_{ref}.zst".replace("|", "_")
+    with FileReader(base_url + name) as reader:
+      data = reader.read()
+    if len(data) != expected["bytes"] or hashlib.sha256(data).hexdigest() != expected["sha256"]:
+      raise ValueError(f"Original reference hash/length mismatch: {key}")
+    (directory / name).write_bytes(data)
+
+  with ThreadPoolExecutor(max_workers=4) as pool:
+    list(pool.map(stage, entries))
+  ref_path = Path(replay.REF_COMMIT_FN)
+  if git(root, "ls-files", "--", str(ref_path.relative_to(root))):
+    raise ValueError("Refusing to replace a tracked replay reference selector")
+  ref_path.write_text(ref + "\n")
+  output.parent.mkdir(parents=True, exist_ok=True)
+  write_json(output, {"artifact_revision": revision, "reference_commit": ref, "verified_reference_files": len(entries)})
   return 0
 
 
@@ -147,14 +230,21 @@ def collect(root, output, expected_sha):
   print(json.dumps({"sha": actual, "replay": result["replay"], "unit_exit": result["unit_exit"]}), flush=True)
 
 
-def compare(baseline, candidate):
+def compare(baseline, candidate, *, selector21=False):
   def read(directory, name):
     return json.loads((directory / name).read_text())
 
   before, after = read(baseline, "result.json"), read(candidate, "result.json")
   if before["sha"] != BASELINE:
     raise ValueError("Comparison is not against the exact MVL baseline")
-  for key in ("submodules", "python", "replay", "unit_exit", "replay_exit"):
+  expected_modules = dict(before["submodules"])
+  if selector21:
+    if expected_modules.get("tinygrad_repo") != "f6fc4e3f2c3db5fae1e19cbfbc3ad9fc579a12ae":
+      raise ValueError("Unexpected original tinygrad revision")
+    expected_modules["tinygrad_repo"] = "69fd4d34d4430036378aba2b43f9d339cdd6ea73"
+  if expected_modules != after["submodules"]:
+    raise ValueError("Baseline/candidate differ: submodules")
+  for key in ("python", "replay", "unit_exit", "replay_exit"):
     if before[key] != after[key]:
       raise ValueError(f"Baseline/candidate differ: {key}")
   if before["replay"]["errors"] or sum(before["replay"].values()) != 66:
@@ -162,6 +252,8 @@ def compare(baseline, candidate):
   if before["unit_exit"] not in (0, 1) or before["replay_exit"] not in (0, 1):
     raise ValueError("Unexpected test command exit status")
   for name, version in before["packages"].items():
+    if selector21 and name == "tinygrad" and version == "0.13.0":
+      version = "0.14.0"
     if after["packages"].get(name) != version:
       raise ValueError(f"Dependency version differs: {name}")
   if set(after["packages"]) - set(before["packages"]) - EXTRA_PACKAGES:
@@ -180,7 +272,23 @@ def compare(baseline, candidate):
     if any(r["status"] in ("error", "xpassed") for r in unit["records"].values()):
       raise ValueError("Unit execution error or unexpected success needs review")
     units.append(unit["records"])
-  if units[0] != units[1]:
+  original, updated = units
+  added, removed = updated.keys() - original.keys(), original.keys() - updated.keys()
+  if selector21:
+    # Only the reviewed obsolete selector-19 contracts may disappear.
+    # Every added test must pass or explicitly skip hardware.
+    if removed - SELECTOR21_REMOVED_TESTS:
+      raise ValueError(f"Unexpected removed unit tests: {sorted(removed)}")
+    if any(updated[k]["status"] not in ("passed", "skipped") for k in added):
+      raise ValueError("New model-system test failure")
+    original = {k: v for k, v in original.items() if k not in removed}
+    updated = {k: v for k, v in updated.items() if k not in added}
+    legacy_skips = []
+    for key in SELECTOR21_LEGACY_SKIPS & original.keys() & updated.keys():
+      if original[key]["status"] == "passed" and updated[key] == {"status": "skipped", "detail": ""}:
+        legacy_skips.append(key)
+        updated[key] = original[key]
+  if original != updated:
     differing = sorted(k for k in units[0].keys() | units[1].keys() if units[0].get(k) != units[1].get(k))
     raise ValueError(f"Unit outcomes/assertion traces differ: {differing}")
   return {
@@ -189,30 +297,38 @@ def compare(baseline, candidate):
     "inherited_unit_failures": {k: r["detail"] for k, r in units[0].items() if r["status"] == "failed"},
     "replay": before["replay"], "replay_reference": fixtures["reference_commit"],
     "identical_fixture_files": len(fixtures["files"]), "normalized_diff_sha256": hashlib.sha256(diff).hexdigest(),
-    "result": "Identical unit outcomes and replay differences on untouched MVL and candidate",
+    "candidate_unit_counts": dict(Counter(r["status"] for r in units[1].values())),
+    "added_tests": sorted(added), "removed_tests": sorted(removed),
+    "selector21": selector21,
+    "upstream_legacy_compiler_skips": sorted(legacy_skips) if selector21 else [],
+    "result": "Unchanged shared unit outcomes and identical replay differences" if selector21 else
+              "Identical unit outcomes and replay differences on untouched MVL and candidate",
   }
 
 
 def main():
   parser = argparse.ArgumentParser(description=__doc__)
-  parser.add_argument("mode", choices=("collect", "unit", "fixtures", "compare"))
+  parser.add_argument("mode", choices=("collect", "unit", "fixtures", "compare", "prepare-replay"))
   parser.add_argument("--root", type=Path)
   parser.add_argument("--output", type=Path, required=True)
   parser.add_argument("--expected-sha")
   parser.add_argument("--baseline", type=Path)
   parser.add_argument("--candidate", type=Path)
+  parser.add_argument("--selector21", action="store_true", help="Allow only the declared selector-21 runtime and model-test migration")
   args = parser.parse_args()
   # Resolve against the caller's directory before entering the source checkout.
   # Artifact upload runs from the workspace and must see the same destination.
   args.output = args.output.resolve()
   if args.mode == "compare":
-    result = compare(args.baseline, args.candidate)
+    result = compare(args.baseline, args.candidate, selector21=args.selector21)
     write_json(args.output, result)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
   root = args.root.resolve()
   sys.path.insert(0, str(root))
   os.chdir(root)
+  if args.mode == "prepare-replay":
+    return prepare_replay_references(root, args.output)
   if args.mode == "unit":
     return unit_worker(root, args.output)
   if args.mode == "fixtures":

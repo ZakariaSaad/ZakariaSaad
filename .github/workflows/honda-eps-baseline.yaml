@@ -50,8 +50,10 @@ jobs:
         working-directory: source
         run: scons
       - name: Run full unit suite and process replay without patching source
-        run: >-
-          source/.venv/bin/python harness/tools/honda_eps_baseline_compare.py collect
+        run: |
+          source/.venv/bin/python harness/tools/honda_eps_baseline_compare.py prepare-replay \
+          --root source --output evidence/prepared-references.json
+          source/.venv/bin/python harness/tools/honda_eps_baseline_compare.py collect \
           --root source --expected-sha "$SOURCE_SHA" --output evidence
       - uses: actions/upload-artifact@v7
         if: always()
@@ -84,6 +86,7 @@ jobs:
         run: >-
           python3 tools/honda_eps_baseline_compare.py compare
           --baseline evidence/honda-eps-baseline --candidate evidence/honda-eps-candidate
+          --selector21
           --output evidence/baseline-comparison.json
       - uses: actions/upload-artifact@v7
         if: always()
