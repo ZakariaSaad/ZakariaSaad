@@ -99,6 +99,50 @@ class TestBaselineComparison(unittest.TestCase):
         self.write(self.baseline, "result.json", self.result)
         self.write(self.candidate, "result.json", self.result)
 
+  def prepare_selector21(self):
+    original = deepcopy(self.result)
+    original["submodules"]["tinygrad_repo"] = "f6fc4e3f2c3db5fae1e19cbfbc3ad9fc579a12ae"
+    original["packages"]["tinygrad"] = "0.13.0"
+    updated = deepcopy(original)
+    updated["submodules"]["tinygrad_repo"] = "69fd4d34d4430036378aba2b43f9d339cdd6ea73"
+    updated["packages"]["tinygrad"] = "0.14.0"
+    self.write(self.baseline, "result.json", original)
+    self.write(self.candidate, "result.json", updated)
+    return updated
+
+  def test_selector21_allows_only_declared_runtime_and_model_test_migration(self):
+    self.prepare_selector21()
+    old = deepcopy(self.unit)
+    old["records"][next(iter(helper.SELECTOR21_REMOVED_TESTS))] = {"status": "passed", "detail": ""}
+    new = deepcopy(self.unit)
+    new["records"]["new.model.test"] = {"status": "passed", "detail": ""}
+    self.write(self.baseline, "unit.json", old)
+    self.write(self.candidate, "unit.json", new)
+    self.assertTrue(compare(self.baseline, self.candidate, selector21=True)["selector21"])
+    with self.assertRaises(ValueError):
+      compare(self.baseline, self.candidate)
+    for name, status in (("new.model.test", "failed"), ("original.test", "passed")):
+      changed = deepcopy(new)
+      changed["records"][name]["status"] = status
+      self.write(self.candidate, "unit.json", changed)
+      with self.assertRaises(ValueError):
+        compare(self.baseline, self.candidate, selector21=True)
+
+  def test_selector21_rejects_other_submodules_and_runtime_revisions(self):
+    updated = self.prepare_selector21()
+    for module in ("panda", "tinygrad_repo"):
+      changed = deepcopy(updated)
+      changed["submodules"][module] = "unexpected"
+      self.write(self.candidate, "result.json", changed)
+      with self.assertRaises(ValueError):
+        compare(self.baseline, self.candidate, selector21=True)
+
+  def test_selector21_cannot_remove_unrelated_tests(self):
+    self.prepare_selector21()
+    self.write(self.candidate, "unit.json", {"collection_errors": [], "records": {"new.test": {"status": "passed", "detail": ""}}})
+    with self.assertRaises(ValueError):
+      compare(self.baseline, self.candidate, selector21=True)
+
 
 if __name__ == "__main__":
   unittest.main()

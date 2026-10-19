@@ -52,12 +52,14 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           MODEL_URL: ${{ matrix.artifact.download_uri.url }}
           MODEL_FILE: ${{ matrix.artifact.file_name }}
+          MODEL_SHA256: ${{ matrix.artifact.download_uri.sha256 }}
         shell: bash
         run: |
           mkdir -p /tmp/models
           AUTH=()
           if [ -n "$HF_TOKEN" ]; then AUTH=(-H "Authorization: Bearer $HF_TOKEN"); fi
           curl --retry 3 --retry-all-errors -s -S -f -L "${AUTH[@]}" -o "/tmp/models/$MODEL_FILE" "$MODEL_URL"
+          echo "$MODEL_SHA256  /tmp/models/$MODEL_FILE" | sha256sum --check
 
       - name: Run Model Compatibility Test
         env:

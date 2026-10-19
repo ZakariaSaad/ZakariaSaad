@@ -84,6 +84,7 @@ jobs:
         run: >-
           python3 tools/honda_eps_baseline_compare.py compare
           --baseline evidence/honda-eps-baseline --candidate evidence/honda-eps-candidate
+          --selector21
           --output evidence/baseline-comparison.json
       - uses: actions/upload-artifact@v7
         if: always()

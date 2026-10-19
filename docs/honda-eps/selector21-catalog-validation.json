@@ -1,0 +1,585 @@
+{
+  "selector": 21,
+  "sources": {
+    "qcom": {
+      "url": "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_v25.json",
+      "sha256": "c8b50583ff6f5fad01e6cb7235b141d8cc5b827bcb9da93c2ed5e1a99ae1b030",
+      "count": 77,
+      "tinygrad_compilation_ref": "5d186bdb43c2bcc6c56b6ececf427c34bada0de9",
+      "models": [
+        {
+          "name": "LAv2 (January 24, 2024)",
+          "ref": "f9d5fc7dd9b763356a1201d96c6953ed4562226e",
+          "generation": 4,
+          "is20hz": false
+        },
+        {
+          "name": "Certified Herbalist v2 (February 19, 2024)",
+          "ref": "a4d53d378d4331dc7780e5e60845ea1731c48341",
+          "generation": 3,
+          "is20hz": false
+        },
+        {
+          "name": "Recertified Herbalist (March 01, 2024)",
+          "ref": "063623602c9a3cefe70d2c661b40ef7a15f73d43",
+          "generation": 3,
+          "is20hz": false
+        },
+        {
+          "name": "Duck Amigo (March 18, 2024)",
+          "ref": "5f3960a3a7689903a4da5e80b7e70cf0056acad3",
+          "generation": 3,
+          "is20hz": false
+        },
+        {
+          "name": "WD40 (April 09, 2024)",
+          "ref": "9691393bde34efb8be6fccef497d6d17758c209c",
+          "generation": 4,
+          "is20hz": false
+        },
+        {
+          "name": "North Dakota v2 (April 29, 2024)",
+          "ref": "375978d40b976bf9e82ab74f267846a56b7656a6",
+          "generation": 4,
+          "is20hz": false
+        },
+        {
+          "name": "Notre Dame (July 01, 2024)",
+          "ref": "e0c89a36da8e6a06ab85c4e74c44f70dd910e1fe",
+          "generation": 5,
+          "is20hz": false
+        },
+        {
+          "name": "Filet o Fish (March 07, 2025)",
+          "ref": "d807b5c476658dba7760d30949baa619074c4a4e",
+          "generation": 10,
+          "is20hz": true
+        },
+        {
+          "name": "SP Vikander Model (May 03, 2025)",
+          "ref": "d134fdd7d51ba84848866c0265e37508c38f9366",
+          "generation": 11,
+          "is20hz": true
+        },
+        {
+          "name": "Tomb Raider 7 (May 07, 2025)",
+          "ref": "0fb4aafa35896e831bd58a636a9a1bb4a1442743",
+          "generation": 11,
+          "is20hz": true
+        },
+        {
+          "name": "Secret Good Openpilot (May 16, 2025)",
+          "ref": "80a636e4952633886c65973d3323e58ec87ed320",
+          "generation": 11,
+          "is20hz": true
+        },
+        {
+          "name": "Kerrygold Driving (June 08, 2025)",
+          "ref": "dc7a92ea630e4f6053082fc25eca83938927b91e",
+          "generation": 10,
+          "is20hz": true
+        },
+        {
+          "name": "Liquid Crystal Driving (June 21, 2025)",
+          "ref": "b55af0de7fecdb4af073c01b77b04b8306a4e92d",
+          "generation": 10,
+          "is20hz": true
+        },
+        {
+          "name": "Vegetarian Filet o Fish (June 21, 2025)",
+          "ref": "c790d3f58ad32cf15f384e6018d942b2348f0c5b",
+          "generation": 10,
+          "is20hz": true
+        },
+        {
+          "name": "Tomb Raider 13 (June 27, 2025)",
+          "ref": "eceeaabcebcf58716ae4a018930793d89c96777b",
+          "generation": 11,
+          "is20hz": true
+        },
+        {
+          "name": "Aggressive TR (June 28, 2025)",
+          "ref": "d54a5888cf6165b30e4bdda514ab9057473cd7f8",
+          "generation": 11,
+          "is20hz": true
+        },
+        {
+          "name": "Tomb Raider 14 (June 30, 2025)",
+          "ref": "194cdbcebf2d47011d2edbf39a4ae492aa1aa338",
+          "generation": 11,
+          "is20hz": true
+        },
+        {
+          "name": "Simple Plan Driving (July 07, 2025)",
+          "ref": "f523f104eafc49dccb447aea4f7c3f666ef5626c",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Down to Ride v5 (July 08, 2025)",
+          "ref": "5b405920ec9511e146432de08171d6f93295248b",
+          "generation": 11,
+          "is20hz": true
+        },
+        {
+          "name": "Tomb Raider 15 (July 11, 2025)",
+          "ref": "ed38ca8cc998f0a2b47cde29da11b782e4551e8b",
+          "generation": 11,
+          "is20hz": true
+        },
+        {
+          "name": "Le Tomb Raider 14 (July 14, 2025)",
+          "ref": "c2fa07b82c2e09964e4b6dccb3e4465a2e4ad138",
+          "generation": 11,
+          "is20hz": true
+        },
+        {
+          "name": "Tomb Raider 16 (July 21, 2025)",
+          "ref": "e4b6a2736580dc427473bcf8a6e3b08eb352edd4",
+          "generation": 11,
+          "is20hz": true
+        },
+        {
+          "name": "Space Lab 2 (July 26, 2025)",
+          "ref": "d3a0378ae601f61307a53d1173c251ee36c56317",
+          "generation": 11,
+          "is20hz": true
+        },
+        {
+          "name": "Space Lab 3 (August 08, 2025)",
+          "ref": "659898d553eb68c981036811e1b92f6557d4e494",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Down to Ride v6 (August 12, 2025)",
+          "ref": "a6cf39c07a67dbc346af03010093fe4788c402d0",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "UV + DTR Model (August 13, 2025)",
+          "ref": "079d0461604632719e73dc5b6a5eb9897c624da2",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Steam Powered Model (August 16, 2025)",
+          "ref": "f1b8f510b2c554191ca15cebe35f2c5b304cf23c",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "gWM Model v3 (August 22, 2025)",
+          "ref": "93b26a91a62b69b809162ad2bf65e36be2158dc1",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Firehose Model (August 31, 2025)",
+          "ref": "b74f5189a74446015c0cf78a4a9f0134a347ae3b",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Fly By Wire (September 04, 2025)",
+          "ref": "c4488e3411285f6fc3d008bca885e05731fd75c2",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Nevada Model (September 07, 2025)",
+          "ref": "3193eac5e385aa010694a8ac192ff38ffe000193",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "gWM v5 (September 09, 2025)",
+          "ref": "e3ee440f7d5ac12c50db6381e292a55a69b745a7",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "gWM v6 (September 20, 2025)",
+          "ref": "91a1cea814f76d605d5b15de9634a3c8f79df509",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "gWM v8 (September 28, 2025)",
+          "ref": "96e7b310b164b55fb73abdd505b66fb36630718e",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "The Cool Peoples Model (October 03, 2025)",
+          "ref": "5306f07d05a4f84a632ce908ec5ce34993e73693",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "North Nevada Model (October 07, 2025)",
+          "ref": "74d156ee827863aa02567228a4a48931e604a41c",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "North Nevada Model V2 (October 08, 2025)",
+          "ref": "83b81b83cdf76a577946a1567f4644e1a018443c",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Nuggets in Digon (October 09, 2025)",
+          "ref": "13e79e9fad60c19e751e4f9ab0538d39f1bb54dd",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "The Cool Peoples Model v2 (October 09, 2025)",
+          "ref": "19084132cd3956413a0fdfcdc18971a55df5e0ff",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "The Cool Peoples Model v3 (October 10, 2025)",
+          "ref": "5eb912c025a2207c7d428deee74ded49e5905527",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "GWM V9 (October 21, 2025)",
+          "ref": "f2413040a8560c0c17c18353a3c75124a2f09d17",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Cool GWM  (October 24, 2025)",
+          "ref": "94dd3bd9107cd413ed2418f9e6c0cf805a9ca495",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Neurips Driving Model (November 12, 2025)",
+          "ref": "266b642180f0e9278e1db46ccf8c1a2a8dae4bb3",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Neurips Driving Model v2 (November 12, 2025)",
+          "ref": "c00ebef3269415d80800d10d255479e4006bf152",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Planplus Model (November 28, 2025)",
+          "ref": "671ac1084cedc82bca49f82bdd8c27f4d2506190",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Dark Souls Model (December 03, 2025)",
+          "ref": "ba783b9f913de089816598aa367a30499727a0ce",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Planplus v2 (December 11, 2025)",
+          "ref": "50c78a9dd670a305ca898b96245cadbc2ecdc1a6",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Dark Souls Model v2 (December 11, 2025)",
+          "ref": "5ff0e48f90d662d8c9d5061adc63e90c198c9b81",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Macrostiff (January 01, 2026)",
+          "ref": "d70b13931793bc0e4d8efd36128dd66f227a3f81",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "WMI V9 (January 07, 2026)",
+          "ref": "8950897d7e4d2ba2426b2b31cf29f25e87a3d4ba",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "SC Model (January 08, 2026)",
+          "ref": "e4a4b4b1adf2d19fedab4d195faa382b061fa754",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "WMI V12 (January 13, 2026)",
+          "ref": "7e3fd7a63c5a09c3fabe108b1b62bba3cf684878",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "CD210 Model (February 03, 2026)",
+          "ref": "5b6436a90cf6902b8aaa71c2b6f3d7164d8ae391",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "off policy model (February 04, 2026)",
+          "ref": "d90758cfaecb2cf13d9098c6aade37e68d6034d2",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Off-policy Model v2 (February 20, 2026)",
+          "ref": "ae34a24c59d85df7efad5fde2b760fb6d0b9dd6e",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Off Policy Model v3 (February 26, 2026)",
+          "ref": "7e548dd765873bed301c0a19cfe10c3ca6be2bbe",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Off-Policy Model V4 (February 27, 2026)",
+          "ref": "25abcc49fce2f6268d8cabf759e31c626edbf584",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Off-Policy Model v5 (March 14, 2026)",
+          "ref": "b390b98c5a359c293fdc2501af79b19867fcdac4",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Pop Model (March 20, 2026)",
+          "ref": "6f71783a8a8faa07ddaeef5bbb6809b4f4f44a15",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Pop Model v2 (March 24, 2026)",
+          "ref": "62bf6fb072880905a4c490f0f4f4a6b3c23346ec",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "OP Model (April 01, 2026)",
+          "ref": "cb327933002bc1a00bf60a3c20af2eb7a5f653e5",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "OP Model 7 (April 03, 2026)",
+          "ref": "052692b25d63c5ddda276b5c2271383b6aff129f",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "OP Model 8 (April 07, 2026)",
+          "ref": "eae2a73e0ac600d7f0342fc4397568e0733fe6e2",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "OP Model v10 (April 17, 2026)",
+          "ref": "2671624103b9a37c53680dd9110d9a957f61d043",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "OP Model 10 v2 (April 18, 2026)",
+          "ref": "bbde5ddb5a0ee35c98a962029355f9a95403a825",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "OP Model 10 V3 (April 19, 2026)",
+          "ref": "7d4c295c27bc3f72727c49ec73b98e45745b588d",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "OP Model 16 Deep (June 03, 2026)",
+          "ref": "f02d134f40f5e7be22b182af21b438915a47600e",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Michael RL V2 (July 18, 2026)",
+          "ref": "37b38bf738edfb1daa6875255f581e5fc9b0a258",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Rebel Legion Model (July 22, 2026)",
+          "ref": "2895346746634d7eec0ee749f946c87039948a25",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Get Your Hopes Up Model (July 25, 2026)",
+          "ref": "574735edc6e1aafdc2a69395f9a32e7f5cc4b62b",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Rebellious Hope Model (July 27, 2026)",
+          "ref": "93f5aa469a72b7621aef7da7901c100e0113e4d9",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "RDF Model (August 05, 2026)",
+          "ref": "a95e2c25cae5fbf1afba7628bfb7acc4af59e0cc",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "RDF Model V2 (August 11, 2026)",
+          "ref": "35703097905a122c9f3ddf0d12889b4873d7e2a2",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Terrible Super Fantastic Model (August 12, 2026)",
+          "ref": "4d911346cde4e0d2978a625f31679808284cc19d",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Kumars Vibe (August 14, 2026)",
+          "ref": "a992d64eb604af3effb5b6ce948da52507ae9de9",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Falling Phoenix (August 14, 2026)",
+          "ref": "eff0854aad2a8908a6522382c78af96ce3810668",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Terrible Super Fantastic Do Over Model (August 15, 2026)",
+          "ref": "0394d7284cfc229f772ee4fa73ff724ba8245110",
+          "generation": 12,
+          "is20hz": true
+        }
+      ]
+    },
+    "chestnut": {
+      "url": "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_chestnut_v28.json",
+      "sha256": "d2edd5f2d0de92b084b9e7a6f8f34642a934f87588adb5ce129bedd3bda5b46d",
+      "count": 17,
+      "tinygrad_compilation_ref": "5d186bdb43c2bcc6c56b6ececf427c34bada0de9",
+      "models": [
+        {
+          "name": "Lebowski Model (July 01, 2026)",
+          "ref": "fa0c6876d3cf070e91e25e5353ceadc68a5b3285",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Tee Time (August 18, 2026)",
+          "ref": "ff27d6220e2869ede7ee3c83e7893ec06cb75551",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "TTTTFBRLM (August 18, 2026)",
+          "ref": "1d12f404b54dc8c5cadb73669ae27399ba35ba43",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "BMRLNAP Model (August 20, 2026)",
+          "ref": "7e3ff7e914a40ac25399a2caedbce3580fdde6a2",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "I Desire Model (August 21, 2026)",
+          "ref": "6691f163a4ed8a9c4e2ca95efc29c04478ec0250",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Happy Birthday Model (August 24, 2026)",
+          "ref": "db06f5f36caa379e112bafd38423e37b66fa4149",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "BMRLNAP Model v2 (August 24, 2026)",
+          "ref": "ba37c02c7c64225b8aec79411d1a8c2f5c1aa343",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "BMRLNAP Model v3 (August 26, 2026)",
+          "ref": "47377ac2f726651fc1470eb725cf73418307e5aa",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Sad Model (August 28, 2026)",
+          "ref": "30de303d5ffb63957f8acbdb256fd4c7d360455a",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "BMRLNAP Model v4 (August 30, 2026)",
+          "ref": "f877d7a0ccc3cce943c76e285214c020cd65c899",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "BMRLNAP Model v6 (September 01, 2026)",
+          "ref": "9d683c06518c0358fb402f38468a7030700c38ac",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Cinque Terre Model (September 04, 2026)",
+          "ref": "68b5f8e48602f4f88041efd7de6c99e97fda454e",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Cinque Terre Model V2 (September 08, 2026)",
+          "ref": "37bfa1413edcdc2e8844984b83727c33f81d8f46",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Cinque Terre V3 Model (September 17, 2026)",
+          "ref": "bf3e3631b3f91d92a1020a5e0dd4298b93ff4244",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Mountain Dew Model (October 10, 2026)",
+          "ref": "6f4c0faf1f85132734e94aa39c67143f823b9324",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Mountain Dew Model v3 (October 14, 2026)",
+          "ref": "1e219d7785cfb7b7343c7f2366347fc86e7ce5f2",
+          "generation": 12,
+          "is20hz": true
+        },
+        {
+          "name": "Train Track Model (October 16, 2026)",
+          "ref": "e46b35b0dcce35761ba28ada1a7df6ae36589c30",
+          "generation": 12,
+          "is20hz": true
+        }
+      ]
+    }
+  }
+}
