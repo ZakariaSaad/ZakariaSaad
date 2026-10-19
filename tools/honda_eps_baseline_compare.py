@@ -6,6 +6,7 @@ are evidence to compare, not a reason to call a failed upstream test successful.
 """
 import argparse
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import importlib.metadata
 import json
@@ -19,6 +20,7 @@ from unittest.mock import patch
 
 BASELINE = "cb15c04e918b759688cb354b1bbc9b3c5a47a65c"
 EXTRA_PACKAGES = {"pytest", "iniconfig", "pluggy"}
+FIXTURE_MANIFEST = Path(__file__).resolve().parents[1] / "docs/honda-eps/replay-fixtures-original-mvl.json"
 SELECTOR21_REMOVED_TESTS = frozenset({
   'openpilot.sunnypilot.modeld_v2.tests.test_combined_pkl_loader.TestStockEquivalence.test_split_queue_keys_match_stock',
   'openpilot.sunnypilot.modeld_v2.tests.test_compile_modeld.TestReadFileChunkedToDisk.test_chunked_source_reassembled_on_disk',
@@ -120,8 +122,46 @@ def fixture_worker(root, output):
       record(f"reference:{segment}:{cfg.proc_name}", str(local) if local.exists() else replay.BASE_URL + name)
   for index, url in enumerate(LogReader(TEST_ROUTE).logreader_identifiers):
     record(f"location-scenarios:{TEST_ROUTE}:{index}", url)
+  expected = json.loads(FIXTURE_MANIFEST.read_text())
+  if ref == expected["reference_commit"] and fixtures != expected["files"]:
+    raise ValueError("Original MVL fixture bytes differ from the verified manifest")
   # No raw logs, signed URLs or vehicle message contents are written to evidence.
   write_json(output, {"reference_commit": ref, "files": fixtures})
+  return 0
+
+
+def prepare_replay_references(root, output):
+  """Stage hash-verified original references using the replay CLI's normal local-file support."""
+  from openpilot.selfdrive.test.process_replay import test_processes as replay
+  from openpilot.tools.lib.filereader import FileReader
+
+  manifest = json.loads(FIXTURE_MANIFEST.read_text())
+  revision, ref = manifest["artifact_revision"], manifest["reference_commit"]
+  base_url = f"https://raw.githubusercontent.com/sunnypilot/ci-artifacts/{revision}/"
+  entries = [(key, value) for key, value in manifest["files"].items() if key.startswith("reference:")]
+  if len(entries) != 66:
+    raise ValueError("Expected all 66 original MVL reference logs")
+  directory = Path(replay.FAKEDATA)
+  directory.mkdir(parents=True, exist_ok=True)
+
+  def stage(entry):
+    key, expected = entry
+    _, segment, process = key.split(":")
+    name = f"{segment}_{process}_{ref}.zst".replace("|", "_")
+    with FileReader(base_url + name) as reader:
+      data = reader.read()
+    if len(data) != expected["bytes"] or hashlib.sha256(data).hexdigest() != expected["sha256"]:
+      raise ValueError(f"Original reference hash/length mismatch: {key}")
+    (directory / name).write_bytes(data)
+
+  with ThreadPoolExecutor(max_workers=4) as pool:
+    list(pool.map(stage, entries))
+  ref_path = Path(replay.REF_COMMIT_FN)
+  if git(root, "ls-files", "--", str(ref_path.relative_to(root))):
+    raise ValueError("Refusing to replace a tracked replay reference selector")
+  ref_path.write_text(ref + "\n")
+  output.parent.mkdir(parents=True, exist_ok=True)
+  write_json(output, {"artifact_revision": revision, "reference_commit": ref, "verified_reference_files": len(entries)})
   return 0
 
 
@@ -241,7 +281,7 @@ def compare(baseline, candidate, *, selector21=False):
 
 def main():
   parser = argparse.ArgumentParser(description=__doc__)
-  parser.add_argument("mode", choices=("collect", "unit", "fixtures", "compare"))
+  parser.add_argument("mode", choices=("collect", "unit", "fixtures", "compare", "prepare-replay"))
   parser.add_argument("--root", type=Path)
   parser.add_argument("--output", type=Path, required=True)
   parser.add_argument("--expected-sha")
@@ -260,6 +300,8 @@ def main():
   root = args.root.resolve()
   sys.path.insert(0, str(root))
   os.chdir(root)
+  if args.mode == "prepare-replay":
+    return prepare_replay_references(root, args.output)
   if args.mode == "unit":
     return unit_worker(root, args.output)
   if args.mode == "fixtures":

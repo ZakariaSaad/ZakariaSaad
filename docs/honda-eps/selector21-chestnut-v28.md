@@ -42,7 +42,9 @@ Train Track. Inspect the JSON for the exact official display names.
 The runtime submodule is upstream's `69fd4d34d4430036378aba2b43f9d339cdd6ea73`
 (tinygrad 0.14.0). The catalog's `5d186bdb43c2bcc6c56b6ececf427c34bada0de9`
 is compilation provenance. Selector 21 uses portable plain GPU artifacts
-(`SPTGPLN1`), replacing Python/tinygrad-object pickles. The upstream
+(`SPTGPLN1`), replacing Python/tinygrad-object pickles in the catalog.
+The bundled stock default uses upstream's separate out-of-band loader; its
+800 MB artifact also loaded successfully on CPU with the pinned runtime. The upstream
 compatibility workflow downloads and checksum-verifies every catalog artifact
 and loads it with QCOM/AMD mapped to CPU. That verifies format/runtime loading;
 it does not execute those GPU kernels or establish vehicle compatibility.
@@ -129,7 +131,30 @@ and package version, removal of the 20 explicitly listed obsolete model-system t
 passing/skipped tests. All shared outcomes, inherited failures, other
 submodules, fixture hashes and replay numerical differences must still match.
 
-Full build, full unit suite, replay and GitHub Actions results are reported
-in the testing PR. A skipped hardware test is not evidence of GPU inference
+The complete Linux build and static analysis passed. All **94 catalog GPU
+artifacts**, including all 17 big models, passed the checksum and CPU-mapped
+loading jobs in Actions run `39283547910` on integration commit `23642a207`.
+The full CI unit suite reported **1500 passed, 50 skipped, 1 xfailed and
+3 failed**; the failures are the same calibration auto-reset, consistent gyro
+spike and consistent timing spike assertions previously verified on exact MVL.
+
+Release CI exposed an 800 MB raw-PKL packaging regression. The release scripts
+from the same upstream sync (`2149006ec`) now exclude bundled big artifacts from
+ordinary stripped releases and use LFS when `INCLUDE_BIG_MODEL=1`. Both packaging
+variants are checked separately; neither publishes or deploys a release.
+
+The moving upstream replay artifact branch no longer carries MVL's old route
+references. The CI harness now stages all 66 original reference logs from
+immutable artifact commit `cb59dbea61fd15d4b5a43b05c22108e96a58e476`, reference
+`27c132984df60e9ef42ebd1a805738b8c851356f`. Every log was downloaded and checked
+against its previously recorded hash. The complete 83-file original fixture
+manifest is preserved in `replay-fixtures-original-mvl.json`. Both baseline and
+candidate use the same references via the replay CLI's normal local-file path;
+assertions, tolerances, process selection and tracked MVL source stay unchanged.
+Local Azure input-log access is blocked by the environment proxy (HTTP 403),
+reproduced with the untouched MVL downloader. The local broad unit evidence collector rejected duplicate records and did
+not produce a valid report; the completed CI unit execution above is the
+usable evidence. Final paired replay and Actions results
+are reported in the testing PR. A skipped hardware test is not evidence of GPU inference
 or vehicle validation. The known original MVL calibration failures and replay
 differences remain documented in the Honda EPS baseline reports.
