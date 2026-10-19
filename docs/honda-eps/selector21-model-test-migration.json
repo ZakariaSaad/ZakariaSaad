@@ -24,5 +24,10 @@
   "added": [
     "openpilot.sunnypilot.modeld_v2.tests.test_models.TestRegistryModels.test_model_loads",
     "openpilot.sunnypilot.models.tests.test_default_model.TestDefaultModel.test_compare_big_pkl_hashes"
+  ],
+  "upstream_legacy_compiler_skips": [
+    "openpilot.sunnypilot.modeld_v2.tests.test_compile_modeld.TestStockCompileModeldEquivalence.test_get_policy_npy_shapes_matches_stock",
+    "openpilot.sunnypilot.modeld_v2.tests.test_compile_modeld.TestStockCompileModeldEquivalence.test_make_input_queues_full_stock_equivalence",
+    "openpilot.sunnypilot.modeld_v2.tests.test_compile_modeld.TestStockCompileModeldEquivalence.test_make_warp_queues_stock_equivalence"
   ]
 }

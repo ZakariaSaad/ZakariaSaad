@@ -125,9 +125,10 @@ python -m pytest -q openpilot/system/hardware/tests/test_chestnut_integration.py
 ```
 
 Result: **549 passed, 5 skipped**. The 94-entry official catalog check passed.
-Baseline-comparison helper: **13 passed**. It remains strict by default;
+Baseline-comparison helper: **15 passed**. It remains strict by default;
 the explicit `--selector21` mode permits only the declared tinygrad revision
-and package version, removal of the 20 explicitly listed obsolete model-system tests, and newly
+and package version, removal of the 20 explicitly listed obsolete model-system tests, the three
+upstream skips for removed legacy compiler APIs, and newly
 passing/skipped tests. All shared outcomes, inherited failures, other
 submodules, fixture hashes and replay numerical differences must still match.
 
@@ -141,7 +142,8 @@ spike and consistent timing spike assertions previously verified on exact MVL.
 Release CI exposed an 800 MB raw-PKL packaging regression. The release scripts
 from the same upstream sync (`2149006ec`) now exclude bundled big artifacts from
 ordinary stripped releases and use LFS when `INCLUDE_BIG_MODEL=1`. Both packaging
-variants are checked separately; neither publishes or deploys a release.
+variants passed locally; the final-head Linux release build and macOS build
+also passed in Actions run `39285588924`; neither publishes or deploys a release.
 
 The moving upstream replay artifact branch no longer carries MVL's old route
 references. The CI harness now stages all 66 original reference logs from
@@ -152,9 +154,13 @@ manifest is preserved in `replay-fixtures-original-mvl.json`. Both baseline and
 candidate use the same references via the replay CLI's normal local-file path;
 assertions, tolerances, process selection and tracked MVL source stay unchanged.
 Local Azure input-log access is blocked by the environment proxy (HTTP 403),
-reproduced with the untouched MVL downloader. The local broad unit evidence collector rejected duplicate records and did
-not produce a valid report; the completed CI unit execution above is the
-usable evidence. Final paired replay and Actions results
-are reported in the testing PR. A skipped hardware test is not evidence of GPU inference
+reproduced with the untouched MVL downloader. The initial paired collector rejected a repeated class-level hardware skip:
+its original runner split `TestOnroad` across batches and reported the same
+`setUpClass` skip twice. The collector now collapses only identical class-level
+skip records; it still rejects repeated test methods, conflicting outcomes and
+fixture errors. This was reproduced directly with the original runner.
+The completed ordinary CI unit run above remains usable evidence. The paired artifacts from run `39285588561` have identical 83-file hashes and
+identical complete numerical replay diffs. The corrected unit collector is
+being rerun; final comparison and Actions results are reported in the PR. A skipped hardware test is not evidence of GPU inference
 or vehicle validation. The known original MVL calibration failures and replay
 differences remain documented in the Honda EPS baseline reports.

@@ -143,6 +143,35 @@ class TestBaselineComparison(unittest.TestCase):
     with self.assertRaises(ValueError):
       compare(self.baseline, self.candidate, selector21=True)
 
+  def test_only_identical_class_fixture_skips_can_repeat(self):
+    record = {"id": "setUpClass (hardware.TestOnroad)", "status": "skipped", "detail": ""}
+    result = helper.normalize_unit_records([record, record], Path("/source"))
+    self.assertEqual(len(result), 1)
+    for changed in ({**record, "status": "error"}, {**record, "detail": "different"}):
+      with self.assertRaises(ValueError):
+        helper.normalize_unit_records([record, changed], Path("/source"))
+    for status in ("passed", "skipped", "failed"):
+      method = {"id": "hardware.TestOnroad.test_method", "status": status, "detail": ""}
+      with self.assertRaises(ValueError):
+        helper.normalize_unit_records([method, method], Path("/source"))
+
+  def test_selector21_only_allows_the_explicit_upstream_legacy_skips(self):
+    self.prepare_selector21()
+    key = next(iter(helper.SELECTOR21_LEGACY_SKIPS))
+    old = deepcopy(self.unit)
+    old["records"][key] = {"status": "passed", "detail": ""}
+    new = deepcopy(old)
+    new["records"][key]["status"] = "skipped"
+    self.write(self.baseline, "unit.json", old)
+    self.write(self.candidate, "unit.json", new)
+    self.assertEqual(compare(self.baseline, self.candidate, selector21=True)["upstream_legacy_compiler_skips"], [key])
+    for status in ("failed", "error"):
+      changed = deepcopy(new)
+      changed["records"][key]["status"] = status
+      self.write(self.candidate, "unit.json", changed)
+      with self.assertRaises(ValueError):
+        compare(self.baseline, self.candidate, selector21=True)
+
 
 if __name__ == "__main__":
   unittest.main()
