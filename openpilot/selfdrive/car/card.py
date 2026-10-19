@@ -24,6 +24,8 @@ from openpilot.selfdrive.car.helpers import convert_carControlSP, convert_to_cap
 
 from openpilot.sunnypilot.mads.helpers import set_alternative_experience, set_car_specific_params
 from openpilot.sunnypilot.selfdrive.car import interfaces as sunnypilot_interfaces
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.driver_override import apply_firmware_driver_threshold
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import prepare_drive_config
 
 REPLAY = "REPLAY" in os.environ
 
@@ -122,6 +124,10 @@ class Car:
       self.CI, self.CP, self.CP_SP = CI, CI.CP, CI.CP_SP
       self.RI = RI
 
+    # Also publish an explicit latch for injected interfaces/replay. This is a
+    # no-op for the normal setup_interfaces path and precedes both CP records.
+    self.firmware_config = prepare_drive_config(self.params, self.CP, self.CP_SP)
+
     self.CP.alternativeExperience = 0
     # mads
     set_alternative_experience(self.CP, self.CP_SP, self.params)
@@ -197,6 +203,11 @@ class Car:
 
     # Update carState from CAN
     CS, CS_SP = self.CI.update(can_list)
+    apply_firmware_driver_threshold(CS, self.firmware_config)
+    if self.firmware_config is not None and self.CI.CS.out is not CS:
+      # Honda normally stores this exact CS object; keep actuator consumers
+      # consistent if an interface supplies a separate mutable output record.
+      self.CI.CS.out.steeringPressed = CS.steeringPressed
     CS_SP = convert_to_capnp(CS_SP)
 
     # Update radar tracks from CAN

@@ -1,0 +1,96 @@
+name: Honda EPS baseline comparison
+
+on:
+  pull_request:
+    branches: [mvl-honda-eps]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: honda-eps-baseline-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  CI: 1
+  GIT_CONFIG_COUNT: 1
+  GIT_CONFIG_KEY_0: lfs.fetchexclude
+  GIT_CONFIG_VALUE_0: openpilot/selfdrive/modeld/models/big_driving_supercombo.onnx
+
+jobs:
+  collect:
+    name: Collect ${{ matrix.revision }} evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        revision: [baseline, candidate]
+    env:
+      PYTHONPATH: ${{ github.workspace }}/source
+      SOURCE_SHA: ${{ matrix.revision == 'baseline' && 'cb15c04e918b759688cb354b1bbc9b3c5a47a65c' || github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          submodules: true
+          persist-credentials: false
+      - name: Set up original dependencies
+        working-directory: source
+        run: ./tools/op.sh setup
+      - name: Install headless dependencies
+        run: sudo apt-get install -y --no-install-recommends libgles2 libegl1
+      - name: Build original source
+        working-directory: source
+        run: scons
+      - name: Run full unit suite and process replay without patching source
+        run: |
+          source/.venv/bin/python harness/tools/honda_eps_baseline_compare.py prepare-replay \
+          --root source --output evidence/prepared-references.json
+          source/.venv/bin/python harness/tools/honda_eps_baseline_compare.py collect \
+          --root source --expected-sha "$SOURCE_SHA" --output evidence
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: honda-eps-${{ matrix.revision }}
+          path: |
+            evidence/*.json
+            evidence/*diff*.txt
+          if-no-files-found: error
+      - name: Print diagnostic logs after infrastructure failure
+        if: failure()
+        run: tail -n 100 evidence/*.log
+
+  compare:
+    name: Verify unchanged baseline failures
+    needs: collect
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: honda-eps-*
+          path: evidence
+      - name: Verify comparison helper
+        run: python3 -m unittest tools.tests.test_honda_eps_baseline_compare
+      - name: Reject any additional failure or changed replay difference
+        run: >-
+          python3 tools/honda_eps_baseline_compare.py compare
+          --baseline evidence/honda-eps-baseline --candidate evidence/honda-eps-candidate
+          --selector21
+          --output evidence/baseline-comparison.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: honda-eps-baseline-comparison
+          path: evidence/baseline-comparison.json
+          if-no-files-found: error

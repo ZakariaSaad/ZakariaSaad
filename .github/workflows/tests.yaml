@@ -123,6 +123,11 @@ jobs:
       run: sudo apt-get install -y --no-install-recommends libgles2 libegl1
     - name: Build openpilot
       run: scons
+    - name: Run Honda EPS controller tests
+      timeout-minutes: 3
+      env:
+        DEV: CPU
+      run: python -m pytest -q openpilot/sunnypilot/selfdrive/controls/lib/honda_eps/tests
     - name: Run unit tests
       timeout-minutes: ${{ contains(runner.name, 'nsc') && 2 || 999 }}
       env:
@@ -142,6 +147,10 @@ jobs:
     - run: ./tools/op.sh setup
     - name: Build openpilot
       run: scons
+    - name: Prepare original MVL replay references
+      run: >-
+        python tools/honda_eps_baseline_compare.py prepare-replay
+        --root . --output /tmp/mvl-replay-references.json
     - name: Run replay
       timeout-minutes: ${{ contains(runner.name, 'nsc') && 2 || 20 }}
       continue-on-error: ${{ github.ref == 'refs/heads/master' }}
