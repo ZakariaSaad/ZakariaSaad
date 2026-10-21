@@ -83,6 +83,26 @@ class TestNavigationModelInputs(OpenpilotTestCase):
         self.assertEqual((image['offset'], image['nbytes'], image['dtype']), (offsets['nav_map'], 65536 * map_dtype.itemsize, dtype_name))
         self.assertEqual((vector['offset'], vector['nbytes']), (offsets['navigation'], 188))
 
+  def test_explicit_scratch_warp_and_default_asset_selection(self):
+    scratch_path = '/tmp/offline-only-cpu-warp.pkl'
+    overridden = frame_fusion.fused_with_warp(1344, 760, False, warp_path=scratch_path)
+    self.assertIs(overridden.func, frame_fusion.frame_part)
+    self.assertEqual(overridden.args, (scratch_path,))
+    for chestnut in (False, True):
+      default = frame_fusion.fused_with_warp(1344, 760, chestnut)
+      prefix = 'big_' if chestnut else ''
+      self.assertEqual(default.args, (f'{frame_fusion.BASEDIR}/openpilot/sunnypilot/modeld_v2/models/{prefix}driving_warp_1344x760_tinygrad.pkl',))
+
+  def test_modelstate_forwards_only_explicit_warp_override(self):
+    with patch.object(modeld_module, 'get_active_bundle', return_value=None), \
+         patch.object(modeld_module, '_find_driving_pkl', return_value='synthetic-driving-model'), \
+         patch.object(modeld_module.ModelState, '_init_combined') as init:
+      modeld_module.ModelState(1344, 760)
+      init.assert_called_once_with('synthetic-driving-model', 1344, 760, None)
+      init.reset_mock()
+      modeld_module.ModelState(1344, 760, warp_path='/tmp/offline-cpu-warp.pkl')
+      init.assert_called_once_with('synthetic-driving-model', 1344, 760, None, warp_path='/tmp/offline-cpu-warp.pkl')
+
   def test_existing_float32_layout_is_unchanged(self):
     offsets, total = pack_layout({'desire': ((1, 8), np.float32), 'traffic_convention': ((1, 2), np.float32),
                                   'action_t': ((1, 2), np.float32)}, 1000)

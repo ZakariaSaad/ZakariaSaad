@@ -31,8 +31,11 @@ class _Blobs:  # the model's and the warp's blobs as one address space, for a pa
     return self.blobs[index][span.start - self.starts[index]:span.stop - self.starts[index]]
 
 
-def fused_with_warp(cam_w: int, cam_h: int, chestnut: bool):  # load_model's extend: a native model runs upload, warp and model as one submit
-  return partial(frame_part, f"{BASEDIR}/openpilot/sunnypilot/modeld_v2/models/{'big_' if chestnut else ''}driving_warp_{cam_w}x{cam_h}_tinygrad.pkl")
+def fused_with_warp(cam_w: int, cam_h: int, chestnut: bool, *, warp_path: str | None = None):
+  # A scratch CPU warp lets the offline harness keep tracked QCOM/AMD assets untouched.
+  path = warp_path if warp_path is not None else (
+    f"{BASEDIR}/openpilot/sunnypilot/modeld_v2/models/{'big_' if chestnut else ''}driving_warp_{cam_w}x{cam_h}_tinygrad.pkl")
+  return partial(frame_part, path)
 
 
 def frame_part(warp_path: str, parts: dict, extras: dict) -> dict:

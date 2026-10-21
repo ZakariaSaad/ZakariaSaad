@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 import numpy as np
-from tools.navigation_model_offline import compare_runs, load_recording
+from tools.navigation_model_offline import compare_runs, load_recording, require_cpu_artifact, validate_warp_specs
 
 
 class TestOfflineReplay(unittest.TestCase):
@@ -102,3 +102,32 @@ class TestOfflineReplay(unittest.TestCase):
             load_recording(p, 'desire')
       np.savez(p, allow_pickle=False, **arrays, nav_valid=np.array([True]))
       self.assertEqual(set(load_recording(p, 'desire')[0]['navigation']), {'nav_map', 'navigation'})
+
+  def test_gpu_targets_rejected_before_artifact_loading(self):
+    from openpilot.sunnypilot.modeld_v2.helpers import write_bundle
+
+    with tempfile.TemporaryDirectory() as root:
+      p = Path(root) / 'artifact.sptg'
+      for target in ('CPU', 'CPU:LLVM', 'AMD', 'QCOM'):
+        with self.subTest(target=target):
+          header = {'buffers': [{'device': 'CPU'}], 'inputs': [], 'calls': [{'kind': 'program', 'target': {'device': target}}]}
+          write_bundle(str(p), {'run': (header, b'')}, {'input_specs': {'nav_map': ((1, 1, 256, 256), 'uint8', 'CPU')}})
+          if target.startswith('CPU'):
+            require_cpu_artifact(p)
+          else:
+            with self.assertRaisesRegex(ValueError, 'requires CPU/NPY'):
+              require_cpu_artifact(p)
+      # Input/output metadata must not override CPU-only program/buffer claims.
+      write_bundle(str(p), {}, {'output_specs': {'outputs': ((1, 18580), 'float32', 'AMD')}})
+      with self.assertRaisesRegex(ValueError, 'requires CPU/NPY'):
+        require_cpu_artifact(p)
+
+  def test_warp_camera_extent_and_model_output_contract(self):
+    model = {'input_specs': {'new_img': ((2, 6, 128, 256), 'uint8', 'CPU')}}
+    warp = {'input_specs': {'input_frame': ((2, 1622016), 'uint8', 'CPU'), 'M_inv': ((2, 3, 3), 'float32', 'CPU')}}
+    header = {'returns': {'tensors': [{'shape': [2, 6, 128, 256], 'dtype': 'dtypes.uint8'}]}}
+    validate_warp_specs(model, header, warp, 1344, 760)
+    with self.assertRaisesRegex(ValueError, 'NV12 copied extent'):
+      validate_warp_specs(model, header, warp, 1928, 1208)
+    with self.assertRaisesRegex(ValueError, 'image shape/dtype'):
+      validate_warp_specs(model, {'returns': {'tensors': [{'shape': [2, 3, 128, 256], 'dtype': 'dtypes.uint8'}]}}, warp, 1344, 760)

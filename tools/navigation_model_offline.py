@@ -14,6 +14,45 @@ from types import SimpleNamespace
 import numpy as np
 
 
+def require_cpu_artifact(path):
+  """Reject GPU targets before loading any compiled program from a trusted artifact."""
+  from openpilot.sunnypilot.modeld_v2.helpers import read_parts
+
+  parts, extras = read_parts(str(path))
+  devices = set()
+  for header, _ in parts.values():
+    devices.update(entry['device'] for entry in header.get('buffers', ()))
+    devices.update(entry['device'] for entry in header.get('inputs', ()))
+    devices.update(call['target']['device'] for call in header.get('calls', ()) if call['kind'] == 'program')
+  for key in ('input_specs', 'output_specs'):
+    devices.update(spec[2] for spec in extras.get(key, {}).values())
+  if not devices or any(device.split(':', 1)[0] not in ('CPU', 'NPY') for device in devices):
+    raise ValueError(f'Offline harness requires CPU/NPY artifact targets, found {sorted(devices)}')
+  return parts, extras
+
+
+def validate_warp_specs(model_extras, warp_header, warp_extras, width, height):
+  from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
+  from openpilot.sunnypilot.modeld_v2.helpers import _dtype
+  from tinygrad.dtype import _to_np_dtype
+
+  stride, y_height, uv_height, _ = get_nv12_info(width, height)
+  frame_shape, frame_dtype, _ = warp_extras['input_specs']['input_frame']
+  transform_shape, transform_dtype, _ = warp_extras['input_specs']['M_inv']
+  if tuple(frame_shape) != (2, stride * (y_height + uv_height)) or np.dtype(frame_dtype) != np.uint8:
+    raise ValueError('CPU warp input must match the requested camera NV12 copied extent')
+  if tuple(transform_shape) != (2, 3, 3) or np.dtype(transform_dtype) != np.float32:
+    raise ValueError('CPU warp requires two float32 3x3 transforms')
+  image_shape, image_dtype, _ = model_extras['input_specs']['new_img']
+  outputs = warp_header['returns']['tensors']
+  if (
+    len(outputs) != 1
+    or tuple(outputs[0]['shape']) != tuple(image_shape)
+    or np.dtype(_to_np_dtype(_dtype(outputs[0]['dtype']))) != np.dtype(image_dtype)
+  ):
+    raise ValueError('CPU warp output must match the driving model image shape/dtype')
+
+
 def compare_runs(model_factory, frames):
   """Independent recurrent states for neutral and conditioned arms; raw cameras/timing identical."""
   result = {}
@@ -83,6 +122,7 @@ def load_recording(path, desire_key):
 def main():
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument('--artifact', type=Path, required=True, help='Trusted SPTG artifact compiled for the PC CPU runtime')
+  parser.add_argument('--warp-artifact', type=Path, required=True, help='Trusted CPU-compiled SPTG camera warp matching width/height')
   parser.add_argument('--recording', type=Path, required=True, help='Prepared offline NPZ; never live camera/CAN')
   parser.add_argument('--output', type=Path, required=True)
   parser.add_argument('--width', type=int, default=1344)
@@ -92,20 +132,25 @@ def main():
 
   if not PC or os.environ.get('NAV_MODEL_OFFLINE') != '1':
     parser.error('Only explicitly opted-in PC offline evaluation is permitted (NAV_MODEL_OFFLINE=1)')
+  artifact = args.artifact.resolve(strict=True)
+  warp_artifact = args.warp_artifact.resolve(strict=True)
+  _, model_extras = require_cpu_artifact(artifact)
+  warp_parts, warp_extras = require_cpu_artifact(warp_artifact)
+  validate_warp_specs(model_extras, warp_parts['run'][0], warp_extras, args.width, args.height)
   from openpilot.common.params import Params
   from openpilot.common.prefix import OpenpilotPrefix
   from openpilot.sunnypilot.modeld_v2.modeld import ModelState
 
   original = os.environ.get('COMBINED_MODEL_PKL')
   try:
-    os.environ['COMBINED_MODEL_PKL'] = str(args.artifact.resolve(strict=True))
+    os.environ['COMBINED_MODEL_PKL'] = str(artifact)
     with OpenpilotPrefix():
       params = Params()
       params.put_bool('NavigationModelInputsEnabled', True, block=True)
 
       # No publisher, manager, controller, safety process or CAN interface is started.
       def factory():
-        return ModelState(args.width, args.height, chestnut=False)
+        return ModelState(args.width, args.height, chestnut=False, warp_path=str(warp_artifact))
 
       prototype = factory()
       frames = load_recording(args.recording, prototype.desire_key)

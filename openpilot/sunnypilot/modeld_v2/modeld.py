@@ -110,7 +110,7 @@ class ModelState(ModelStateBase):
   inputs: dict[str, np.ndarray]
   prev_desire: np.ndarray
 
-  def __init__(self, cam_w: int, cam_h: int, chestnut: bool = False):
+  def __init__(self, cam_w: int, cam_h: int, chestnut: bool = False, *, warp_path: str | None = None):
     ModelStateBase.__init__(self)
 
     env_pkl = os.environ.get('COMBINED_MODEL_PKL')
@@ -129,11 +129,15 @@ class ModelState(ModelStateBase):
 
     pkl_path = _find_driving_pkl(model_bundle)
     assert pkl_path is not None, f"No driving pkl found for {'chestnut' if chestnut else 'small model'} — all models must be compiled with compile_modeld.py"
-    self._init_combined(pkl_path, cam_w, cam_h, model_bundle)
+    if warp_path is None:
+      self._init_combined(pkl_path, cam_w, cam_h, model_bundle)
+    else:
+      self._init_combined(pkl_path, cam_w, cam_h, model_bundle, warp_path=warp_path)
 
-  def _init_combined(self, pkl_path, cam_w, cam_h, bundle):
+  def _init_combined(self, pkl_path, cam_w, cam_h, bundle, *, warp_path: str | None = None):
     cloudlog.warning(f"loading combined pkl: {pkl_path}")
-    fuse = fused_with_warp(cam_w, cam_h, self.chestnut)
+    fuse = (fused_with_warp(cam_w, cam_h, self.chestnut) if warp_path is None else
+            fused_with_warp(cam_w, cam_h, self.chestnut, warp_path=warp_path))
 
     def checked_fusion(parts, extras):
       # load_model calls this before allocating PlainJit/GPU buffers or replaying any kernels.
