@@ -1,0 +1,591 @@
+{
+  "schema_version": 1,
+  "purpose": "Static signatures of public official experimental ONNX models, redistributed by happymaj11r. No weights, model PKLs, pickle metadata or executable model data are included.",
+  "models": [
+    {
+      "tag": "big-nav-model-integration-6ea13501",
+      "release_url": "https://github.com/happymaj11r/openpilot-models/releases/tag/big-nav-model-integration-6ea13501",
+      "asset_url": "https://github.com/happymaj11r/openpilot-models/releases/download/big-nav-model-integration-6ea13501/big_driving_supercombo.onnx",
+      "asset_id": 631811809,
+      "sha256": "6ea13501cd6682321ee303c2fe425667988fa43a8aa326d35845602e22e4460d",
+      "size_bytes": 764686430,
+      "official_matching_commit": "a52113eea9a81c79c9309dbc379f0ce25ffa943d",
+      "official_lfs_pointer_url": "https://github.com/commaai/openpilot/blob/a52113eea9a81c79c9309dbc379f0ce25ffa943d/openpilot/selfdrive/modeld/models/big_driving_supercombo.onnx",
+      "model_checkpoint": "cf8f6120-49ee-48f8-b2d7-d663a4708271/56320",
+      "ir_version": 10,
+      "opsets": [
+        {
+          "domain": "",
+          "version": 20
+        },
+        {
+          "domain": "org.tinygrad",
+          "version": 1
+        }
+      ],
+      "inputs": [
+        {
+          "name": "new_img",
+          "dtype_code": 2,
+          "dtype": "UINT8",
+          "shape": [
+            2,
+            6,
+            128,
+            256
+          ]
+        },
+        {
+          "name": "desire",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            8
+          ]
+        },
+        {
+          "name": "traffic_convention",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            1,
+            2
+          ]
+        },
+        {
+          "name": "action_t",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            1,
+            2
+          ]
+        },
+        {
+          "name": "nav_map",
+          "dtype_code": 2,
+          "dtype": "UINT8",
+          "shape": [
+            1,
+            1,
+            256,
+            256
+          ]
+        },
+        {
+          "name": "navigation",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            47
+          ]
+        },
+        {
+          "name": "state_img_q",
+          "dtype_code": 2,
+          "dtype": "UINT8",
+          "shape": [
+            2,
+            5,
+            6,
+            128,
+            256
+          ]
+        },
+        {
+          "name": "state_desire_q",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            132,
+            1,
+            8
+          ]
+        },
+        {
+          "name": "state_feat_q",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            128,
+            1,
+            16384
+          ]
+        },
+        {
+          "name": "state_map_q",
+          "dtype_code": 2,
+          "dtype": "UINT8",
+          "shape": [
+            32,
+            1,
+            256,
+            256
+          ]
+        },
+        {
+          "name": "state_nav_q",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            32,
+            47
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "outputs",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            1,
+            18452
+          ]
+        },
+        {
+          "name": "next_state_img_q",
+          "dtype_code": 2,
+          "dtype": "UINT8",
+          "shape": [
+            2,
+            5,
+            6,
+            128,
+            256
+          ]
+        },
+        {
+          "name": "next_state_desire_q",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            132,
+            1,
+            8
+          ]
+        },
+        {
+          "name": "next_state_feat_q",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            128,
+            1,
+            16384
+          ]
+        },
+        {
+          "name": "next_state_map_q",
+          "dtype_code": 2,
+          "dtype": "UINT8",
+          "shape": [
+            32,
+            1,
+            256,
+            256
+          ]
+        },
+        {
+          "name": "next_state_nav_q",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            32,
+            47
+          ]
+        }
+      ],
+      "output_slices": {
+        "lane_lines": {
+          "start": 0,
+          "stop": 528,
+          "step": null
+        },
+        "lane_lines_prob": {
+          "start": 528,
+          "stop": 536,
+          "step": null
+        },
+        "road_edges": {
+          "start": 536,
+          "stop": 800,
+          "step": null
+        },
+        "meta": {
+          "start": 800,
+          "stop": 855,
+          "step": null
+        },
+        "desire_pred": {
+          "start": 855,
+          "stop": 887,
+          "step": null
+        },
+        "pose": {
+          "start": 887,
+          "stop": 899,
+          "step": null
+        },
+        "wide_from_device_euler": {
+          "start": 899,
+          "stop": 905,
+          "step": null
+        },
+        "road_transform": {
+          "start": 905,
+          "stop": 917,
+          "step": null
+        },
+        "plan": {
+          "start": 917,
+          "stop": 1907,
+          "step": null
+        },
+        "lead": {
+          "start": 1907,
+          "stop": 2051,
+          "step": null
+        },
+        "lead_prob": {
+          "start": 2051,
+          "stop": 2054,
+          "step": null
+        },
+        "desire_state": {
+          "start": 2054,
+          "stop": 2062,
+          "step": null
+        },
+        "action": {
+          "start": 2062,
+          "stop": 2066,
+          "step": null
+        },
+        "hidden_state": {
+          "start": 2066,
+          "stop": 18450,
+          "step": null
+        },
+        "pad": {
+          "start": 18450,
+          "stop": 18452,
+          "step": null
+        }
+      },
+      "normalization": "Both models divide numeric map values by255 internally before casting toFLOAT16; pass grayscale numeric0..255 with declared input dtype.",
+      "verification": {
+        "download_sha256_matches_release_and_official_lfs": true,
+        "onnx_structural_check": "passed",
+        "onnx_library_version": "1.23.2",
+        "independent_parser_signatures_agree": true,
+        "model_execution_performed": false
+      },
+      "nav_conditioned_output_heads": [
+        "plan",
+        "lead",
+        "lead_prob",
+        "desire_state",
+        "action"
+      ]
+    },
+    {
+      "tag": "big-nav-model-integration-1d18c42e",
+      "release_url": "https://github.com/happymaj11r/openpilot-models/releases/tag/big-nav-model-integration-1d18c42e",
+      "asset_url": "https://github.com/happymaj11r/openpilot-models/releases/download/big-nav-model-integration-1d18c42e/big_driving_supercombo.onnx",
+      "asset_id": 635127685,
+      "sha256": "1d18c42ea4cd95c8bffab4635844b78b8e2d4e25b9de44a9c5ac2e0961371a2e",
+      "size_bytes": 814591106,
+      "official_matching_commit": "a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9",
+      "official_lfs_pointer_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/selfdrive/modeld/models/big_driving_supercombo.onnx",
+      "model_checkpoint": "cf8f6120-49ee-48f8-b2d7-d663a4708271/56320/80eedcdd-f97b-46d0-9b94-780685292acf/12864",
+      "ir_version": 10,
+      "opsets": [
+        {
+          "domain": "",
+          "version": 20
+        },
+        {
+          "domain": "org.tinygrad",
+          "version": 1
+        }
+      ],
+      "inputs": [
+        {
+          "name": "new_img",
+          "dtype_code": 2,
+          "dtype": "UINT8",
+          "shape": [
+            2,
+            6,
+            128,
+            256
+          ]
+        },
+        {
+          "name": "desire",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            8
+          ]
+        },
+        {
+          "name": "traffic_convention",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            1,
+            2
+          ]
+        },
+        {
+          "name": "action_t",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            1,
+            2
+          ]
+        },
+        {
+          "name": "nav_map",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            1,
+            1,
+            256,
+            256
+          ]
+        },
+        {
+          "name": "navigation",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            1,
+            47
+          ]
+        },
+        {
+          "name": "state_img_q",
+          "dtype_code": 2,
+          "dtype": "UINT8",
+          "shape": [
+            2,
+            5,
+            6,
+            128,
+            256
+          ]
+        },
+        {
+          "name": "state_desire_q",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            132,
+            1,
+            8
+          ]
+        },
+        {
+          "name": "state_feat_q",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            128,
+            1,
+            16384
+          ]
+        },
+        {
+          "name": "state_map_features_q",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            128,
+            1,
+            64
+          ]
+        },
+        {
+          "name": "state_navigation_features_q",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            128,
+            1,
+            64
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "outputs",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            1,
+            18580
+          ]
+        },
+        {
+          "name": "next_state_img_q",
+          "dtype_code": 2,
+          "dtype": "UINT8",
+          "shape": [
+            2,
+            5,
+            6,
+            128,
+            256
+          ]
+        },
+        {
+          "name": "next_state_desire_q",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            132,
+            1,
+            8
+          ]
+        },
+        {
+          "name": "next_state_feat_q",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            128,
+            1,
+            16384
+          ]
+        },
+        {
+          "name": "next_state_map_features_q",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            128,
+            1,
+            64
+          ]
+        },
+        {
+          "name": "next_state_navigation_features_q",
+          "dtype_code": 1,
+          "dtype": "FLOAT",
+          "shape": [
+            128,
+            1,
+            64
+          ]
+        }
+      ],
+      "output_slices": {
+        "lane_lines": {
+          "start": 0,
+          "stop": 528,
+          "step": null
+        },
+        "lane_lines_prob": {
+          "start": 528,
+          "stop": 536,
+          "step": null
+        },
+        "road_edges": {
+          "start": 536,
+          "stop": 800,
+          "step": null
+        },
+        "meta": {
+          "start": 800,
+          "stop": 855,
+          "step": null
+        },
+        "desire_pred": {
+          "start": 855,
+          "stop": 887,
+          "step": null
+        },
+        "pose": {
+          "start": 887,
+          "stop": 899,
+          "step": null
+        },
+        "wide_from_device_euler": {
+          "start": 899,
+          "stop": 905,
+          "step": null
+        },
+        "road_transform": {
+          "start": 905,
+          "stop": 917,
+          "step": null
+        },
+        "plan": {
+          "start": 917,
+          "stop": 1907,
+          "step": null
+        },
+        "lead": {
+          "start": 1907,
+          "stop": 2051,
+          "step": null
+        },
+        "lead_prob": {
+          "start": 2051,
+          "stop": 2054,
+          "step": null
+        },
+        "desire_state": {
+          "start": 2054,
+          "stop": 2062,
+          "step": null
+        },
+        "action": {
+          "start": 2062,
+          "stop": 2066,
+          "step": null
+        },
+        "hidden_state": {
+          "start": 2066,
+          "stop": 18450,
+          "step": null
+        },
+        "map_features": {
+          "start": 18450,
+          "stop": 18514,
+          "step": null
+        },
+        "navigation_features": {
+          "start": 18514,
+          "stop": 18578,
+          "step": null
+        },
+        "pad": {
+          "start": 18578,
+          "stop": 18580,
+          "step": null
+        }
+      },
+      "normalization": "Both models divide numeric map values by255 internally before casting toFLOAT16; pass grayscale numeric0..255 with declared input dtype.",
+      "verification": {
+        "download_sha256_matches_release_and_official_lfs": true,
+        "onnx_structural_check": "passed",
+        "onnx_library_version": "1.23.2",
+        "independent_parser_signatures_agree": true,
+        "model_execution_performed": false
+      },
+      "nav_conditioned_output_heads": [
+        "plan",
+        "lead",
+        "lead_prob",
+        "desire_state",
+        "action"
+      ]
+    }
+  ]
+}

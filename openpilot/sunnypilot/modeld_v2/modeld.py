@@ -36,6 +36,7 @@ from openpilot.common.transformations.model import get_warp_matrix
 from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
 from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan, smooth_value
 from openpilot.selfdrive.modeld.modeld import ChestnutGpuState
+from openpilot.selfdrive.navigation.model_inputs import NAV_INPUT_NAMES, NavigationInputs, NavigationModelDisabled, validate_model_inputs
 
 from openpilot.sunnypilot.modeld_v2.fill_model_msg import fill_model_msg, fill_pose_msg, PublishState, get_curvature_from_output
 from openpilot.sunnypilot.modeld_v2.parse_model_outputs import Parser
@@ -75,6 +76,26 @@ def _find_driving_pkl(bundle):
   return None
 
 
+def _navigation_input_specs(extras: dict) -> dict:
+  if 'input_specs' in extras:
+    return extras['input_specs']
+  # Legacy artifacts describe only shapes and cannot establish the native dtype/state contract.
+  metadata = extras.get('metadata', {})
+  for entry in (metadata, *metadata.values()):
+    if isinstance(entry, dict) and any(name in entry.get('input_shapes', {}) for name in NAV_INPUT_NAMES):
+      raise ValueError("Navigation models require native input_specs metadata")
+  return {}
+
+
+def takes_nav(*models) -> bool:
+  return any(name in model.numpy_inputs for model in models if model is not None for name in NAV_INPUT_NAMES)
+
+
+def _reject_navigation_publication(*models) -> None:
+  if takes_nav(*models):
+    raise NavigationModelDisabled('Use the isolated offline ModelState harness; production modeld may not publish navigation-conditioned outputs')
+
+
 class FrameMeta:
   frame_id: int = 0
   timestamp_sof: int = 0
@@ -112,7 +133,16 @@ class ModelState(ModelStateBase):
 
   def _init_combined(self, pkl_path, cam_w, cam_h, bundle):
     cloudlog.warning(f"loading combined pkl: {pkl_path}")
-    jits = load_model(pkl_path, extend=fused_with_warp(cam_w, cam_h, self.chestnut))
+    fuse = fused_with_warp(cam_w, cam_h, self.chestnut)
+
+    def checked_fusion(parts, extras):
+      # load_model calls this before allocating PlainJit/GPU buffers or replaying any kernels.
+      validate_model_inputs(_navigation_input_specs(extras))
+      return fuse(parts, extras)
+
+    jits = load_model(pkl_path, extend=checked_fusion)
+    self.navigation_input_specs = _navigation_input_specs(jits)
+    validate_model_inputs(self.navigation_input_specs)
 
     metadata = jits['metadata']
     self.WARP_DEV = metadata.get('warp_dev', 'QCOM') if COMMA_HARDWARE else 'CPU'
@@ -163,6 +193,10 @@ class ModelState(ModelStateBase):
   def run(self, bufs: dict[str, VisionBuf], transforms: dict[str, np.ndarray],
           inputs: dict[str, np.ndarray],
           after_enqueue: Callable[[], None] | None = None) -> dict[str, np.ndarray] | None:
+    if takes_nav(self):
+      # Recheck every invocation: withdrawing the offline permit must stop the graph,
+      # including its recurrent navigation history, before any inference runs.
+      validate_model_inputs(self.navigation_input_specs)
     self.adapter.copy_frames(bufs)
 
     desire_key = self.desire_key
@@ -174,6 +208,11 @@ class ModelState(ModelStateBase):
     for key in ('traffic_convention', 'lateral_control_params', 'action_t'):
       if key in self.numpy_inputs and key in inputs:
         self.numpy_inputs[key][:] = inputs[key]
+
+    for name in NAV_INPUT_NAMES:
+      if name in self.numpy_inputs:
+        # Raw map pixels are 0..255; compatible graphs perform their own normalization.
+        self.numpy_inputs[name][:] = inputs.get(name, 0)
 
     if self.adapter.is_native:
       for i, key in enumerate(self._vision_input_names):
@@ -328,14 +367,18 @@ def main(demo=False):
   params.put_bool("ChestnutLoading", False)
   assert model is not None
   cloudlog.warning(f"models loaded in {time.monotonic() - st:.1f}s, modeld starting")
+  # Even an opted-in PC replay must use the isolated harness, never production pubs.
+  _reject_navigation_publication(model, small_model)
 
   config_realtime_process(7, 54)
 
   # messaging
   pub_socks = ["modelV2", "drivingModelData", "cameraOdometry", "modelDataV2SP"] + (["chestnutGpuState"] if CHESTNUT else [])
   pm = PubMaster(pub_socks)
+  nav_inputs = NavigationInputs(params) if takes_nav(model, small_model) else None
   sm = SubMaster(["deviceState", "carState", "narrowRoadCameraState", "extrinsicsCalibration", "driverMonitoringState",
-                  "carControl", "controlsState", "lateralDelay"])
+                  "carControl", "controlsState", "lateralDelay"] +
+                 (["navInstruction", "gpsLocation", "gpsLocationExternal"] if nav_inputs is not None else []))
 
   publish_state = PublishState()
   chestnut_state = ChestnutGpuState(pm, model.chestnut) if CHESTNUT else None
@@ -460,6 +503,9 @@ def main(demo=False):
 
     if 'action_t' in model.numpy_inputs:
       inputs['action_t'] = np.array([lat_action_t, long_action_t], dtype=np.float32)
+
+    if nav_inputs is not None:
+      inputs.update(nav_inputs.read(sm, v_ego, meta_main.timestamp_sof))
 
     mt1 = time.perf_counter()
     try:

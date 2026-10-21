@@ -9,7 +9,7 @@ os.environ['GMMU'] = '0' # for chestnut fast loading, noop for qcom
 os.environ.setdefault('AM_POWER_LIMIT', '100')
 os.environ.setdefault('AM_PERF_LEVEL', 'high')
 from tinygrad.device import Buffer, Device
-from tinygrad.dtype import DType, dtypes
+from tinygrad.dtype import DType, dtypes, _from_np_dtype
 from tinygrad.engine.realize import lower_and_compile
 from tinygrad.tensor import Tensor
 from tinygrad.helpers import round_up
@@ -36,6 +36,7 @@ from openpilot.common.transformations.camera import DEVICE_CAMERAS
 from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
 from openpilot.common.transformations.model import get_warp_matrix
 from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
+from openpilot.selfdrive.navigation.model_inputs import NAV_INPUT_NAMES, NavigationInputs, NavigationModelDisabled, validate_model_inputs
 from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan, should_stop, smooth_value, get_curvature_from_plan
 from openpilot.selfdrive.modeld.parse_model_outputs import Parser
 from openpilot.selfdrive.modeld.fill_model_msg import fill_model_msg, fill_driving_model_data, fill_pose_msg, PublishState
@@ -150,6 +151,9 @@ class ModelState(ModelStateBase):
   def __init__(self, cam_w: int, cam_h: int, chestnut: bool):
     ModelStateBase.__init__(self)
     jits = load_oob(modeld_pkl_path(chestnut), chestnut)
+    self._input_specs = jits['input_specs']
+    self._navigation_input_names = tuple(name for name in NAV_INPUT_NAMES if name in self._input_specs)
+    validate_model_inputs(self._input_specs)
     self.model_device = jits['input_specs']['new_img'][2]
     self.input_shapes = {name: (shape, np.dtype(dtype)) for name, (shape, dtype, _) in jits['input_specs'].items()}
     self.state_pairs = {name: f'next_{name}' for name in self.input_shapes if f'next_{name}' in jits['metadata']['output_shapes']}
@@ -177,17 +181,17 @@ class ModelState(ModelStateBase):
     # Pack host inputs into one upload to reduce USB transfer overhead for the eGPU.
     self.input_queues = {name: Tensor(np.zeros(shape, dtype=dtype), device=self.model_device).realize()
                          for name, (shape, dtype) in self.input_shapes.items() if name in self.state_pairs}
-    shapes = {'tfm': (2, 3, 3)} | {name: shape for name, (shape, _) in self.input_shapes.items()
-                                   if name not in self.state_pairs and name != 'new_img'}
-    npy_size = sum(round_up(math.prod(shape) * 4, 128) for shape in shapes.values())
+    shapes = {'tfm': ((2, 3, 3), np.dtype(np.float32))} | {name: spec for name, spec in self.input_shapes.items()
+                                                          if name not in self.state_pairs and name != 'new_img'}
+    npy_size = sum(round_up(math.prod(shape) * dtype.itemsize, 128) for shape, dtype in shapes.values())
     self.packed_input = np.zeros(npy_size + 2 * self.frame_copy_size, dtype=np.uint8)
     self.input_host = Tensor(self.packed_input, device='NPY')._buffer()
     self.input_device = Tensor(self.packed_input, device=self.model_device)._buffer()
     self.npy = {}
     offset = 0
-    for name, shape in shapes.items():
-      self.npy[name] = np.ndarray(shape, dtype=np.float32, buffer=self.packed_input, offset=offset)
-      self.input_queues[name] = input_view(self.input_device, shape, dtypes.float32, offset)
+    for name, (shape, dtype) in shapes.items():
+      self.npy[name] = np.ndarray(shape, dtype=dtype, buffer=self.packed_input, offset=offset)
+      self.input_queues[name] = input_view(self.input_device, shape, _from_np_dtype(dtype), offset)
       offset += round_up(self.npy[name].nbytes, 128)
     self.frames = self.packed_input[npy_size:].reshape(2, self.frame_copy_size)
     self.warp_inputs = {'input_frame': input_view(self.input_device, self.frames.shape, dtypes.uint8, npy_size), 'M_inv': self.input_queues.pop('tfm')}
@@ -197,6 +201,9 @@ class ModelState(ModelStateBase):
 
   def run(self, bufs: dict[str, VisionBuf], transforms: dict[str, np.ndarray],
           inputs: dict[str, np.ndarray], after_enqueue: Callable[[], None] | None = None) -> dict[str, np.ndarray]:
+    if self._navigation_input_names:
+      # Admission is checked every frame too: revoking the offline-only gate stops inference.
+      validate_model_inputs(self._input_specs)
     for i, key in enumerate(self.vision_input_names):
       np.copyto(self.frames[i], np.frombuffer(bufs[key].data, dtype=np.uint8, count=self.frame_copy_size))
       self.npy['tfm'][i] = transforms[key]
@@ -207,6 +214,8 @@ class ModelState(ModelStateBase):
     self.prev_desire[:] = inputs['desire_pulse']
     self.npy['traffic_convention'][:] = inputs['traffic_convention']
     self.npy['action_t'][:] = inputs['action_t']
+    for name in self._navigation_input_names:
+      self.npy[name][:] = inputs.get(name, 0)
 
     self.input_device.copy_from(self.input_host)
     self.input_queues['new_img'] = self.run_warp(**self.warp_inputs)
@@ -233,6 +242,11 @@ class ModelState(ModelStateBase):
     for key in self.state_pairs:
       self.input_queues[key].assign(0).realize()
     self.prev_desire[:] = 0
+
+
+def _require_non_navigation_publication(*models: ModelState | None) -> None:
+  if any(model is not None and model._navigation_input_names for model in models):
+    raise NavigationModelDisabled('Use the isolated offline ModelState harness; modeld may not publish navigation-conditioned outputs')
 
 
 def main(demo=False):
@@ -303,14 +317,20 @@ def main(demo=False):
   assert model is not None
   params.put_bool("ChestnutLoading", False)
   cloudlog.warning(f"models loaded in {time.monotonic() - st:.1f}s, modeld starting")
+  # The PC offline opt-in permits direct ModelState experiments, never modeld publication.
+  # Check both the active model and its fallback, including demo mode.
+  _require_non_navigation_publication(model, small_model)
 
   config_realtime_process(7, 54)
 
   # messaging
   pub_socks = ["modelV2", "drivingModelData", "cameraOdometry", "modelDataV2SP"] + (["chestnutGpuState"] if CHESTNUT else [])
   pm = PubMaster(pub_socks)
+  needs_navigation = any(m is not None and m._navigation_input_names for m in (model, small_model))
   sm = SubMaster(["deviceState", "carState", "narrowRoadCameraState", "extrinsicsCalibration", "driverMonitoringState",
-                  "carControl", "controlsState", "lateralDelay"])
+                  "carControl", "controlsState", "lateralDelay"] +
+                 (["navInstruction", "gpsLocation", "gpsLocationExternal"] if needs_navigation else []))
+  navigation_inputs = NavigationInputs(params) if needs_navigation else None
 
   publish_state = PublishState()
   params = Params()
@@ -426,6 +446,8 @@ def main(demo=False):
       'traffic_convention': traffic_convention,
       'action_t': np.array([lat_action_t, long_action_t], dtype=np.float32),
     }
+    if navigation_inputs is not None and model._navigation_input_names:
+      inputs.update(navigation_inputs.read(sm, v_ego, meta_main.timestamp_sof))
 
     mt1 = time.perf_counter()
     try:
