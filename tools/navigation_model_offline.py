@@ -156,7 +156,7 @@ def main():
       frames = load_recording(args.recording, prototype.desire_key)
       del prototype
       summary = compare_runs(factory, frames)
-      summary['scope'] = 'offline recorded inference only; differences do not establish driving safety'
+      summary['scope'] = 'offline prepared-input inference only; differences do not establish driving safety'
       args.output.write_text(json.dumps(summary, indent=2) + '\n')
   finally:
     if original is None:
