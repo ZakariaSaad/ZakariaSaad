@@ -386,14 +386,17 @@ def getVersion() -> dict[str, str]:
 
 
 @dispatcher.add_method
-def setNavDestination(latitude: int = 0, longitude: int = 0, place_name: str | None = None, place_details: str | None = None) -> dict[str, int]:
-  destination = {
-    "latitude": latitude,
-    "longitude": longitude,
-    "place_name": place_name,
-    "place_details": place_details,
-  }
-  Params().put("NavDestination", json.dumps(destination))
+def setNavDestination(latitude: float = 0, longitude: float = 0, place_name: str | None = None,
+                      place_details: str | None = None) -> dict[str, int | str]:
+  if not isinstance(latitude, (int, float)) or not isinstance(longitude, (int, float)) or not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+    return {"success": 0, "error": "Invalid destination coordinates"}
+  destination = {"latitude": latitude, "longitude": longitude}
+  # Retain the existing SunnyPilot RPC's optional metadata for older clients.
+  if place_name is not None:
+    destination['place_name'] = place_name
+  if place_details is not None:
+    destination['place_details'] = place_details
+  Params().put("NavDestination", destination, block=True)
 
   return {"success": 1}
 
@@ -719,6 +722,12 @@ def cancelUpload(upload_id: str | list[str]) -> dict[str, int | str]:
 
   cancelled_uploads.update(cancelled_ids)
   return {"success": 1}
+
+@dispatcher.add_method
+def clearNavDestination() -> dict[str, int]:
+  Params().remove("NavDestination")
+  return {"success": 1}
+
 
 @dispatcher.add_method
 def setRouteViewed(route: str) -> dict[str, int | str]:

@@ -1,0 +1,168 @@
+{
+  "rollback": "525eafe95f5657ee9cafeb4876831873e6cf1c8f",
+  "branch": "mvl-honda-eps-selector21-chestnut-v28",
+  "original_navigation_commit": "4c362ca3272c7418a068d43c402c84bd0544f35a",
+  "sunnypilot_sync_commit": "0739fe823d7d9e7523999d26998b545dae9c5b6a",
+  "sunnypilot_master_inspected": "1aa3a430fbe0bcf95f9b3a9dd6edfe34b92d0d63",
+  "upstream_navigation_files_unchanged_since_original": true,
+  "protected_trees": {
+    "openpilot/selfdrive/controls": "f25b93aff35d63d4fbc1a412b701e526b60e5e81",
+    "openpilot/sunnypilot/selfdrive/controls": "57dac964843b73e63ecdd1a98b29d677c98ee2c7",
+    "openpilot/selfdrive/modeld": "ba570a4742c85dc472aa5e5484c16e6b14dc7988",
+    "openpilot/sunnypilot/modeld_v2": "795bc4588d9a1115fd545a36e55fd6d4f100716c",
+    "openpilot/sunnypilot/models": "b654338b8f825845071041ff46cfeea725d1a6c9",
+    "openpilot/common/hardware": "7eb9b99ca2ebde3d851138bef78ca781041bfdc9",
+    "openpilot/system/hardware": "8f09739ea1641d5f4ff1027580372027999b9109",
+    "openpilot/system/updated": "9461b68aed462ffb359eee2602cf3b10fc728869",
+    "openpilot/sunnypilot/system/updated": "2f8dc9984d3bb0ac01438f584f45091beff1c93b",
+    "openpilot/sunnypilot/navd": "6125c9d274f59651a0c4d033c80541868fa9f066",
+    "openpilot/sunnypilot/mapd": "cae9cc87d295deb0d0aa1f4b0a03be67dbdbb1e2",
+    "opendbc_repo": "cf46117420f283b3e38241c00d728a191aa9fccc",
+    "panda": "74a0adced421e8b7acd728d0f9988ce225423f13",
+    "tinygrad_repo": "69fd4d34d4430036378aba2b43f9d339cdd6ea73",
+    "msgq_repo": "e7396e76dadbb49e374d4b664ff6bbb43a39bcb0",
+    "openpilot/cereal/custom.capnp": "cfbbbe472aff06d8e4fbc9b75a4cca791c9bbd20",
+    "uv.lock": "179af77552b92486fdc05b7edcc533ab1af712c8",
+    "pyproject.toml": "d3bf1adc162e780460d5a0ded024ff64f3dc65e1",
+    "launch_openpilot.sh": "d6e3424c348bf5cf9cf2737f6953c1fe7ca4c700",
+    "launch_env.sh": "4fcb243f127068d3a08825f411e79e05d68a7821"
+  },
+  "upstream_navigation_differences": {
+    "openpilot/selfdrive/navigation/navd.py": "--- upstream/openpilot/selfdrive/navigation/navd.py\n+++ openpilot/selfdrive/navigation/navd.py\n@@ -5,7 +5,7 @@\n import requests\n \n import openpilot.cereal.messaging as messaging\n-from openpilot.common.api import API_HOST, Api\n+from openpilot.common.api.comma_connect import API_HOST, CommaConnectApi as Api\n from openpilot.common.params import Params\n from openpilot.common.realtime import Ratekeeper\n from openpilot.common.swaglog import cloudlog\n",
+    "openpilot/selfdrive/navigation/tiles.py": "--- upstream/openpilot/selfdrive/navigation/tiles.py\n+++ openpilot/selfdrive/navigation/tiles.py\n@@ -5,7 +5,7 @@\n \n import requests\n \n-from openpilot.common.api import Api\n+from openpilot.common.api.comma_connect import CommaConnectApi as Api\n from openpilot.common.hardware import PC\n from openpilot.common.hardware.hw import Paths\n from openpilot.common.params import Params\n"
+  },
+  "adaptations": [
+    "Use the existing CommaConnectApi class directly in navd and tiles; preserve the common API wrapper used by all other features.",
+    "Extend the existing setNavDestination RPC with upstream validation, retain optional SunnyPilot metadata and add clearNavDestination.",
+    "Keep the existing comma 4 Developer layout including SPLC controls; use the existing BigParamControl signature.",
+    "Reject zero timestamps in NavigationPanel.map_ready, including the first three seconds of UI startup."
+  ],
+  "validation": {
+    "full_linux_scons": "passed",
+    "combined_navigation_rpc_updater_messaging": {
+      "passed": 421,
+      "skipped": 0
+    },
+    "controller_model_chestnut_params": {
+      "passed": 517,
+      "skipped": 2
+    },
+    "schema_structs_compatible": 286,
+    "ruff": "passed",
+    "navigation_ty": "passed",
+    "desktop_minimal_build": {
+      "result": "inherited failure at unchanged 50 MiB build product limit",
+      "baseline_cpu_pickle_bytes": 69565647,
+      "candidate_cpu_pickle_bytes": 69565647,
+      "baseline_targeted_model_compile": "passed",
+      "baseline_guard_rejects_both_outputs": true
+    },
+    "hardware_navigation_backend_and_combined_gpu_load": "not verified in this environment"
+  },
+  "changed_files": [
+    {
+      "status": "A",
+      "path": "docs/honda-eps/navigation-alpha-provenance.json"
+    },
+    {
+      "status": "A",
+      "path": "docs/honda-eps/navigation-alpha.md"
+    },
+    {
+      "status": "M",
+      "path": "openpilot/cereal/log.capnp"
+    },
+    {
+      "status": "M",
+      "path": "openpilot/cereal/services.py"
+    },
+    {
+      "status": "M",
+      "path": "openpilot/common/constants.py"
+    },
+    {
+      "status": "M",
+      "path": "openpilot/common/params_keys.h"
+    },
+    {
+      "status": "A",
+      "path": "openpilot/selfdrive/navigation/__init__.py"
+    },
+    {
+      "status": "A",
+      "path": "openpilot/selfdrive/navigation/helpers.py"
+    },
+    {
+      "status": "A",
+      "path": "openpilot/selfdrive/navigation/mapsd.py"
+    },
+    {
+      "status": "A",
+      "path": "openpilot/selfdrive/navigation/navd.py"
+    },
+    {
+      "status": "A",
+      "path": "openpilot/selfdrive/navigation/pmtiles.py"
+    },
+    {
+      "status": "A",
+      "path": "openpilot/selfdrive/navigation/renderer.py"
+    },
+    {
+      "status": "A",
+      "path": "openpilot/selfdrive/navigation/route.py"
+    },
+    {
+      "status": "A",
+      "path": "openpilot/selfdrive/navigation/tests/test_integration.py"
+    },
+    {
+      "status": "A",
+      "path": "openpilot/selfdrive/navigation/tests/test_navigation.py"
+    },
+    {
+      "status": "A",
+      "path": "openpilot/selfdrive/navigation/tests/test_ui.py"
+    },
+    {
+      "status": "A",
+      "path": "openpilot/selfdrive/navigation/tiles.py"
+    },
+    {
+      "status": "A",
+      "path": "openpilot/selfdrive/navigation/vector_tile.py"
+    },
+    {
+      "status": "M",
+      "path": "openpilot/selfdrive/ui/mici/layouts/settings/developer.py"
+    },
+    {
+      "status": "M",
+      "path": "openpilot/selfdrive/ui/mici/onroad/augmented_road_view.py"
+    },
+    {
+      "status": "A",
+      "path": "openpilot/selfdrive/ui/mici/onroad/navigation.py"
+    },
+    {
+      "status": "M",
+      "path": "openpilot/selfdrive/ui/mici/onroad/torque_bar.py"
+    },
+    {
+      "status": "M",
+      "path": "openpilot/selfdrive/ui/ui_state.py"
+    },
+    {
+      "status": "M",
+      "path": "openpilot/system/athena/athenad.py"
+    },
+    {
+      "status": "M",
+      "path": "openpilot/system/athena/tests/test_athenad.py"
+    },
+    {
+      "status": "M",
+      "path": "openpilot/system/manager/process_config.py"
+    }
+  ]
+}
