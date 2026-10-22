@@ -13,14 +13,13 @@
       "artifact_sha256": "feb2532e2fcd65375ca61d82b1ce16b397244683cb2b183aead316f26454feb4",
       "warp_sha256": "f1689356ff8e516f87e3d75f6b53e66953a11ee5a97e859b4808c9a16bfe671b",
       "metadata_sha256": "2f15fb98990afff3da873ada6180f8328e3af51baa771114ff4c9c6ff428fbf8",
-      "minimum_valid_frames": 132,
       "artifact_evidence_reviewed": true,
       "software_integration_reviewed": true,
       "runtime_compatibility": "unverified",
       "compiler_sha256": "d55aa36999ce05fa545d77dc1cc28e1e46fc28e60620c0b0db816e698bf79e7a",
       "compiler_report_sha256": "4e0ba83f80758e4c5e9f9d7369febd0862957a28fb706d79f1188125a90241d1",
       "registration_receipt_sha256": "13590d5536b93820623cf059b4853b9d70c1661828343dfc604580c28485454b",
-      "runtime_scope": "Physical source/reload compiler verification passed. Live camera inference latency, sustained execution and candidate/fallback handover remain unmeasured.",
+      "runtime_scope": "Physical source/reload compiler verification passed. Live camera inference latency and actual big-model failure recovery remain unmeasured.",
       "software_review_scope": "Native Bigv2 input/output contract, registration, parsing, navigation timing, recurrent state and candidate/fallback software regression tests. This does not authorize driving."
     }
   ]

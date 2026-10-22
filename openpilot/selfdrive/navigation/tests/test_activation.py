@@ -95,7 +95,7 @@ class TestActivation(unittest.TestCase):
 
   def test_only_reviewed_hashes_can_issue_a_runtime_permit(self):
     with reviewed_fixture() as (params, permit, verifier):
-      self.assertEqual(permit.minimum_valid_frames, 132)
+      self.assertFalse(hasattr(permit, 'minimum_valid_frames'))
       self.assertEqual(permit.warp_frame_size, 1622016)
       verifier.assert_called_once()
       activation.validate_runtime_permit(permit, params=params)

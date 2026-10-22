@@ -12,9 +12,13 @@ The states are separate:
 | Registered | The local receipt points to the prepared model, warp, compiler proof and metadata. The supplied receipt confirms this. |
 | Artifact evidence reviewed | The exact checkpoint and native AMD artifact are bound to successful physical source/reload compiler evidence. This is completed evidence, not an outstanding compilation request. |
 | Software compatibility | Source-specific regression tests and local file validation agree with the native input/output and fallback contracts. A file report identifies exact failed checks. |
-| Runtime observations | Camera/GPU scheduling, concurrent warm small-model execution and real handover have or have not been observed. The supplied compiler report contains no timing measurement. |
+| Runtime observations | Camera/GPU scheduling, single selected-model execution and the existing inference-failure handover have or have not been observed. The supplied compiler report contains no timing measurement. |
 | Eligible | Required identities, software evidence, fallback and explicit branch activation approval all satisfy admission. Reasons for a block are shown in Models settings. |
 | Enabled | The owner separately enables Navigation Model Driving in Settings. Default is OFF. |
+
+The custom navigation activation frame counter, shadow execution and continuous
+small-model inference are removed. Normal model initialization and recurrent
+state updates remain. No special waiting period is part of admission.
 
 The current change does **not** approve navigation-conditioned vehicle control.
 Branch approval stays false independently of registration success. The user
@@ -29,10 +33,12 @@ existing allowed ExperimentalMode/DEC modes; leads and trajectory can still
 influence other modes indirectly.
 
 Before a future enablement update, review the local compatibility report and
-source-specific integration results against the supplied compiler and
-registration evidence. Remaining runtime evidence must address the concrete
-camera-to-AMD/20 Hz path with continuously warm QCOM fallback and actual fallback
-handover. A source/reload compiler pass alone makes no claim about those paths.
+source-specific integration results against the supplied compiler, registration
+evidence and successful seven-check device report. Remaining runtime evidence
+concerns the concrete camera-to-AMD/20 Hz path and existing inference-failure
+handover to the initialized ordinary small model. The small model is not run
+continuously alongside Bigv2. A source/reload compiler pass alone makes no claim
+about the complete camera-to-prediction timing path.
 No extended battery, endurance or thermal-certification procedure is required by
 this workflow.
 

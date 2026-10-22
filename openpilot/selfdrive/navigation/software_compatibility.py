@@ -38,7 +38,7 @@ _RUNTIME_LIMITS = [
   'This command does not execute model kernels or measure inference latency, memory residency or dropped frames.',
   'The earlier physical AMD compiler report proves source/reload consistency for its recorded seeds, not live camera inference.',
   'Live camera geometry, route freshness and timestamp epochs are checked by the production inference path, not observed here.',
-  'Candidate plus warm-fallback operation at 20 Hz and navigation-conditioned driving behavior remain unmeasured on this device.',
+  'Live camera-to-prediction operation at 20 Hz and actual big-model failure recovery remain unmeasured on this device.',
 ]
 
 
@@ -400,13 +400,14 @@ def validate_software_compatibility(receipt_path: str | Path = DEFAULT_RECEIPT, 
     _require(not report.get('source_dirty'), 'Installed tracked source differs from the reviewed commit')
     _require(approved.get('software_contract_reviewed') is True and approved.get('software_integration_reviewed') is True
              and approved.get('artifact_evidence_reviewed') is True, 'Branch software/integration/artifact review is incomplete')
-    _require(approved.get('sunnypilot_generation') is None and approved.get('minimum_valid_frames') == 132
+    _require(approved.get('sunnypilot_generation') is None
              and approved.get('action_contract') == 'comma-nav-v2-20hz-lateral-acceleration-longitudinal-acceleration',
-             'Reviewed native 20 Hz action/history contract mismatch')
+             'Reviewed native 20 Hz action contract mismatch')
     return {'scope': 'Branch-reviewed automated regressions; not rerun by this file-only command',
             'navigation_tensor_contract': {'map': [1, 1, 256, 256], 'map_dtype': 'float32', 'map_range': [0, 255],
                                            'normalization': 'Inside ONNX graph', 'navigation': [1, 47]},
-            'valid_frame_priming': 132, 'runtime_compatibility': approved.get('runtime_compatibility', 'unverified'),
+            'execution_policy': 'single_selected_model', 'fallback_policy': 'initialized_for_failure_recovery',
+            'runtime_compatibility': approved.get('runtime_compatibility', 'unverified'),
             'branch_activation_approved': approved.get('activation_approved') is True}
   check('branch_reviewed_software_integration', reviewed_integration)
   report['passed'] = all(check['status'] == 'passed' for check in checks)

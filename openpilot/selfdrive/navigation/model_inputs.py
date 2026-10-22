@@ -1,7 +1,8 @@
-"""Experimental navigation-model inputs for explicit offline/file-only diagnostics.
+"""Navigation tensors for approved driving and explicit offline diagnostics.
 
 Navigation Alpha's display toggle never authorizes navigation-conditioned driving.
-Production model daemons never publish navigation-conditioned predictions.
+Approved driving uses independent zero-default map and maneuver inputs; strict
+sample admission and recurrent-boundary annotations remain diagnostic-only.
 """
 
 import os
@@ -28,10 +29,11 @@ SOURCE_FUTURE_TOLERANCE = 0.2  # camera/GPS capture skew; requires hardware-inde
 
 
 def driving_maneuver_reason(maneuvers, traveled):
-  """Unknown/missing guidance is a production fallback, never a fabricated zero turn.
+  """Describe maneuver metadata without inventing a command for unknown guidance.
 
-  Known depart/arrival commands <=6 and intentionally omitted merge commands
-  retain the reference's zero-vector semantics; they are not missing metadata.
+  Approved driving neutralizes only the maneuver tensor on missing/invalid data.
+  Strict diagnostic reads may reject the sample. Known depart/arrival commands
+  <=6 and intentionally omitted merge commands retain reference zero semantics.
   """
   if not maneuvers:
     return 'missing_maneuver_metadata'
@@ -151,8 +153,9 @@ class NavigationInputs:
   """Associate exact IPC frames with route-tagged metadata and physical sources.
 
   Accepted frames may be held briefly while asynchronous metadata catches up.
-  A caller must honor reset_required before feeding inputs to a recurrent model;
-  invalid data is skipped rather than asserted to be a trained zero fallback.
+  Approved model execution calls read_for_model: invalid/missing tensors become
+  zero independently, without a model switch or recurrent-state reset. The
+  stricter read/reset annotations are retained for explicit offline diagnostics.
   """
   def __init__(self, params=None, client=None, clock=None, *, diagnostic=False, driving_permit=None, camera_clock=None):
     self.params = params if params is not None else Params()
@@ -245,6 +248,135 @@ class NavigationInputs:
       inputs, reason = {}, 'preparation_failure'
     return self._finish(inputs, reason, identity, camera_timestamp_ns)
 
+  def read_for_model(self, sm, v_ego: float, camera_timestamp_ns: int) -> dict:
+    """Supply upstream-style independent zero defaults for an approved model.
+
+    Data validity controls the two tensors, never model selection or recurrent
+    state. Artifact/activation revocation remains an exception so the existing
+    big-model error path can withdraw an unauthorized candidate. Route tags and
+    exact frame/source association prevent stale route data being relabeled.
+    """
+    if self.driving_permit is None:
+      raise NavigationModelDisabled('Approved driving navigation requires a runtime permit')
+    from openpilot.selfdrive.navigation.activation import validate_runtime_permit
+    validate_runtime_permit(self.driving_permit, params=self.params)
+    inputs = {'nav_map': np.zeros((256, 256), np.uint8), 'navigation': np.zeros(47, np.float32)}
+    self.context = None
+    self.reset_required = False
+    self.reset_reason = None
+    self.map_reason = self.maneuver_reason = 'disabled_or_no_destination'
+    try:
+      key = destination_key(self.params.get('NavDestination'))
+      if key != self._destination:
+        self._clear()
+        self._destination = key
+      if not self.params.get_bool('NavigationEnabled') or not key:
+        self._clear()
+      else:
+        camera_ns = camera_timestamp_ns
+        if self._camera_clock is not None:
+          sample = self._camera_clock.sample(camera_timestamp_ns)
+          camera_ns = sample.camera_ns
+          if sample.new_epoch:
+            self._clear()
+            self._clock_source_floor = sample.epoch_ns
+        now = self._clock()
+        data_failed = False
+        try:
+          vector, self.maneuver_reason, instruction_generation = self._model_maneuver(sm, v_ego, camera_ns, now, key)
+        except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
+          vector, instruction_generation = inputs['navigation'], 0
+          self.maneuver_reason = 'invalid_maneuver_metadata'
+        try:
+          self.map_reason = self._read_map(sm, now, key)
+          if self.map_reason is None:
+            self.map_reason = self._model_map_reason(camera_ns, now, key)
+            if self.map_reason == 'valid':
+              assert self._map is not None
+              inputs['nav_map'] = self._map
+        except Exception:
+          if not self._failed:
+            cloudlog.exception('navigation_model_map_preparation_failed')
+          data_failed = True
+          self._clear()
+          self.map_reason = 'invalid_map_data'
+        # A newer map can reveal a reroute before its instruction arrives.
+        # Never combine that map with a previous generation's maneuver.
+        if instruction_generation != self._generation_floor:
+          vector = inputs['navigation']
+          if self.maneuver_reason == 'valid':
+            self.maneuver_reason = 'instruction_route_mismatch'
+        inputs['navigation'] = vector
+        self.route_generation = self._generation_floor
+        self._failed = data_failed
+    except ClockAlignmentError as error:
+      self._clear()
+      self.map_reason = self.maneuver_reason = str(error)
+    except Exception:
+      if not self._failed:
+        cloudlog.exception('navigation_model_input_preparation_failed')
+      self._failed = True
+      self._clear()
+      self.map_reason = self.maneuver_reason = 'preparation_failure'
+      inputs['nav_map'][:] = 0
+      inputs['navigation'][:] = 0
+    # Producer restarts/route changes are data boundaries, not model resets.
+    self._producer_restart = False
+    self.reason = self.input_reason = ('valid' if self.map_reason == self.maneuver_reason == 'valid'
+                                     else f'map:{self.map_reason}; navigation:{self.maneuver_reason}')
+    return inputs
+
+  def _model_maneuver(self, sm, v_ego, camera_ns, now, key):
+    neutral = np.zeros(47, np.float32)
+    instruction = sm['navInstruction']
+    generation = int(instruction.routeGeneration)
+    if instruction.destinationKey != key or generation <= 0 or generation < self._generation_floor:
+      return neutral, 'instruction_route_mismatch', generation
+    event_ns, source_ns = int(sm.logMonoTime['navInstruction']), int(instruction.gpsSourceMonoTime)
+    if generation > self._generation_floor and event_ns > 0 and event_ns >= max(self._clock_source_floor, self._instruction_event_floor):
+      # A new route tag can be usable before its maneuver is (for example a
+      # fresh route with no GPS fix). Its old-generation map is still obsolete.
+      self._generation_floor = generation
+      self._clear()
+    if not sm.valid['navInstruction']:
+      return neutral, 'missing_instruction', generation
+    age = now - sm.recv_time['navInstruction']
+    if not np.isfinite(age) or not 0 <= age < SOURCE_TIMEOUT:
+      return neutral, 'stale_instruction', generation
+    if min(event_ns, source_ns) <= 0 or min(event_ns, source_ns) < self._clock_source_floor:
+      return neutral, 'missing_or_pre_epoch_instruction_timestamp', generation
+    if event_ns < self._instruction_event_floor or source_ns < self._instruction_source_floor:
+      return neutral, 'instruction_timestamp_regressed', generation
+    if not -SOURCE_FUTURE_TOLERANCE <= (camera_ns-source_ns)/1e9 < SOURCE_TIMEOUT:
+      return neutral, 'instruction_source_time_out_of_range', generation
+    if not np.isfinite(v_ego) or v_ego < 0:
+      return neutral, 'invalid_speed', generation
+    self._instruction_event_floor, self._instruction_source_floor = event_ns, source_ns
+    # This branch's navd publishes distances relative to the tagged physical GPS
+    # fix. Re-published instructions must not restart the distance clock.
+    traveled = v_ego * max(0.0, (camera_ns-source_ns)/1e9)
+    reason = driving_maneuver_reason(instruction.allManeuvers, traveled)
+    if reason != 'valid':
+      return neutral, reason, generation
+    vector = navigation_input(instruction.allManeuvers, traveled)
+    if vector.shape != (47,) or vector.dtype != np.float32 or not np.isfinite(vector).all():
+      return neutral, 'invalid_maneuver_vector', generation
+    return vector, 'valid', generation
+
+  def _model_map_reason(self, camera_ns, now, key):
+    if self._map_identity != (self._generation_floor, key):
+      return 'map_route_mismatch'
+    if self._map_source_ns > self._map_render_ns:
+      return 'map_source_after_render'
+    if not -SOURCE_FUTURE_TOLERANCE <= (camera_ns-self._map_source_ns)/1e9 < SOURCE_TIMEOUT:
+      return 'map_source_time_out_of_range'
+    if not -SOURCE_FUTURE_TOLERANCE <= (camera_ns-self._map_render_ns)/1e9 < MAP_RECEIPT_TIMEOUT:
+      return 'stale_or_future_render'
+    for age in (now-self._map_received, now-self._map_metadata_received):
+      if not np.isfinite(age) or not 0 <= age < MAP_RECEIPT_TIMEOUT:
+        return 'stale_map_delivery'
+    return 'valid'
+
   def _read(self, sm, v_ego, camera_ns, key):
     now = self._clock()
     if key != self._destination:
@@ -292,50 +424,10 @@ class NavigationInputs:
     if not np.isfinite(v_ego) or v_ego < 0:
       self._clear()
       return {}, 'invalid_speed', identity
-    if self._client is None:
-      from msgq.visionipc import VisionIpcClient
-      from openpilot.cereal.visionipc import VisionStreamType
-      self._client = VisionIpcClient('mapsd', VisionStreamType.VISION_STREAM_MAP, True)
-    if self._client.is_connected() or (now - self._last_connect >= 0.2 and self._connect(now)):
-      if (frame := self._client.recv(0)) is not None:
-        signature = (int(self._client.frame_id), int(self._client.timestamp_sof), int(self._client.timestamp_eof))
-        if frame.width != 256 or frame.height != 256 or signature[1] <= 0 or signature[2] <= 0:
-          self._clear()
-          return {}, 'invalid_map_frame', identity
-        pixels = np.frombuffer(frame.data, dtype=np.uint8, count=256 * 256).reshape(256, 256).copy()
-        self._pending[signature] = (pixels, now)
-        while len(self._pending) > 8:
-          self._pending.popitem(last=False)
-    metadata = sm['navModelStateSP']
-    map_identity = (int(metadata.routeGeneration), metadata.destinationKey)
-    if sm.valid['navModelStateSP'] and metadata.destinationKey == key and map_identity[0] > self._generation_floor:
-      self._generation_floor = map_identity[0]
-    if not sm.valid['navModelStateSP'] or map_identity != identity:
-      self._clear()
-      return {}, 'map_route_mismatch_or_invalid', identity
-    signature = (int(metadata.frameId), int(metadata.locationMonoTime), int(metadata.renderMonoTime))
-    if min(signature[1:]) < self._clock_source_floor:
-      self._clear()
-      return {}, 'waiting_for_clock_epoch_map', identity
-    if signature in self._pending:
-      if signature[2] < self._render_floor or signature[1] < self._map_source_floor:
-        self._clear()
-        return {}, 'map_timestamp_regressed', identity
-      if signature[2] == self._render_floor and self._last_frame_id is not None:
-        self._pending.pop(signature)
-      else:
-        if self._last_frame_id is not None and signature[0] < self._last_frame_id:
-          rollover = self._last_frame_id >= 0xf0000000 and signature[0] < 0x10000000
-          self._producer_restart = not rollover
-        self._last_frame_id = signature[0]
-        self._render_floor = signature[2]
-        self._map_source_floor = signature[1]
-        self._map, self._map_received = self._pending.pop(signature)
-        self._map_frame_id, self._map_source_ns, self._map_render_ns = signature
-        self._map_identity = map_identity
-        self._map_metadata_received = sm.recv_time['navModelStateSP']
-    if self._map is None or self._map_identity is None:
-      return {}, 'waiting_for_matching_map', identity
+    map_reason = self._read_map(sm, now, key, identity)
+    if map_reason is not None:
+      return {}, map_reason, identity
+    assert self._map is not None and self._map_identity is not None
     # A held frame remains associated with its own producer metadata. A newer
     # metadata event is not allowed to relabel that older image.
     context = NavigationContext(
@@ -364,6 +456,55 @@ class NavigationInputs:
       return {}, 'invalid_maneuver_vector', identity
     self._failed = False
     return {'nav_map': self._map, 'navigation': vector}, 'valid', identity
+
+  def _read_map(self, sm, now, key, identity=None):
+    """Receive exact frame/metadata pairs; shared by driving and diagnostics."""
+    if self._client is None:
+      from msgq.visionipc import VisionIpcClient
+      from openpilot.cereal.visionipc import VisionStreamType
+      self._client = VisionIpcClient('mapsd', VisionStreamType.VISION_STREAM_MAP, True)
+    if self._client.is_connected() or (now - self._last_connect >= 0.2 and self._connect(now)):
+      if (frame := self._client.recv(0)) is not None:
+        signature = (int(self._client.frame_id), int(self._client.timestamp_sof), int(self._client.timestamp_eof))
+        if frame.width != 256 or frame.height != 256 or signature[1] <= 0 or signature[2] <= 0:
+          self._clear()
+          return 'invalid_map_frame'
+        pixels = np.frombuffer(frame.data, dtype=np.uint8, count=256 * 256).reshape(256, 256).copy()
+        self._pending[signature] = (pixels, now)
+        while len(self._pending) > 8:
+          self._pending.popitem(last=False)
+    metadata = sm['navModelStateSP']
+    map_identity = (int(metadata.routeGeneration), metadata.destinationKey)
+    if sm.valid['navModelStateSP'] and metadata.destinationKey == key and map_identity[0] > self._generation_floor:
+      self._generation_floor = map_identity[0]
+    if (not sm.valid['navModelStateSP'] or metadata.destinationKey != key or map_identity[0] <= 0
+        or map_identity[0] < self._generation_floor or (identity is not None and map_identity != identity)):
+      self._clear()
+      return 'map_route_mismatch_or_invalid'
+    signature = (int(metadata.frameId), int(metadata.locationMonoTime), int(metadata.renderMonoTime))
+    if min(signature[1:]) < self._clock_source_floor:
+      self._clear()
+      return 'waiting_for_clock_epoch_map'
+    if signature in self._pending:
+      if signature[2] < self._render_floor or signature[1] < self._map_source_floor:
+        self._clear()
+        return 'map_timestamp_regressed'
+      if signature[2] == self._render_floor and self._last_frame_id is not None:
+        self._pending.pop(signature)
+      else:
+        if self._last_frame_id is not None and signature[0] < self._last_frame_id:
+          rollover = self._last_frame_id >= 0xf0000000 and signature[0] < 0x10000000
+          self._producer_restart = not rollover
+        self._last_frame_id = signature[0]
+        self._render_floor = signature[2]
+        self._map_source_floor = signature[1]
+        self._map, self._map_received = self._pending.pop(signature)
+        self._map_frame_id, self._map_source_ns, self._map_render_ns = signature
+        self._map_identity = map_identity
+        self._map_metadata_received = sm.recv_time['navModelStateSP']
+    if self._map is None or self._map_identity is None:
+      return 'waiting_for_matching_map'
+    return None
 
   def _connect(self, now):
     self._last_connect = now

@@ -5,6 +5,8 @@ and outstanding requirements below apply to the stated historical revision.
 They are not current operator instructions. See the
 [current software compatibility workflow](navigation-model-software-compatibility.md)
 for the compiled and registered model, current status and activation boundaries.
+The custom activation counter, shadow inference and continuous small-model
+execution described in this audit are removed from the current runtime.
 
 The [subsequent software correction](navigation-model-software-status.md) fixes the clock-domain and extra big-model allocation limitations documented in this historical audit. The current compatibility workflow supersedes the retired diagnostic procedures.
 

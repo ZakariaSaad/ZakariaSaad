@@ -10,7 +10,6 @@ from unittest.mock import Mock, patch
 import numpy as np
 
 from openpilot.selfdrive.navigation import activation, model_inputs
-from openpilot.selfdrive.navigation.driving import NavigationDrivingSession
 from openpilot.selfdrive.navigation.tests.test_activation import ParamsStub, reviewed_fixture
 from openpilot.selfdrive.navigation.tests.test_model_input_admission import Client, Messages
 from openpilot.sunnypilot.modeld_v2 import modeld
@@ -27,29 +26,26 @@ def fixture_data():
 
 
 class TestDrivingNavigation(unittest.TestCase):
-  def test_startup_admits_candidate_before_ordinary_big_allocation_and_preserves_off_or_failed_startup(self):
-    """Exercise main initialization only; no publishers, controllers or GPU are started."""
+  def test_startup_selects_initialized_candidate_and_keeps_small_available_without_running_it(self):
+    """Exercise production initialization only; no publishers or vehicle processes."""
     class InitializationFinished(Exception):
       pass
 
     for mode, expected_loads in (('approved', [False]), ('off', [True, False]), ('blocked', [True, False]),
-                                 ('candidate_failed', [False, True, False]), ('small_failed', [False, True, False])):
+                                 ('candidate_failed', [False]), ('small_failed', [False])):
       with self.subTest(mode=mode), ExitStack() as stack:
         params = ParamsStub(NavigationModelDrivingEnabled=mode != 'off', NavigationModelCandidate='big-nav-v2', ChestnutActive=True)
         permit = SimpleNamespace(model_id='big-nav-v2')
-        small = SimpleNamespace(numpy_inputs={}, chestnut=False)
-        big = SimpleNamespace(numpy_inputs={}, chestnut=True, warmup=Mock())
-        candidate = SimpleNamespace(numpy_inputs={'navigation': np.zeros(47)}, warmup=Mock())
+        small = SimpleNamespace(numpy_inputs={}, chestnut=False, run=Mock(), warmup=Mock())
+        big = SimpleNamespace(numpy_inputs={}, chestnut=True, warmup=Mock(), run=Mock())
+        candidate = SimpleNamespace(numpy_inputs={'navigation': np.zeros(47)}, chestnut=True, warmup=Mock(), run=Mock())
         if mode == 'candidate_failed':
           candidate.warmup.side_effect = RuntimeError('candidate initialization failed')
-        small_loads = 0
 
         def construct_model(*args, big=big, small=small, mode=mode, **kwargs):
-          nonlocal small_loads
           if kwargs['chestnut']:
             return big
-          small_loads += 1
-          if mode == 'small_failed' and small_loads == 1:
+          if mode == 'small_failed':
             raise RuntimeError('small initialization failed')
           return small
 
@@ -70,17 +66,28 @@ class TestDrivingNavigation(unittest.TestCase):
                             'config_realtime_process': Mock(side_effect=InitializationFinished), 'PubMaster': Mock()}.items():
           stack.enter_context(patch.object(modeld, name, value))
         stack.enter_context(patch.object(modeld.gc, 'disable'))
-        with self.assertRaises(InitializationFinished):
-          modeld.main()
+        if mode == 'small_failed':
+          with self.assertRaisesRegex(RuntimeError, 'small initialization failed'):
+            modeld.main()
+        else:
+          with self.assertRaises(InitializationFinished):
+            modeld.main()
         self.assertEqual([call.kwargs['chestnut'] for call in models.call_args_list], expected_loads)
-        self.assertEqual(candidate_loader.call_count, int(mode in ('approved', 'candidate_failed')))
-        if mode == 'approved':
+        self.assertEqual(candidate_loader.call_count, int(mode in ('approved', 'candidate_failed', 'small_failed')))
+        if mode in ('approved', 'candidate_failed', 'small_failed'):
           candidate.warmup.assert_called_once()
           big.warmup.assert_not_called()
-          self.assertIsNone(params.get('ChestnutActive'), 'initial small-model priming is intentional fallback, not active/failed Chestnut')
         else:
           big.warmup.assert_called_once()
+        small.warmup.assert_not_called()
+        small.run.assert_not_called()
+        candidate.run.assert_not_called()
+        if mode == 'approved':
           self.assertIs(params.get('ChestnutActive'), True)
+          self.assertEqual(params.get('NavigationModelRuntimeState')['active_source'], 'chestnut')
+        elif mode == 'candidate_failed':
+          self.assertEqual(params.get('NavigationModelRuntimeState')['active_source'], 'qcom')
+          self.assertTrue(params.get_bool('OnroadCycleRequested'), 'Preserve existing SunnyPilot initialization recovery')
         modeld.PubMaster.assert_not_called()
 
   def test_driving_reader_rejects_missing_unknown_or_malformed_upcoming_guidance(self):
@@ -172,7 +179,7 @@ class TestDrivingNavigation(unittest.TestCase):
       with self.assertRaisesRegex(model_inputs.NavigationModelDisabled, 'action slices'):
         activation.validate_runtime_metadata(permit, jits)
 
-  def test_real_reader_and_native_queues_over_full_histories_and_reroute(self):
+  def test_real_reader_neutral_navigation_and_reroute_preserve_native_recurrent_state(self):
     jits, metadata = fixture_data()
     count = [0]
 
@@ -180,18 +187,12 @@ class TestDrivingNavigation(unittest.TestCase):
       count[0] += 1
       for name, tensor in queues.items():
         dtype = np.uint8 if name == 'state_img_q' else np.float32
-        data = np.frombuffer(tensor._buffer().as_memoryview(allow_zero_copy=True), dtype=dtype).reshape(tensor.shape)
-        if name == 'state_img_q':
-          data[:, :-1] = data[:, 1:]
-          data[:, -1] = count[0] % 250
-        else:
-          data[:-1] = data[1:]
-          data[-1] = count[0]
+        data = np.frombuffer(tensor._buffer().as_memoryview(allow_zero_copy=True), dtype=dtype)
+        data[:] += 1
 
     jits['run'] = trusted_jit
     now = [100.]
     client = Client(int(now[0]*1e9)-900_000_000)
-    fallback = SimpleNamespace(desire_key='desire_pulse', LAT_SMOOTH_SECONDS=.1, LONG_SMOOTH_SECONDS=.2, run=Mock(return_value={}))
     with reviewed_fixture(jits['input_specs'], metadata) as (params, permit, _), \
          patch.object(modeld, 'load_model', return_value=jits), \
          patch.object(modeld, 'Device', {'AMD': SimpleNamespace(error_state=SimpleNamespace(host=SimpleNamespace(view=lambda **kwargs: [0])))}), \
@@ -199,123 +200,50 @@ class TestDrivingNavigation(unittest.TestCase):
       params.values.update(NavigationEnabled=True, NavDestination={'latitude': 1., 'longitude': 2.})
       state = modeld.NavigationModelState(1344, 760, chestnut=True, driving_permit=permit)
       reader = model_inputs.NavigationInputs(params, client, clock=lambda: now[0], driving_permit=permit)
-      session = NavigationDrivingSession(permit, state, fallback, params, reader)
       frames = {'img': bytes(1622016), 'big_img': bytes(1622016)}
       transforms = {'img': np.eye(3, dtype=np.float32), 'big_img': np.eye(3, dtype=np.float32)}
-      inputs = {'desire_pulse': np.zeros(8, np.float32), 'action_t': np.array([.2, .4], np.float32)}
-
-      def tick(index, generation):
+      observed = []
+      for index in range(4):
         now[0] = 100. + index*.05
         sm = Messages(now[0])
+        generation = 1 if index == 0 else 2
         sm.data['navInstruction'].routeGeneration = generation
         sm.data['navModelStateSP'].routeGeneration = generation
         sm.data['navModelStateSP'].frameId = client.frame_id = index
         client.timestamp_sof = sm.data['navModelStateSP'].locationMonoTime
         client.timestamp_eof = sm.data['navModelStateSP'].renderMonoTime
         client.frame = SimpleNamespace(data=bytes([128])*(256*256), width=256, height=256)
-        return session.prepare(sm, 10., int(now[0]*1e9))
+        if index == 2:
+          params.remove('NavDestination')
+        elif index == 3:
+          params.put_bool('NavigationEnabled', False)
+        navigation = reader.read_for_model(sm, 10., int(now[0]*1e9))
+        observed.append(navigation)
+        state.run(frames, transforms, {'desire': np.zeros(8, np.float32), 'action_t': np.array([.2, .4], np.float32), **navigation})
+        self.assertTrue(all(np.all(tensor.numpy() == index+1) for tensor in state.adapter.input_queues.values()))
+      self.assertEqual(count[0], 4)
+      self.assertEqual(observed[0]['navigation'][15], 1.)
+      self.assertTrue(observed[1]['nav_map'].any(), 'A route identity change does not impose a model activation delay')
+      self.assertTrue(all(not item['nav_map'].any() and not item['navigation'].any() for item in observed[2:]))
 
-      for index in range(140):
-        selected = tick(index, 1)
-        if selected is state:
-          session.run_ordinary(frames, transforms, inputs, 'desire_pulse', 10., .1, .2, .05, .025)
-          state.run(frames, transforms, {'desire': np.zeros(8, np.float32), 'action_t': inputs['action_t'], **session.inputs})
-        else:
-          self.assertIs(selected, fallback)
-          fallback.run(frames, transforms, inputs)
-          session.shadow(frames, transforms, inputs, 'desire_pulse', 10., .1, .2, .05, .025)
-        self.assertEqual(fallback.run.call_count, index+1)
-      self.assertEqual(count[0], 140)
-      self.assertEqual(session.valid_frames, 132)
-      self.assertEqual(state.adapter.input_queues['state_navigation_features_q'].numpy()[0, 0, 0], 13)
-      self.assertEqual(state.adapter.input_queues['state_desire_q'].numpy()[0, 0, 0], 9)
-      self.assertIs(tick(140, 2), fallback)
-      self.assertEqual(session.valid_frames, 0)
-      self.assertTrue(all(not tensor.numpy().any() for tensor in state.adapter.input_queues.values()))
-      for index in range(140, 280):
-        selected = tick(index+1, 2)
-        if selected is state:
-          state.run(frames, transforms, {'desire': np.zeros(8, np.float32), 'action_t': inputs['action_t'], **session.inputs})
-        else:
-          session.shadow(frames, transforms, inputs, 'desire_pulse', 10., .1, .2, .05, .025)
-      self.assertTrue((state.adapter.input_queues['state_navigation_features_q'].numpy() >= 141).all())
-      params.values['NavigationModelDrivingEnabled'] = False
-      self.assertIs(tick(281, 2), fallback)
-      self.assertEqual(session.valid_frames, 0)
-      self.assertTrue(all(not tensor.numpy().any() for tensor in state.adapter.input_queues.values()))
-
-  def test_failed_or_unavailable_candidate_keeps_ordinary_and_never_opens_gpu_when_off(self):
-    with patch.object(modeld, 'authorize_runtime', return_value=None), patch.object(modeld, 'NavigationModelState') as load:
-      self.assertIsNone(modeld.load_navigation_session(object(), 1344, 760, object(), object()))
-      load.assert_not_called()
-    with patch.object(modeld, 'authorize_runtime', side_effect=model_inputs.NavigationModelDisabled('not reviewed')):
-      params = ParamsStub(NavigationModelDrivingEnabled=True)
-      self.assertIsNone(modeld.load_navigation_session(params, 1344, 760, object(), object()))
-      self.assertEqual(params.values['NavigationModelRuntimeState']['role'], 'blocked')
-      self.assertIsNone(params.values['NavigationModelRuntimeState']['active_source'])
-
-  def test_handover_updates_model_specific_timing_without_false_gpu_failure(self):
-    params = ParamsStub()
-    CP = SimpleNamespace(longitudinalActuatorDelay=.2)
-    state = SimpleNamespace(big=False)
-    candidate = SimpleNamespace(LONG_SMOOTH_SECONDS=.3, chestnut=True, lat_delay=.1)
-    small = SimpleNamespace(LONG_SMOOTH_SECONDS=.05, chestnut=False, lat_delay=.1)
-    self.assertAlmostEqual(modeld.navigation_handover(candidate, CP, params, {}, object(), state), .5)
-    self.assertTrue(params.get_bool('ChestnutActive'))
-    self.assertTrue(state.big)
-    self.assertAlmostEqual(modeld.navigation_handover(small, CP, params, {}, object(), state), .25)
-    self.assertIsNone(params.get('ChestnutActive'), 'an intentional small fallback must not assert GPU failure')
-    self.assertFalse(state.big)
-    modeld.navigation_handover(small, CP, params, {}, object(), state, failed=True)
-    self.assertIs(params.get('ChestnutActive'), False)
-
-  def test_actual_device_and_firmware_identity_gate_before_candidate_loading(self):
+  def test_actual_device_identity_gate_before_candidate_loading(self):
     specs = {'navigation': ((1, 47), 'float32', 'NPY')}
     with reviewed_fixture(specs) as (params, permit, _):
-      ordinary = SimpleNamespace(numpy_inputs={})
       candidate = SimpleNamespace(numpy_inputs={'navigation': np.zeros(47)}, navigation_input_specs=specs,
                                    _driving_permit=permit, diagnostic=False, warmup=Mock())
-      usb_iface = type('USBIface', (), {})()
-      good = SimpleNamespace(arch='gfx1200', is_usb=True, iface=usb_iface,
+      good = SimpleNamespace(arch='gfx1200', is_usb=True, iface=type('USBIface', (), {})(),
                              renderer=SimpleNamespace(target=SimpleNamespace(device='AMD', renderer='LLVM', arch='gfx1200', interface='USB')))
       for present, device in ((False, good), (True, SimpleNamespace(arch='gfx1100', renderer=good.renderer))):
         with patch.object(modeld, 'chestnut_present', return_value=present), patch.object(modeld, 'Device', {'AMD': device}), \
              patch.object(modeld, 'NavigationModelState') as loader:
-          self.assertIsNone(modeld.load_navigation_session(params, 1344, 760, ordinary, ordinary))
+          with self.assertRaises(model_inputs.NavigationModelDisabled):
+            modeld.load_navigation_model(params, 1344, 760, permit)
           loader.assert_not_called()
       with patch.object(modeld, 'chestnut_present', return_value=True), patch.object(modeld, 'Device', {'AMD': good}), \
            patch.object(modeld, 'NavigationModelState', return_value=candidate):
-        session = modeld.load_navigation_session(params, 1344, 760, ordinary, ordinary)
-        assert session is not None
-        self.assertIs(session.ordinary, ordinary)
+        self.assertIs(modeld.load_navigation_model(params, 1344, 760, permit), candidate)
+        candidate.warmup.assert_not_called()
 
-  def test_continuous_small_inputs_and_failure_policy_and_runtime_identity(self):
-    params = ParamsStub()
-    candidate = SimpleNamespace(reset_state=Mock())
-    small = SimpleNamespace(desire_key='desire_pulse', LAT_SMOOTH_SECONDS=.1, LONG_SMOOTH_SECONDS=.2,
-                             run=Mock(return_value={'action': np.ones((1, 2))}))
-    reader = SimpleNamespace(reset_required=False, reason='valid', read=Mock(return_value={'navigation': np.zeros(47)}))
-    permit = SimpleNamespace(model_id='big-nav-v2', minimum_valid_frames=132)
-    session = NavigationDrivingSession(permit, candidate, small, params, reader)
-    session.valid_frames = 132
-    inputs = {'desire': np.ones(8, np.float32), 'action_t': np.array([.2, .4]), 'navigation': np.ones(47), 'nav_map': np.ones((256, 256))}
-    with patch('openpilot.selfdrive.navigation.driving.validate_runtime_permit'):
-      self.assertIs(session.prepare({}, 10., 100), candidate)
-      session.run_ordinary({}, {}, inputs, 'desire', 10., .1, .2, .05, .025)
-      copied = small.run.call_args.args[2]
-      self.assertFalse({'nav_map', 'navigation', 'desire'} & copied.keys())
-      np.testing.assert_allclose(copied['action_t'], [.275, .475])
-      np.testing.assert_array_equal(inputs['action_t'], [.2, .4])
-      with patch.object(params, 'put', wraps=params.put) as write:
-        session.publish_runtime_state(candidate)
-        session.publish_runtime_state(candidate)
-        self.assertEqual(write.call_count, 1)
-        self.assertEqual(params.get('NavigationModelRuntimeState')['active_source'], 'chestnut')
-      small.run.side_effect = RuntimeError('small fallback failed')
-      with self.assertRaisesRegex(RuntimeError, 'small fallback failed'):
-        session.run_ordinary({}, {}, inputs, 'desire', 10., .1, .2, .05, .025)
-      self.assertTrue(session.failed)
-      self.assertIs(session.prepare({}, 10., 150), small)
-      session.publish_runtime_state(small)
-      self.assertEqual(params.get('NavigationModelRuntimeState')['role'], 'failed')
-      self.assertEqual(params.get('NavigationModelRuntimeState')['active_source'], 'qcom')
+
+if __name__ == '__main__':
+  unittest.main()

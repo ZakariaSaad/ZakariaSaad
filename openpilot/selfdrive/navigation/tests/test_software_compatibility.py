@@ -118,7 +118,7 @@ class TestSoftwareCompatibility(unittest.TestCase):
     self.warp = ROOT / 'openpilot/sunnypilot/modeld_v2/models/big_driving_warp_1344x760_tinygrad.pkl'
     self.approved = {'id': 'big-nav-v2', 'artifact_evidence_reviewed': True, 'software_contract_reviewed': True,
                      'software_integration_reviewed': True, 'runtime_compatibility': 'unverified', 'activation_approved': False,
-                     'minimum_valid_frames': 132, 'sunnypilot_generation': None,
+                     'sunnypilot_generation': None,
                      'action_contract': 'comma-nav-v2-20hz-lateral-acceleration-longitudinal-acceleration'}
     def git(_root, *args, **_kwargs):
       return 'a' * 40 if args == ('rev-parse', 'HEAD') else ''
@@ -184,6 +184,17 @@ class TestSoftwareCompatibility(unittest.TestCase):
     for field in ('gpu_execution_performed', 'model_recompiled', 'models_downloaded', 'normal_service_modified', 'params_modified'):
       self.assertFalse(report[field])
     self.assertEqual(before, {path: path.read_bytes() for path in self.root.iterdir() if path.is_file()})
+
+  def test_reviewed_integration_has_no_extra_activation_history_requirement(self):
+    report = self.validate()
+    self.assertTrue(report['passed'], report)
+    details = next(check['details'] for check in report['checks'] if check['name'] == 'branch_reviewed_software_integration')
+    self.assertEqual(details['execution_policy'], 'single_selected_model')
+    self.assertEqual(details['fallback_policy'], 'initialized_for_failure_recovery')
+    self.assertNotIn('valid_frame_priming', details)
+    self.assertNotIn('minimum_valid_frames', self.approved)
+    self.assertFalse(report['activation_allowed'])
+    self.assertFalse(details['branch_activation_approved'])
 
   def test_artifact_receipt_metadata_report_and_compiler_tampering_rejected(self):
     for path in (self.model, self.sidecar, self.compiler_report, self.compiler):

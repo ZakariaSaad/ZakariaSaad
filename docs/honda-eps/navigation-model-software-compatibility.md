@@ -97,18 +97,67 @@ fallbacks. Kernel signatures use compact slots into the kernel's `globals`
 selection, which may omit unused outer arguments. All argument views still
 receive bounds checks, and catalog hashes and QCOM target checks remain required.
 
-The supplied on-device report for `e687b73c` passed all Bigv2, warp, compiler-proof
-and software-review checks. Its sole fallback failure exposed the old parser's
-string-only part-key assumption; it did not indicate an artifact or GPU failure.
+The supplied on-device report for `f18366ef91b05339f3bc33526295d20d15da8e05`
+passed all seven checks, including the existing Bigv2 artifact, OS04 warp, compiler
+proof and configured ordinary QCOM fallback. That report records an 810,417,970-byte
+model with 671 kernels and 17 input/output slots. The selected small fallback is
+`driving_terrible_super_fantastic_do_over_model_august_15_2026_tinygrad.pkl`, SHA256
+`dad05dca91ccb2302ff421b6d0dfd4c2fe93738f0de7e230c5d93dbd55a115ae`, with three native
+parts. These are completed compatibility checks; they do not measure inference
+performance. This source change preserves both installed model files and their
+selection.
 
 The accompanying automated software suite exercises the actual navigation
 producers/readers, tensor adapter, native output parsing and model lifecycle.
 It covers route-generation identity, reroutes/destination changes, stale or
-missing navigation, timestamp conversion, recurrent reset, 132 valid priming
-frames, candidate/fallback initialization and failure, warm fallback, OFF-mode
-behavior, settings, UI and controller/updater preservation. Those test results
-are source-specific; the static command does not pretend to rerun every
-integration test on the device.
+missing navigation, timestamp conversion, normal recurrent-state operation,
+selected-model initialization and failure, one-model-per-frame execution,
+ordinary small-model fallback, OFF-mode behavior, settings, UI and
+controller/updater preservation. Those test results are source-specific; the
+static command does not rerun every integration test on the device.
+
+## Execution and upstream parity
+
+The reference is official comma.ai
+[`nav-model-integration` at `afbf2e547e9319e2eb9f515e1e4330af63705cec`](https://github.com/commaai/openpilot/blob/afbf2e547e9319e2eb9f515e1e4330af63705cec/openpilot/selfdrive/modeld/modeld.py).
+
+| Behavior | Current execution policy |
+| --- | --- |
+| Big-model initialization | Load the approved artifact and matching warp, perform normal initialization/warmup, then use it without an additional activation wait. |
+| Ordinary small model | Initialize it as the existing fallback; do not schedule it while the healthy big model is selected. |
+| Per-frame inference | Execute only the selected driving model and publish its output through the existing modeld path. |
+| Big-model initialization failure | Retain ordinary model operation through SunnyPilot's existing startup path. |
+| Big-model inference failure | Report the existing Chestnut failure, discard that failed frame, and run only the small model on subsequent frames. |
+| Missing navigation data | Supply neutral tensor defaults rather than changing models or starting another execution path. |
+| Recurrent state | Preserve normal initialization and per-inference state updates; no navigation activation counter, shadow samples, or route-driven re-priming policy. |
+
+Fresh map and maneuver inputs follow upstream's independent receipt-age limits:
+map delivery younger than 0.5 seconds and a valid instruction younger than
+2 seconds. A missing or rejected map becomes a zero map; missing or rejected
+guidance becomes a zero 47-element vector. Losing one does not discard the other
+valid input or switch the driving model. Float32 map tensors receive raw 0..255
+values; normalization remains inside the graph.
+
+The custom 132-frame activation rule, Bigv2 shadow inference and continuous QCOM
+inference are removed. The model's real `state_desire_q` still has shape
+`[132,1,8]`; that ONNX input dimension is not an activation waiting period.
+
+Deliberate SunnyPilot differences remain for technical compatibility: native
+SPTGPLN1 registration and pinned compiler evidence instead of upstream's compiled
+pickle format; Selector 21 and the existing ordinary recovery code; Honda EPS
+prediction-delay hooks and MVL's existing prediction-consumption interfaces;
+and explicit branch activation approval. SunnyPilot's existing `ChestnutRetry`
+and on-road-cycle startup request remain for its established power-interruption
+recovery; no additional retry mechanism is introduced. Route-generation,
+camera-frame, source GPS timestamp and clock-domain guards reject mismatched input data instead of conditioning the
+model with another route's pixels. These guards do not schedule another model
+or reset learned state simply because navigation data is unavailable. The branch's
+navd publishes fix-relative maneuver distances with source timestamps, so distance
+extrapolation uses that physical fix time; upstream's untagged receipt-relative
+message uses its receipt time. This preserves the meaning of each producer's
+distance while preventing stale positions from appearing fresh.
+Unsupported Mapbox maneuver types/modifiers remain neutral instead of guessing a
+Valhalla turn encoding; the valid map can still condition the model independently.
 
 ## Activation decision
 
@@ -116,13 +165,14 @@ The [activation record](navigation-model-activation-workflow.md) separates artif
 evidence, software compatibility, runtime observations and explicit driving
 authorization. Registration and a passing file report cannot enable the model.
 
-The specific unmeasured runtime paths are native camera-to-AMD transfer and
-inference at the 20 Hz scheduling contract while the ordinary QCOM small-model
-fallback remains warm, together with actual invalid-navigation/failure handover.
+The specific unmeasured runtime path is native camera-to-AMD transfer, fused
+warp, Bigv2 inference and normal prediction publishing at the 20 Hz scheduling
+contract, together with the existing inference-failure switch to the initialized
+small model. The small model does not execute alongside healthy Bigv2 inference.
 The compiler report proves physical source/reload execution, but contains no
-latency or concurrent-fallback observation. The static validator labels these
-unverified; it does not replace that missing evidence with an endurance or
-thermal-certification requirement.
+measurement of that complete camera-to-prediction path. The static validator
+labels it unverified; no combined dual-model workload, endurance or thermal
+certification is a prerequisite.
 
 After reviewing the report and integration results, a future reviewed branch
 change must record the exact admitted hashes and relevant runtime evidence,

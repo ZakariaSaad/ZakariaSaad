@@ -123,7 +123,6 @@ class DrivingPermit:
   input_specs: dict
   metadata: dict
   action_contract: str
-  minimum_valid_frames: int
   warp_frame_size: int
   registry_fingerprint: tuple
   file_fingerprints: tuple
@@ -155,11 +154,8 @@ def authorize_runtime(params=None) -> DrivingPermit | None:
   if proof.get('compiler', {}).get('sha256') != approved['compiler_sha256'] or \
      proof.get('report', {}).get('sha256') != approved['compiler_report_sha256']:
     raise NavigationModelDisabled('Local compiler source or verification report differs from the reviewed evidence')
-  minimum = approved.get('minimum_valid_frames')
-  if type(minimum) is not int or minimum < 132:
-    raise NavigationModelDisabled('The reviewed navigation history policy is missing')
   permit = DrivingPermit(entry.model_id, entry.artifact_path, entry.warp_path, manifest, metadata_path, entry.input_specs, entry.metadata,
-                         approved['action_contract'], minimum, entry.warp_frame_size, _fingerprint(REGISTRY),
+                         approved['action_contract'], entry.warp_frame_size, _fingerprint(REGISTRY),
                          tuple(_fingerprint(path) for path in (entry.artifact_path, entry.warp_path, manifest, metadata_path)), _PERMIT_SEAL)
   validate_runtime_permit(permit, params=params)
   return permit

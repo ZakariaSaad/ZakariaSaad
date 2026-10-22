@@ -122,7 +122,9 @@ axis 1, all other queues axis 0. At 20 invocations/second this corresponds to
 6.4 seconds of feature entries. This is an execution-contract calculation, not
 an independently recovered training cadence. **132 accepted frames** are needed
 to replace all longest-queue entries after a complete reset; 128 is insufficient
-for the desire queue.
+for the desire queue. This describes the model queue extent only. The current
+production runtime has no accepted-frame activation requirement or shadow
+inference policy.
 
 The graph itself divides `nav_map` by 255 before its encoder. The upstream
 renderer uses a 256×256 grayscale route-aligned raster: background 0, route 128,

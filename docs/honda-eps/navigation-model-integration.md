@@ -3,7 +3,9 @@
 **Historical snapshot:** this report records the earlier implementation and test
 revision named below. Its missing-artifact and approval-state statements describe
 that revision. The [current workflow](navigation-model-software-compatibility.md)
-supersedes its retired hardware procedures and activation requirements.
+supersedes its retired hardware procedures and activation requirements. The
+custom activation counter, shadow execution and continuous small-model inference
+described here have been removed; they are historical implementation details.
 
 This review continues the existing implementation; no upstream driving-system merge,
 model-runtime upgrade, new Git branch, device installation or firmware operation was
@@ -23,7 +25,7 @@ history-preserving fast-forward after refetch and verification. Publication must
 retain any concurrent target work; this document does not authorize resetting it.
 No other branch, including `mvl-honda-eps`, `mvl-cinque-v3` or `master`, is a push target.
 
-## What is implemented
+## What was implemented at the reviewed revision
 
 Navigation Alpha display, file-only diagnostics and navigation-conditioned driving
 selection have separate permissions and lifecycles. Existing map/destination display
@@ -58,7 +60,8 @@ second-based horizons. It retains the audited reference's lateral smoothing of0
 and longitudinal smoothing of0.3s. It does not invent a SunnyPilot numeric generation.
 Existing EPS timing hooks continue to supply the appropriate prediction delay.
 
-The candidate performs132 valid shadow samples before its outputs are eligible.
+**Historical policy, since removed:** the candidate performed132 valid shadow
+samples before its outputs were eligible.
 The ordinary configured small model runs during priming and continuously alongside
 active candidate inference so its recurrent history remains current. Invalid route,
 permission or synchronization data resets candidate history and uses that small
