@@ -82,11 +82,19 @@ class TestNavigationIntegration(OpenpilotTestCase):
     self.assertTrue(all(p.stop() == 0 for p in procs.values()))
     params.put_bool('NavigationEnabled', True, block=True)
     sm = messaging.SubMaster(['navInstruction'])
+    restarted_client = VisionIpcClient('mapsd', VisionStreamType.VISION_STREAM_MAP, True)
     ensure_running(procs.values(), True, params, cp)
     deadline = time.monotonic() + 5
-    while time.monotonic() < deadline and not sm.seen['navInstruction']:
-      sm.update(100)
+    restarted_frame = None
+    # Both daemons must finish startup before a clean-shutdown assertion. navd
+    # can publish before mapsd installs its normal SIGINT handler; stopping it
+    # during Python's after-fork bootstrap tests a race rather than lifecycle.
+    while time.monotonic() < deadline and (not sm.seen['navInstruction'] or restarted_frame is None):
+      sm.update(50)
+      if restarted_frame is None and (restarted_client.is_connected() or restarted_client.connect(False)):
+        restarted_frame = restarted_client.recv(timeout_ms=50)
     self.assertTrue(sm.seen['navInstruction'])
+    self.assertIsNotNone(restarted_frame, 'restarted mapsd did not become ready')
     self.assertEqual(ensure_running(procs.values(), False, params, cp), [])
     self.assertTrue(all(p.stop() == 0 for p in procs.values()))
 
