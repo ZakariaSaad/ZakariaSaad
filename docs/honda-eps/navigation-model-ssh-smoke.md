@@ -33,6 +33,12 @@ cd /data/openpilot
 sudo .venv/bin/python -m tools.navigation_hardware.smoke
 ```
 
+On AGNOS the root filesystem stays read-only. The supervisor remains root, while
+all Git inspections run as the checkout owner (`comma`), including tinygrad and
+recursive nested submodules. This needs no root Git configuration or ownership,
+permission or mount changes. Git failures include the original stderr, repository
+and command in the diagnostic report. The SSH command and safety checks are unchanged.
+
 The default command **does not download models or runtime dependencies, or compile
 Bigv2**. It:
 

@@ -12,13 +12,13 @@ import json
 import os
 from pathlib import Path
 import resource
-import subprocess
 import sys
 import time
 from unittest.mock import patch
 
 import numpy as np
 
+from openpilot.common.git_inspection import read_only_git
 from openpilot.selfdrive.navigation.experimental_catalog import TINYGRAD_REF, load_experimental_model
 from openpilot.selfdrive.navigation.model_inputs import NavigationModelDisabled, diagnostic_session
 from openpilot.selfdrive.navigation.temporal import NavigationContext, NavigationTransitions, context_reason
@@ -35,8 +35,8 @@ def digest(path):
 def verify_runtime():
   from openpilot.common.basedir import BASEDIR
   root = Path(BASEDIR) / 'tinygrad_repo'
-  revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
-  dirty = subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'], cwd=root, text=True).strip()
+  revision = read_only_git(root, 'rev-parse', 'HEAD')
+  dirty = read_only_git(root, 'status', '--porcelain', '--untracked-files=no')
   if revision != TINYGRAD_REF or dirty:
     raise ValueError('Diagnostic requires the unchanged pinned tinygrad checkout')
   return revision

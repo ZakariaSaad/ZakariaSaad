@@ -160,7 +160,8 @@ class TestExperimentalExport(unittest.TestCase):
     with patch('subprocess.run', side_effect=[SimpleNamespace(returncode=0, stdout=TINYGRAD_REF + '\n'),
                                              SimpleNamespace(returncode=0, stdout='')]) as git:
       exporter._runtime_checkout(self.runtime)
-    self.assertEqual(git.call_args_list[0].args[0], ['git', '-C', str(self.runtime), 'rev-parse', 'HEAD'])
+    self.assertEqual(git.call_args_list[0].args[0], ['git', '--no-optional-locks', '-c', 'core.fsmonitor=false',
+                                                 '-C', str(self.runtime), 'rev-parse', 'HEAD'])
     for revision, status in (('0' * 40, ''), (TINYGRAD_REF, ' M tinygrad/tensor.py')):
       with self.subTest(revision=revision, status=status), \
            patch('subprocess.run', side_effect=[SimpleNamespace(returncode=0, stdout=revision), SimpleNamespace(returncode=0, stdout=status)]), \

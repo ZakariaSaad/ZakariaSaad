@@ -4,9 +4,9 @@ import os
 from pathlib import Path
 import re
 import shutil
-import subprocess
 import time
 
+from openpilot.common.git_inspection import GitInspectionError, read_only_git
 from openpilot.selfdrive.navigation.experimental_catalog import TINYGRAD_REF
 
 LIVE_IDS = {('add1', '0001'), ('3801', '0001')}
@@ -32,10 +32,10 @@ def read(path, default=''):
 
 
 def git(checkout, *args):
-  result = subprocess.run(['git', '-C', str(checkout), *args], capture_output=True, text=True, check=False, timeout=15)
-  if result.returncode:
-    raise HardwareAdmissionError(f'Git inspection failed: {args[0]}')
-  return result.stdout.strip()
+  try:
+    return read_only_git(checkout, *args)
+  except GitInspectionError as error:
+    raise HardwareAdmissionError(str(error)) from error
 
 
 def separate_paths(checkout, workspace, *, protected=PROTECTED):

@@ -5,12 +5,12 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 
 import numpy as np
 
+from openpilot.common.git_inspection import read_only_git
 from openpilot.sunnypilot.modeld_v2.helpers import PlainJit, load_model, write_bundle
 from openpilot.sunnypilot.modeld_v2.plain_artifact_compiler import capture_frame, record_kernel_linear, serialize_jit
 
@@ -48,11 +48,9 @@ def write_verification_report(path: Path, report: dict):
 
 
 def tinygrad_provenance(root: Path) -> dict:
-  def git(*args):
-    result = subprocess.run(['git', '-C', str(root), *args], capture_output=True, text=True, check=False)
-    return result.stdout.strip() if result.returncode == 0 else None
-  revision, status = git('rev-parse', 'HEAD'), git('status', '--porcelain', '--untracked-files=all')
-  return {'root': str(root), 'revision': revision, 'dirty': bool(status) if status is not None else None, 'git_status': status}
+  revision = read_only_git(root, 'rev-parse', 'HEAD')
+  status = read_only_git(root, 'status', '--porcelain', '--untracked-files=all')
+  return {'root': str(root), 'revision': revision, 'dirty': bool(status), 'git_status': status}
 
 
 def backend_provenance(targets: list[dict]) -> dict:

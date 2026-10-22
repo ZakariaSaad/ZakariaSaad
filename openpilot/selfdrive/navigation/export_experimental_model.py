@@ -12,10 +12,10 @@ import math
 import os
 from pathlib import Path
 import re
-import subprocess
 import tempfile
 from typing import Any
 
+from openpilot.common.git_inspection import GitInspectionError, read_only_git
 from openpilot.selfdrive.navigation.experimental_catalog import (
   CONTRACT_SHA256, DEFAULT_CATALOG, SOURCE_ONNX_SHA256, TINYGRAD_REF, ExperimentalCatalogError,
   _dtype, _header, _json_file, _local_file, _model_contract, _require, _shape, _warp_contract,
@@ -38,11 +38,9 @@ def _runtime_checkout(root: str | Path) -> None:
   root = Path(root).resolve(strict=True)
   def git(*args):
     try:
-      result = subprocess.run(['git', '-C', str(root), *args], capture_output=True, text=True, check=False, timeout=10)
-    except (OSError, subprocess.SubprocessError) as error:
-      raise ExperimentalCatalogError('Cannot inspect the local tinygrad checkout') from error
-    _require(result.returncode == 0, 'Cannot verify the local tinygrad checkout')
-    return result.stdout.strip()
+      return read_only_git(root, *args, timeout=10)
+    except GitInspectionError as error:
+      raise ExperimentalCatalogError(str(error)) from error
   _require(git('rev-parse', 'HEAD') == TINYGRAD_REF, 'Local tinygrad checkout revision mismatch')
   _require(not git('status', '--porcelain', '--untracked-files=all'), 'Local tinygrad checkout must be clean')
 
@@ -185,7 +183,7 @@ def export_experimental_model(artifact_path: str | Path, warp_path: str | Path, 
       if published_sidecar and not published_manifest:
         sidecar.unlink(missing_ok=True)
       raise
-  except (OSError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as error:
+  except (OSError, KeyError, TypeError, AttributeError) as error:
     raise ExperimentalCatalogError(f'Cannot export local experimental model: {error}') from error
 
 
