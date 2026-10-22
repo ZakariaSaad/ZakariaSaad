@@ -15,7 +15,7 @@ From Windows PowerShell, inspect the installed model and its activation blockers
 ssh comma@10.0.0.134 "cd /data/openpilot && python3 -B -m openpilot.selfdrive.navigation.manage status"
 ```
 
-After the separately authorized branch approval has been published and installed,
+After installing the owner-authorized approval update,
 explicitly select Bigv2 and request Navigation Model Driving while the comma
 genuinely reports off-road and disengaged:
 
@@ -54,7 +54,7 @@ the driving flag is written. Enabling a setting does not engage vehicle controls
    small and big model selections are preserved.
 3. Open **Models → navigation models → navigation model status** to see the
    registration, review and approval status.
-4. After the separately authorized approval update, explicitly turn on
+4. After installing the approval update, explicitly turn on
    **navigation driving** from that same page while off-road. Settings runs the
    same admission checks as the SSH command. On another supported UI layout the
    toggle is labeled **Navigation Model Driving** directly in Models.
@@ -66,9 +66,9 @@ dedicated native navigation loader, not an ordinary Selector generation or a
 downloadable catalog bundle. Selector 21, Chestnut catalog v28 and the other big
 models remain available.
 
-## Approval decision and exact proposed change
+## Owner-authorized experimental approval
 
-The collected records support proposing explicit experimental activation of this
+The collected records support explicit experimental activation of this
 exact hash-pinned model: physical AMD source/reload compiler verification passed;
 registration and saved-capture camera-warp verification passed; all seven actual
 device file-compatibility checks passed; and the upstream-aligned runtime and
@@ -76,8 +76,7 @@ controller-preservation regressions passed. No demonstrated unresolved software
 contract defect appears in these records. Repeating those checks or completing a
 new hardware-validation program is not required for this approval decision.
 
-**The approval change has not been applied.** The owner must authorize it
-separately. The precise proposed change in
+**The owner explicitly authorized the approval change.** The applied change in
 `openpilot/selfdrive/navigation/driving_models.json` is:
 
 ```diff
@@ -86,11 +85,12 @@ separately. The precise proposed change in
 ```
 
 All pinned hashes, `runtime_compatibility: "unverified"` and the recorded runtime
-scope remain unchanged. Until that reviewed change is authorized, published and
-installed, both Settings and `enable big-nav-v2` refuse activation with
-**Explicit user authorization for Navigation Model Driving is still required**.
-Neither the CLI nor the local manifest can supply branch approval. The owner
-does not need to edit JSON, source files or hidden parameters.
+scope remain unchanged. Branch approval does not enable the device setting.
+After installing this update, the owner must explicitly enable Navigation Model
+Driving through Settings or SSH while off-road. All registered-file, fallback
+and fresh software-state admission checks remain in force. Neither the CLI nor
+the local manifest can supply branch approval for an unapproved candidate. The
+owner does not need to edit JSON, source files or hidden parameters.
 
 The specific unobserved behavior is the composed live camera → registered warp →
 native AMD Bigv2 → prediction-publishing path and its inference timing. The
@@ -116,3 +116,10 @@ formats and existing runtime publication/fallback boundaries. Ruff and scoped
 type checks passed. Controller, safety, model-runtime/compiler, production
 catalog, updater and submodule revisions are unchanged. No GPU test, download,
 compilation, service stop or deployment was performed for this change.
+
+The owner-authorized approval update starts from
+`a194dd92e4d3250825fcf94ccb1c894e34403c62`. Its focused admission, selection,
+CLI, rendered UI and runtime-publication/fallback checks passed **59 tests and
+41 subtests**. The sole production change is the approval boolean; all verified
+hashes, device opt-in defaults, safety protections and model configurations are
+unchanged. No device setting was activated remotely.

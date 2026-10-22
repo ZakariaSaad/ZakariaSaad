@@ -85,17 +85,22 @@ class TestActivation(unittest.TestCase):
     registry.assert_not_called()
     loader.assert_not_called()
 
-  def test_checked_in_candidate_cannot_be_enabled_by_any_checkbox(self):
-    params = ParamsStub(NavigationModelDrivingEnabled=True, NavigationEnabled=True, NavigationModelInputsEnabled=True,
+  def test_branch_approval_keeps_opt_in_off_and_requires_registered_local_files(self):
+    params = ParamsStub(NavigationModelDrivingEnabled=False, NavigationEnabled=True, NavigationModelInputsEnabled=True,
                         NavigationModelCandidate='big-nav-v2', NavigationModelManifest='/nonexistent')
     with patch.object(activation, 'ordinary_fallback_reason', return_value=''):
       status = activation.candidate_status(params)
+      self.assertTrue(status['approved'])
       self.assertFalse(status['eligible'])
-      self.assertIn('Explicit user authorization', status['reason'])
+      self.assertIn('matching local verified manifest', status['reason'])
       self.assertTrue(status['artifact_evidence_reviewed'])
       self.assertTrue(status['software_compatible'])
       self.assertFalse(status['registered'])
       self.assertEqual(status['runtime_compatibility'], 'unverified')
+      self.assertIsNone(activation.authorize_runtime(params))
+      self.assertFalse(params.get_bool('NavigationModelDrivingEnabled'))
+      # Writing an enable flag cannot bypass the remaining admission checks.
+      params.values['NavigationModelDrivingEnabled'] = True
       with self.assertRaises(NavigationModelDisabled):
         activation.authorize_runtime(params)
 

@@ -1,9 +1,12 @@
 """Real rendered selection widgets with isolated Params; no model/device inference.
 
-Only the positive eligibility case uses a synthetic reviewed status. All default,
-unreviewed, unknown-candidate and on-road gates use the actual admission helpers.
+Negative approval cases use an isolated unapproved registry. Only the positive
+eligibility case uses synthetic reviewed status; admission helpers remain real.
 """
 import os
+import json
+from pathlib import Path
+import tempfile
 import threading
 import unittest
 from types import SimpleNamespace
@@ -11,6 +14,7 @@ from unittest.mock import patch
 
 from openpilot.common.params import Params
 from openpilot.common.test import OpenpilotTestCase
+from openpilot.selfdrive.navigation import activation
 from openpilot.selfdrive.navigation.selection import selection_description
 from openpilot.sunnypilot.models.helpers import get_active_model_runner
 
@@ -35,6 +39,11 @@ class TestNavigationModelUI(OpenpilotTestCase):
     super().setUp()
     from openpilot.selfdrive.ui.ui_state import ui_state
     from openpilot.system.ui.lib.application import gui_app
+    registry = json.loads(activation.REGISTRY.read_text())
+    registry['candidates'][0]['activation_approved'] = False
+    registry_path = Path(self.enterContext(tempfile.TemporaryDirectory())) / 'unapproved-registry.json'
+    registry_path.write_text(json.dumps(registry))
+    self.enterContext(patch.object(activation, 'REGISTRY', registry_path))
     self.params = Params()
     self.params.put('ModelManager_ActiveBundle', {'preserve': 'ordinary-small'}, block=True)
     self.params.put('ModelManager_ActiveBundleChestnut', {'preserve': 'ordinary-big'}, block=True)

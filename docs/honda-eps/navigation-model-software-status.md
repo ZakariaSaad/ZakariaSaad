@@ -22,11 +22,11 @@ Physical source/reload compiler verification, the supplied registration receipt
 and the owner's seven-check device compatibility report at `f18366ef` are
 completed evidence. They are distinguished from the unmeasured camera-to-Bigv2
 20 Hz prediction path and the normal inference-failure handover. Navigation Model Driving
-remains OFF and branch activation remains unapproved pending the owner's explicit
-authorization of the prepared one-line approval change. The evidence supports
-proposing experimental activation without claiming measured live inference
-performance. The Models interface and SSH command share the same admission
-checks; neither can create that approval.
+remains OFF by default. The owner explicitly authorized the one-line branch
+approval change for experimental Bigv2 activation. The device still requires
+manual opt-in through Models or SSH after updating, and every admission check
+remains in force. This approval does not claim measured live inference
+performance. The Models interface and SSH command share the same admission checks.
 
 Historical test counts and missing-artifact findings in earlier reports describe
 their recorded revisions. The final source-specific report records the tests for

@@ -7,9 +7,11 @@ the successfully compiled and registered model. No model download, compilation,
 registration repeat, GPU benchmark, service interruption or firmware operation
 is part of validation.
 
-Navigation Model Driving remains disabled and unapproved. Navigation Alpha maps
-and directions, ordinary model selection and normal SunnyPilot updates continue
-independently.
+Experimental Bigv2 branch activation is owner-authorized. Navigation Model
+Driving remains off by default and requires manual opt-in after updating; see the
+[selection and activation workflow](navigation-model-activation-workflow.md).
+Navigation Alpha maps and directions, ordinary model selection and normal
+SunnyPilot updates continue independently.
 
 ## The registered package
 
@@ -174,12 +176,12 @@ measurement of that complete camera-to-prediction path. The static validator
 labels it unverified; no combined dual-model workload, endurance or thermal
 certification is a prerequisite.
 
-After reviewing the report and integration results, a future reviewed branch
-change must record the exact admitted hashes and relevant runtime evidence,
-retain the correct 20 Hz contract and fallback policy, and carry explicit owner
-authorization before branch activation approval can change. The device setting
-is a separate opt-in. No manual JSON edits, hidden Params or source edits on the
-comma are required. No authorization for live control is supplied by this update.
+After reviewing the report and integration results, the owner explicitly
+authorized experimental branch approval for the exact pinned Bigv2 hashes. The
+20 Hz contract, fallback policy and runtime-evidence limitations remain unchanged.
+The device setting is a separate manual opt-in through Models or SSH. No manual
+JSON edits, hidden Params or source edits on the comma are required. This
+file-only validator cannot enable the model.
 
 The custom Honda EPS controller, MVL longitudinal behavior, Selector 21, Chestnut
 catalog v28, pinned tinygrad, USB/firmware handling, production protections and
