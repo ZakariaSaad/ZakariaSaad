@@ -470,7 +470,13 @@ struct ModelDataV2SP @0xa1680744031fdb2d {
   }
 }
 
-struct CustomReserved10 @0xcb9fd56c7057593a {
+# Metadata for one mapsd VisionIPC frame. Event.valid is false for unusable map output.
+struct NavModelStateSP @0xcb9fd56c7057593a {
+  frameId @0 :UInt32;
+  routeGeneration @1 :UInt64;
+  destinationKey @2 :Text;
+  locationMonoTime @3 :UInt64;
+  renderMonoTime @4 :UInt64;
 }
 
 struct CustomReserved11 @0xc2243c65e0340384 {

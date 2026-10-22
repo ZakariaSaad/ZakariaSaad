@@ -245,7 +245,7 @@ class ModelState(ModelStateBase):
 
 
 def _require_non_navigation_publication(*models: ModelState | None) -> None:
-  if any(model is not None and model._navigation_input_names for model in models):
+  if any(model is not None and (model._navigation_input_names or getattr(model, 'diagnostic', False)) for model in models):
     raise NavigationModelDisabled('Use the isolated offline ModelState harness; modeld may not publish navigation-conditioned outputs')
 
 

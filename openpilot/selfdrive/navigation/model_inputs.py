@@ -1,11 +1,15 @@
-"""Experimental navigation-model inputs, restricted to explicit PC offline testing.
+"""Experimental navigation-model inputs for explicit offline/file-only diagnostics.
 
 Navigation Alpha's display toggle never authorizes navigation-conditioned driving.
-No compatible model may be run on comma hardware through this integration.
+Production model daemons never publish navigation-conditioned predictions.
 """
 
 import os
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
+from collections import OrderedDict
 
 import numpy as np
 
@@ -13,6 +17,8 @@ from openpilot.common.hardware import PC
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.navigation.helpers import navigation_input
+from openpilot.selfdrive.navigation.generation import destination_key, gps_source
+from openpilot.selfdrive.navigation.temporal import NavigationContext, NavigationTransitions, context_reason
 
 NAV_INPUT_NAMES = ('nav_map', 'navigation')
 MAP_SHAPE = (1, 1, 256, 256)
@@ -25,6 +31,51 @@ class NavigationModelDisabled(ValueError):
   pass
 
 
+@dataclass(frozen=True)
+class _DiagnosticSession:
+  backend: str
+  token: object
+
+
+_DIAGNOSTIC_SESSION: ContextVar[_DiagnosticSession | None] = ContextVar('navigation_diagnostic_session', default=None)
+
+
+def diagnostic_session_token():
+  session = _DIAGNOSTIC_SESSION.get()
+  return session.token if session is not None else None
+
+
+def diagnostic_session_backend() -> str | None:
+  session = _DIAGNOSTIC_SESSION.get()
+  return session.backend if session is not None else None
+
+
+def diagnostic_session_active(params=None) -> bool:
+  if _DIAGNOSTIC_SESSION.get() is None or os.environ.get('NAV_MODEL_DIAGNOSTIC') != '1':
+    return False
+  params = params if params is not None else Params()
+  return params.get_bool('NavigationModelInputsEnabled')
+
+
+@contextmanager
+def diagnostic_session(backend: str):
+  """Permit file-only diagnostic ModelState use; production publication stays denied.
+
+  Each session has a fresh identity. A model cannot retain recurrent state into
+  another session, and withdrawing either opt-in revokes permission per frame.
+  The dedicated diagnostic entrypoint owns the no-publication boundary.
+  """
+  if backend not in ('CPU', 'AMD') or os.environ.get('NAV_MODEL_DIAGNOSTIC') != '1':
+    raise NavigationModelDisabled('Explicit NAV_MODEL_DIAGNOSTIC=1 and CPU/AMD diagnostic backend required')
+  token = _DIAGNOSTIC_SESSION.set(_DiagnosticSession(backend, object()))
+  try:
+    if not diagnostic_session_active():
+      raise NavigationModelDisabled('Diagnostic navigation permission is disabled')
+    yield
+  finally:
+    _DIAGNOSTIC_SESSION.reset(token)
+
+
 def offline_navigation_enabled(params=None) -> bool:
   if not PC or os.environ.get('NAV_MODEL_OFFLINE') != '1':
     return False
@@ -32,12 +83,18 @@ def offline_navigation_enabled(params=None) -> bool:
   return params.get_bool('NavigationModelInputsEnabled')
 
 
-def validate_model_inputs(input_specs, params=None) -> bool:
+def validate_model_inputs(input_specs, params=None, *, diagnostic=False) -> bool:
   """Validate typed native specs before warmup/run; ordinary models are unchanged."""
   takes_nav = any(name in input_specs for name in NAV_INPUT_NAMES)
+  if diagnostic:
+    if not diagnostic_session_active(params):
+      raise NavigationModelDisabled('Explicit non-actuating diagnostic session required')
+    backend = diagnostic_session_backend()
+    if any(spec[2].split(':', 1)[0] not in (backend, 'NPY') for spec in input_specs.values()):
+      raise NavigationModelDisabled('Model input devices do not match the diagnostic session backend')
   if not takes_nav:
     return False
-  if not offline_navigation_enabled(params):
+  if not diagnostic and not offline_navigation_enabled(params):
     raise NavigationModelDisabled('Navigation-aware models are restricted to opted-in PC offline/replay tests')
   contracts = {
     'nav_map': ((MAP_SHAPE,), (np.dtype('uint8'), np.dtype('float32'))),
@@ -57,83 +114,138 @@ def validate_model_inputs(input_specs, params=None) -> bool:
 
 
 class NavigationInputs:
-  """Read optional model inputs without allowing bad navigation data to kill modeld.
+  """Associate exact IPC frames with route-tagged metadata and physical sources.
 
-  Recurrent model state is not reset here. Missing input selects the existing zero
-  default during offline tests; this is not evidence of a trained safe fallback.
+  Accepted frames may be held briefly while asynchronous metadata catches up.
+  A caller must honor reset_required before feeding inputs to a recurrent model;
+  invalid data is skipped rather than asserted to be a trained zero fallback.
   """
-
-  def __init__(self, params=None, client=None, clock=time.monotonic):
+  def __init__(self, params=None, client=None, clock=time.monotonic, *, diagnostic=False):
     self.params = params if params is not None else Params()
     self._client = client
     self._clock = clock
+    self.diagnostic = diagnostic
     self._map = None
     self._map_received = 0.0
     self._map_source_ns = 0
+    self._map_render_ns = 0
+    self._map_frame_id = 0
+    self._map_identity = None
+    self._map_metadata_received = 0.0
+    self._pending = OrderedDict()
     self._last_connect = -1.0
     self._destination = None
     self._failed = False
+    self.transitions = NavigationTransitions()
+    self.reset_required = False
+    self.reason = 'not_started'
+    self.route_generation = 0
+    self.context = None
 
   def _clear(self):
     self._map = None
     self._map_received = 0.0
     self._map_source_ns = 0
+    self._map_render_ns = 0
+    self._map_identity = None
+    self._map_metadata_received = 0.0
+    self._pending.clear()
+
+  def _finish(self, inputs, reason, identity, camera_ns):
+    decision = self.transitions.update(identity, bool(inputs), camera_ns, reason)
+    self.reset_required = decision.reset
+    self.reason = decision.reason if not decision.infer else reason
+    self.route_generation = identity[0]
+    return inputs if decision.infer else {}
 
   def read(self, sm, v_ego: float, camera_timestamp_ns: int) -> dict:
+    identity = (0, '')
+    self.context = None
     try:
-      return self._read(sm, v_ego, camera_timestamp_ns)
+      key = destination_key(self.params.get('NavDestination'))
+      identity = (0, key)
+      inputs, reason, identity = self._read(sm, v_ego, camera_timestamp_ns, key)
     except Exception:
       if not self._failed:
         cloudlog.exception('navigation_model_input_preparation_failed')
       self._failed = True
       self._clear()
-      return {}
+      inputs, reason = {}, 'preparation_failure'
+    return self._finish(inputs, reason, identity, camera_timestamp_ns)
 
-  def _read(self, sm, v_ego, camera_timestamp_ns):
+  def _read(self, sm, v_ego, camera_ns, key):
     now = self._clock()
-    destination = self.params.get('NavDestination')
-    if destination != self._destination:
+    if key != self._destination:
       self._clear()
-      self._destination = destination
-    if not offline_navigation_enabled(self.params) or not self.params.get_bool('NavigationEnabled') or destination is None:
+      self._destination = key
+    permitted = diagnostic_session_active(self.params) if self.diagnostic else offline_navigation_enabled(self.params)
+    if not permitted or not self.params.get_bool('NavigationEnabled') or not key:
       self._clear()
-      return {}
-    gps_ok = any(sm.valid[s] and sm[s].hasFix and 0 <= now - sm.recv_time[s] < SOURCE_TIMEOUT for s in ('gpsLocation', 'gpsLocationExternal'))
-    instruction_age = now - sm.recv_time['navInstruction']
-    if not gps_ok or not sm.valid['navInstruction'] or not 0 <= instruction_age < SOURCE_TIMEOUT:
+      return {}, 'disabled_or_no_destination', (0, key)
+    instruction = sm['navInstruction']
+    identity = (int(instruction.routeGeneration), key)
+    if instruction.destinationKey != key or identity[0] <= 0:
       self._clear()
-      return {}
+      return {}, 'instruction_route_mismatch', identity
+    if self._map_identity is not None and self._map_identity != identity:
+      self._clear()
+    source = gps_source(sm, now=now)
+    if source is None or not sm.valid['navInstruction']:
+      self._clear()
+      return {}, 'missing_gps_or_instruction', identity
     if not np.isfinite(v_ego) or v_ego < 0:
       self._clear()
-      return {}
+      return {}, 'invalid_speed', identity
     if self._client is None:
       from msgq.visionipc import VisionIpcClient
       from openpilot.cereal.visionipc import VisionStreamType
-
       self._client = VisionIpcClient('mapsd', VisionStreamType.VISION_STREAM_MAP, True)
     if self._client.is_connected() or (now - self._last_connect >= 0.2 and self._connect(now)):
       if (frame := self._client.recv(0)) is not None:
-        self._clear()
-        if frame.width != 256 or frame.height != 256 or self._client.timestamp_sof <= 0:
-          return {}
-        self._map = np.frombuffer(frame.data, dtype=np.uint8, count=256 * 256).reshape(256, 256).copy()
-        self._map_received = now
-        self._map_source_ns = self._client.timestamp_sof
-    source_age = (camera_timestamp_ns - self._map_source_ns) / 1e9
-    if (
-      self._map is None
-      or camera_timestamp_ns <= 0
-      or not 0 <= now - self._map_received < MAP_RECEIPT_TIMEOUT
-      or not -SOURCE_FUTURE_TOLERANCE <= source_age < SOURCE_TIMEOUT
-    ):
+        signature = (int(self._client.frame_id), int(self._client.timestamp_sof), int(self._client.timestamp_eof))
+        if frame.width != 256 or frame.height != 256 or signature[1] <= 0 or signature[2] <= 0:
+          self._clear()
+          return {}, 'invalid_map_frame', identity
+        pixels = np.frombuffer(frame.data, dtype=np.uint8, count=256 * 256).reshape(256, 256).copy()
+        self._pending[signature] = (pixels, now)
+        while len(self._pending) > 8:
+          self._pending.popitem(last=False)
+    metadata = sm['navModelStateSP']
+    map_identity = (int(metadata.routeGeneration), metadata.destinationKey)
+    if not sm.valid['navModelStateSP'] or map_identity != identity:
       self._clear()
-      return {}
-    vector = navigation_input(sm['navInstruction'].allManeuvers, v_ego * instruction_age)
+      return {}, 'map_route_mismatch_or_invalid', identity
+    signature = (int(metadata.frameId), int(metadata.locationMonoTime), int(metadata.renderMonoTime))
+    if signature in self._pending:
+      self._map, self._map_received = self._pending.pop(signature)
+      self._map_frame_id, self._map_source_ns, self._map_render_ns = signature
+      self._map_identity = map_identity
+      self._map_metadata_received = sm.recv_time['navModelStateSP']
+    if self._map is None or self._map_identity is None:
+      return {}, 'waiting_for_matching_map', identity
+    # A held frame remains associated with its own producer metadata. A newer
+    # metadata event is not allowed to relabel that older image.
+    context = NavigationContext(
+      camera_ns=camera_ns, gps_ns=int(sm.logMonoTime[source]), instruction_ns=int(instruction.gpsSourceMonoTime),
+      map_source_ns=self._map_source_ns, map_render_ns=self._map_render_ns,
+      generation=identity[0], destination_key=key, instruction_generation=int(instruction.routeGeneration),
+      instruction_destination_key=instruction.destinationKey, map_generation=self._map_identity[0],
+      map_destination_key=self._map_identity[1], frame_id=self._map_frame_id, metadata_frame_id=self._map_frame_id,
+      gps_valid=True, instruction_valid=sm.valid['navInstruction'], map_valid=True,
+      map_age=now-self._map_received, instruction_age=now-sm.recv_time['navInstruction'],
+      metadata_age=now-self._map_metadata_received)
+    self.context = context
+    reason = context_reason(context)
+    if reason != 'valid':
+      self._clear()
+      return {}, reason, identity
+    traveled = v_ego * max(0.0, (camera_ns - context.instruction_ns) / 1e9)
+    vector = navigation_input(instruction.allManeuvers, traveled)
     if vector.shape != (47,) or vector.dtype != np.float32 or not np.isfinite(vector).all():
       self._clear()
-      return {}
+      return {}, 'invalid_maneuver_vector', identity
     self._failed = False
-    return {'nav_map': self._map, 'navigation': vector}
+    return {'nav_map': self._map, 'navigation': vector}, 'valid', identity
 
   def _connect(self, now):
     self._last_connect = now

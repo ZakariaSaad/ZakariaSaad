@@ -165,7 +165,8 @@ class TestExperimentalBoundaries(unittest.TestCase):
         ordinary = SimpleNamespace(numpy_inputs={}, _navigation_input_names=())
         nav_map = SimpleNamespace(numpy_inputs={'nav_map': None}, _navigation_input_names=('nav_map',))
         maneuvers = SimpleNamespace(numpy_inputs={'navigation': None}, _navigation_input_names=('navigation',))
-        for active, fallback in ((nav_map, None), (ordinary, nav_map), (maneuvers, ordinary)):
+        diagnostic = SimpleNamespace(numpy_inputs={}, _navigation_input_names=(), diagnostic=True)
+        for active, fallback in ((nav_map, None), (ordinary, nav_map), (maneuvers, ordinary), (diagnostic, None), (ordinary, diagnostic)):
           for pc in (False, True):
             with self.subTest(active=active, fallback=fallback, pc=pc), patch.object(model_inputs, 'PC', pc):
               os.environ['NAV_MODEL_OFFLINE'] = '1'

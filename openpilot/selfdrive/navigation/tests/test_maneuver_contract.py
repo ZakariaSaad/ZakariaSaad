@@ -23,7 +23,13 @@ def step(start, end, kind, modifier='', reported_distance=None):
 
 def engine_for(steps, position=(0, 25)):
   sm, pm, params = MagicMock(), MagicMock(), MagicMock()
-  params.get.return_value = None
+  destination = {'longitude': steps[-1]['geometry']['coordinates'][-1][0], 'latitude': steps[-1]['geometry']['coordinates'][-1][1]}
+  params.get.side_effect = lambda key: destination if key == 'NavDestination' else None
+  sm.valid = {'gpsLocation': True, 'gpsLocationExternal': False}
+  sm.recv_time = dict.fromkeys(sm.valid, time.monotonic())
+  sm.logMonoTime = dict.fromkeys(sm.valid, time.monotonic_ns())
+  sm.__getitem__.return_value = SimpleNamespace(hasFix=True, longitude=position[0] * METER, latitude=position[1] * METER,
+                                               bearingDeg=0, speed=0)
   with patch('openpilot.selfdrive.navigation.navd.Api'):
     engine = RouteEngine(sm, pm, params)
   engine.last_position = (position[0] * METER, position[1] * METER)
@@ -143,6 +149,7 @@ class TestManeuverContract(unittest.TestCase):
     engine.params.get.side_effect = lambda key: {'latitude': 100 * METER, 'longitude': 100 * METER} if key == 'NavDestination' else None
     engine.update()
     nav = [call.args[1] for call in pm.send.call_args_list if call.args[0] == 'navInstruction'][-1]
-    # Preserve navigation display behavior; model inputs must be independently gated on current GPS.
+    # The UI can retain the route through a tunnel; no maneuver/model GPS snapshot remains usable.
     self.assertTrue(nav.valid)
-    self.assertEqual(navigation_input(nav.navInstruction.allManeuvers, 0)[15], 1)
+    self.assertEqual(nav.navInstruction.gpsSourceMonoTime, 0)
+    self.assertFalse(list(nav.navInstruction.allManeuvers))

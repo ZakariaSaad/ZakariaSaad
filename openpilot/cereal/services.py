@@ -54,6 +54,7 @@ _services: dict[str, tuple] = {
   "gpsLocation": (True, 1., 1),
   "navInstruction": (True, 1., 10),
   "navRoute": (True, 0.),
+  "navModelStateSP": (True, 20., 1),
   "ubloxGnss": (True, 10.),
   "qcomGnss": (True, 2.),
   "clocks": (True, 0.1, 1),

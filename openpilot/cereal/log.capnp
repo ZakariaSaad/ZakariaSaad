@@ -2443,6 +2443,11 @@ struct NavInstruction {
 
   allManeuvers @12 :List(Maneuver);
 
+  # Experimental model consumers require the same route identity and physical GPS snapshot as mapsd.
+  routeGeneration @13 :UInt64;
+  destinationKey @14 :Text;
+  gpsSourceMonoTime @15 :UInt64;
+
   struct Lane {
     directions @0 :List(Direction);
     active @1 :Bool;
@@ -2472,6 +2477,8 @@ struct NavInstruction {
 
 struct NavRoute {
   coordinates @0 :List(Coordinate);
+  routeGeneration @1 :UInt64;
+  destinationKey @2 :Text;
 
   struct Coordinate {
     latitude @0 :Float32;
@@ -2650,7 +2657,7 @@ struct Event {
     carStateSP @114 :Custom.CarStateSP;
     liveMapDataSP @115 :Custom.LiveMapDataSP;
     modelDataV2SP @116 :Custom.ModelDataV2SP;
-    customReserved10 @136 :Custom.CustomReserved10;
+    navModelStateSP @136 :Custom.NavModelStateSP;
     customReserved11 @137 :Custom.CustomReserved11;
     customReserved12 @138 :Custom.CustomReserved12;
     customReserved13 @139 :Custom.CustomReserved13;

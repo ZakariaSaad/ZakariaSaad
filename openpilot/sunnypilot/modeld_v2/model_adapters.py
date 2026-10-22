@@ -4,10 +4,13 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
+import base64
 import codecs
+import io
 import math
 from pathlib import Path
 import pickle
+import pickletools
 import numpy as np
 
 from openpilot.common.basedir import BASEDIR
@@ -26,6 +29,49 @@ from tinygrad.uop.ops import UOp
 def input_view(buffer: Buffer, shape: tuple[int, ...], dtype: DType, offset: int) -> Tensor:
   view = buffer.view(math.prod(shape) * dtype.itemsize, offset).ensure_allocated()
   return Tensor(UOp.from_buffer(view, dtype)).reshape(shape)
+
+
+class _DiagnosticSliceUnpickler(pickle.Unpickler):
+  def find_class(self, module, name):
+    if module == 'builtins' and name == 'slice':
+      return slice
+    raise pickle.UnpicklingError('Only literal slices are allowed in diagnostic output metadata')
+
+
+def diagnostic_output_slices(encoded: str, output_size: int) -> dict[str, slice]:
+  """Read bounded slice metadata without permitting arbitrary pickle constructors."""
+  if type(output_size) is not int or output_size <= 0:
+    raise ValueError('Diagnostic output vector must have a positive integer length')
+  if not isinstance(encoded, str) or len(encoded) > 131072:
+    raise ValueError('Invalid diagnostic output_slices encoding')
+  try:
+    payload = base64.b64decode(''.join(encoded.split()), validate=True)
+    if len(payload) > 65536:
+      raise ValueError('Diagnostic output_slices metadata is too large')
+    operations = list(pickletools.genops(payload))
+    # EXT opcodes may use Python's global extension cache without find_class.
+    forbidden = {'EXT1', 'EXT2', 'EXT4', 'INST', 'OBJ', 'BUILD', 'NEXT_BUFFER', 'READONLY_BUFFER', 'PERSID', 'BINPERSID'}
+    if not operations or operations[-1][0].name != 'STOP' or operations[-1][2] != len(payload) - 1 or \
+       any(opcode.name in forbidden for opcode, _, _ in operations):
+      raise ValueError('Unsupported diagnostic metadata pickle')
+    decoded = _DiagnosticSliceUnpickler(io.BytesIO(payload)).load()
+  except (ValueError, TypeError, pickle.UnpicklingError, EOFError) as error:
+    raise ValueError('Invalid diagnostic output_slices metadata') from error
+  if type(decoded) is not dict or not decoded or len(decoded) > 512:
+    raise ValueError('Diagnostic output_slices must be a nonempty slice mapping')
+  for name, selection in decoded.items():
+    if type(name) is not str or not name or type(selection) is not slice:
+      raise ValueError('Diagnostic output_slices must map names to literal slices')
+    if any(bound is not None and type(bound) is not int for bound in (selection.start, selection.stop, selection.step)):
+      raise ValueError(f'Diagnostic slice {name} has noninteger bounds')
+    if selection.step is not None and selection.step <= 0:
+      raise ValueError(f'Diagnostic slice {name} has a nonpositive step')
+    if any(bound is not None and not -output_size <= bound <= output_size for bound in (selection.start, selection.stop)):
+      raise ValueError(f'Diagnostic slice {name} exceeds the output vector')
+    start, stop, _ = selection.indices(output_size)
+    if start >= stop:
+      raise ValueError(f'Diagnostic slice {name} is empty or reversed')
+  return decoded
 
 
 class BaseModelAdapter:
@@ -59,6 +105,25 @@ class BaseModelAdapter:
     transforms = {k: np.eye(3, dtype=np.float32) for k in [self._road_key, self._wide_key] if k}
     dummy_inputs = {k: np.zeros(v.shape, dtype=v.dtype) for k, v in self.numpy_inputs.items() if k not in ['tfm', 'big_tfm', 'prev_feat']}
     return dummy_frames, transforms, dummy_inputs
+
+  def reset_state(self) -> None:
+    """Clear diagnostic history in place, preserving captured-kernel buffer aliases."""
+    for tensor in (*self.input_queues.values(), *getattr(self, 'outputs', {}).values()):
+      if tensor.device == 'NPY':
+        # NPY is host storage, without a renderer for assign(0) kernels.
+        storage = tensor._buffer().as_memoryview(allow_zero_copy=True)
+        storage[:] = bytes(len(storage))
+      else:
+        tensor.assign(0).realize()
+    for array in self.numpy_inputs.values():
+      array[:] = 0
+    packed_input = getattr(self, 'packed_input', None)
+    if isinstance(packed_input, np.ndarray):
+      packed_input[:] = 0
+    for array in getattr(self, 'frame_slots', {}).values():
+      array[:] = 0
+    self.full_frames.clear()
+    self._blob_cache.clear()
 
   def _load_warp(self):
     if (self.cam_w, self.cam_h) in self.jits:
@@ -151,7 +216,7 @@ class LegacyModelAdapter(BaseModelAdapter):
 
 
 class NativeTinygradAdapter(BaseModelAdapter):
-  def __init__(self, *args, **kwargs):
+  def __init__(self, *args, diagnostic: bool = False, **kwargs):
     super().__init__(*args, **kwargs)
     self.is_native = True
     self.input_specs = self.jits['input_specs']
@@ -164,7 +229,14 @@ class NativeTinygradAdapter(BaseModelAdapter):
     self.frame_copy_size = stride * (y_height + uv_height)
 
     self._vision_input_names = ['img', 'big_img']
-    self.vision_output_slices = pickle.loads(codecs.decode(self.jits['metadata']['metadata']['output_slices'].encode(), 'base64'))
+    encoded_slices = self.jits['metadata']['metadata']['output_slices']
+    if diagnostic:
+      shape = self.jits['output_specs']['outputs'][0]
+      if len(shape) != 2 or shape[0] != 1:
+        raise ValueError('Diagnostic primary output must be a single vector')
+      self.vision_output_slices = diagnostic_output_slices(encoded_slices, shape[1])
+    else:
+      self.vision_output_slices = pickle.loads(codecs.decode(encoded_slices.encode(), 'base64'))
 
     self.warp_frame_size = self.frame_copy_size
     self._init_common()
@@ -201,8 +273,8 @@ class NativeTinygradAdapter(BaseModelAdapter):
     return self.outputs['outputs']
 
 
-def get_model_adapter(jits, cam_w, cam_h, model_device, queue_device, warp_device, chestnut=False):
+def get_model_adapter(jits, cam_w, cam_h, model_device, queue_device, warp_device, chestnut=False, diagnostic=False):
   if 'input_specs' in jits:
-    return NativeTinygradAdapter(jits, cam_w, cam_h, model_device, queue_device, warp_device, chestnut=chestnut)
+    return NativeTinygradAdapter(jits, cam_w, cam_h, model_device, queue_device, warp_device, chestnut=chestnut, diagnostic=diagnostic)
   else:
     return LegacyModelAdapter(jits, cam_w, cam_h, model_device, queue_device, warp_device, chestnut=chestnut)

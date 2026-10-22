@@ -6,16 +6,22 @@ import numpy as np
 from openpilot.common.test import OpenpilotTestCase
 from openpilot.common.params import Params
 from openpilot.selfdrive.navigation import model_inputs
+from openpilot.selfdrive.navigation.generation import destination_key
 
 
 class Messages:
   def __init__(self, now):
-    self.valid = {'gpsLocation': True, 'gpsLocationExternal': False, 'navInstruction': True}
+    self.valid = {'gpsLocation': True, 'gpsLocationExternal': False, 'navInstruction': True, 'navModelStateSP': True}
     self.recv_time = dict.fromkeys(self.valid, now - 0.1)
+    self.logMonoTime = dict.fromkeys(self.valid, int((now-0.1)*1e9))
+    key = destination_key({'latitude': 1.0, 'longitude': 2.0})
     self.data = {
-      'gpsLocation': SimpleNamespace(hasFix=True),
-      'gpsLocationExternal': SimpleNamespace(hasFix=False),
-      'navInstruction': SimpleNamespace(allManeuvers=[SimpleNamespace(type='turn', modifier='left', distance=200.0)]),
+      'gpsLocation': SimpleNamespace(hasFix=True, latitude=1.0, longitude=2.0),
+      'gpsLocationExternal': SimpleNamespace(hasFix=False, latitude=1.0, longitude=2.0),
+      'navInstruction': SimpleNamespace(allManeuvers=[SimpleNamespace(type='turn', modifier='left', distance=200.0)],
+                                       routeGeneration=1, destinationKey=key, gpsSourceMonoTime=int((now-0.1)*1e9)),
+      'navModelStateSP': SimpleNamespace(frameId=1, locationMonoTime=int(now*1e9)-900_000_000, renderMonoTime=int(now*1e9),
+                                          routeGeneration=1, destinationKey=key),
     }
 
   def __getitem__(self, name):
@@ -25,6 +31,8 @@ class Messages:
 class Client:
   def __init__(self, source):
     self.timestamp_sof = source
+    self.timestamp_eof = source+900_000_000
+    self.frame_id = 1
     self.frame = SimpleNamespace(data=np.full((256, 256), 128, np.uint8).tobytes(), width=256, height=256)
 
   def is_connected(self):
@@ -76,6 +84,7 @@ class TestNavigationAdmission(OpenpilotTestCase):
     self.assertTrue(self.reader.read(self.sm, 10.0, self.camera_ns))
     self.client.frame = SimpleNamespace(data=bytes(256 * 256), width=256, height=256)
     self.client.timestamp_sof = 0
+    self.camera_ns += 50_000_000
     self.assertEqual(self.reader.read(self.sm, 10.0, self.camera_ns), {})
     self.assertIsNone(self.reader._map)
 
@@ -112,3 +121,25 @@ class TestNavigationAdmission(OpenpilotTestCase):
   def test_non_navigation_model_is_not_forced_into_experimental_mode(self):
     self.params.put_bool('NavigationModelInputsEnabled', False, block=True)
     self.assertFalse(model_inputs.validate_model_inputs({'desire': ((8,), 'float32', 'CPU')}, self.params))
+
+  def test_old_generation_rejected_despite_fresh_delivery(self):
+    self.sm.data['navInstruction'].routeGeneration = 2
+    self.assertEqual(self.reader.read(self.sm, 10.0, self.camera_ns), {})
+    self.assertTrue(self.reader.reset_required)
+
+  def test_pending_frame_not_relabelled_by_newer_metadata(self):
+    self.sm.data['navModelStateSP'].frameId = 2
+    self.assertEqual(self.reader.read(self.sm, 10.0, self.camera_ns), {})
+    # The exact old frame can be accepted once its metadata arrives.
+    self.sm.data['navModelStateSP'].frameId = 1
+    self.assertTrue(self.reader.read(self.sm, 10.0, self.camera_ns+50_000_000))
+
+  def test_holds_verified_frame_while_new_metadata_catches_up(self):
+    self.assertTrue(self.reader.read(self.sm, 10.0, self.camera_ns))
+    self.client.frame_id = 2
+    self.client.timestamp_sof += 50_000_000
+    self.client.timestamp_eof += 50_000_000
+    self.client.frame = SimpleNamespace(data=bytes(256*256), width=256, height=256)
+    self.assertTrue(self.reader.read(self.sm, 10.0, self.camera_ns+50_000_000))
+    self.assertEqual(self.reader.context.frame_id, 1)
+    self.assertFalse(self.reader.reset_required)

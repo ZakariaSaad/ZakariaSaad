@@ -36,7 +36,9 @@ from openpilot.common.transformations.model import get_warp_matrix
 from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
 from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan, smooth_value
 from openpilot.selfdrive.modeld.modeld import ChestnutGpuState
-from openpilot.selfdrive.navigation.model_inputs import NAV_INPUT_NAMES, NavigationInputs, NavigationModelDisabled, validate_model_inputs
+from openpilot.selfdrive.navigation.model_inputs import (NAV_INPUT_NAMES, NavigationInputs, NavigationModelDisabled,
+                                                        diagnostic_session_active, diagnostic_session_backend,
+                                                        diagnostic_session_token, validate_model_inputs)
 
 from openpilot.sunnypilot.modeld_v2.fill_model_msg import fill_model_msg, fill_pose_msg, PublishState, get_curvature_from_output
 from openpilot.sunnypilot.modeld_v2.parse_model_outputs import Parser
@@ -92,7 +94,7 @@ def takes_nav(*models) -> bool:
 
 
 def _reject_navigation_publication(*models) -> None:
-  if takes_nav(*models):
+  if takes_nav(*models) or any(getattr(model, 'diagnostic', False) for model in models if model is not None):
     raise NavigationModelDisabled('Use the isolated offline ModelState harness; production modeld may not publish navigation-conditioned outputs')
 
 
@@ -110,7 +112,13 @@ class ModelState(ModelStateBase):
   inputs: dict[str, np.ndarray]
   prev_desire: np.ndarray
 
-  def __init__(self, cam_w: int, cam_h: int, chestnut: bool = False, *, warp_path: str | None = None):
+  def __init__(self, cam_w: int, cam_h: int, chestnut: bool = False, *, warp_path: str | None = None, diagnostic: bool = False):
+    self.diagnostic = diagnostic
+    self._diagnostic_token = diagnostic_session_token() if diagnostic else None
+    self._diagnostic_backend = diagnostic_session_backend() if diagnostic else None
+    self._check_diagnostic_session()
+    if diagnostic and (self._diagnostic_backend not in ('CPU', 'AMD') or chestnut != (self._diagnostic_backend == 'AMD')):
+      raise NavigationModelDisabled('Diagnostic Chestnut selection must match the scoped CPU/AMD backend')
     ModelStateBase.__init__(self)
 
     env_pkl = os.environ.get('COMBINED_MODEL_PKL')
@@ -141,18 +149,22 @@ class ModelState(ModelStateBase):
 
     def checked_fusion(parts, extras):
       # load_model calls this before allocating PlainJit/GPU buffers or replaying any kernels.
-      validate_model_inputs(_navigation_input_specs(extras))
+      self._validate_navigation_inputs(_navigation_input_specs(extras))
       return fuse(parts, extras)
 
     jits = load_model(pkl_path, extend=checked_fusion)
     self.navigation_input_specs = _navigation_input_specs(jits)
-    validate_model_inputs(self.navigation_input_specs)
+    self._validate_navigation_inputs(self.navigation_input_specs)
 
     metadata = jits['metadata']
     self.WARP_DEV = metadata.get('warp_dev', 'QCOM') if COMMA_HARDWARE else 'CPU'
     self.DEV = ('AMD' if self.chestnut else 'QCOM') if COMMA_HARDWARE else 'CPU'
     self.QUEUE_DEV = self.DEV
-    self.adapter = get_model_adapter(jits, cam_w, cam_h, self.DEV, self.QUEUE_DEV, self.WARP_DEV, self.chestnut)
+    if getattr(self, 'diagnostic', False):
+      assert self._diagnostic_backend is not None
+      self.DEV = self.QUEUE_DEV = self.WARP_DEV = self._diagnostic_backend
+    adapter_options = {'diagnostic': True} if getattr(self, 'diagnostic', False) else {}
+    self.adapter = get_model_adapter(jits, cam_w, cam_h, self.DEV, self.QUEUE_DEV, self.WARP_DEV, self.chestnut, **adapter_options)
     self.vision_output_slices = self.adapter.vision_output_slices
     self.policy_output_slices = self.adapter.policy_output_slices
     self._policy_slices_list = self.adapter._policy_slices_list
@@ -176,11 +188,34 @@ class ModelState(ModelStateBase):
     self.parser = Parser()
     self.prev_desire = np.zeros(self.constants.DESIRE_LEN, dtype=np.float32)
 
+  def _check_diagnostic_session(self) -> None:
+    if getattr(self, 'diagnostic', False) and (
+      self._diagnostic_token is None
+      or self._diagnostic_token is not diagnostic_session_token()
+      or not diagnostic_session_active()
+    ):
+      raise NavigationModelDisabled('Diagnostic inference requires the original active file-only diagnostic session')
+
+  def _validate_navigation_inputs(self, specs: dict) -> bool:
+    self._check_diagnostic_session()
+    if getattr(self, 'diagnostic', False):
+      return validate_model_inputs(specs, diagnostic=True)
+    return validate_model_inputs(specs)
+
   def warmup(self) -> None:
     dummy_frames, transforms, dummy_inputs = self.adapter.get_dummy_inputs()
     self.run(dummy_frames, transforms, dummy_inputs)
     self.adapter.reset_warmup_buffers()
     self.prev_desire[:] = 0
+
+  def reset_state(self, reason: str) -> None:
+    """Start a new isolated inference sequence without retaining recurrent history."""
+    if not isinstance(reason, str) or not reason.strip():
+      raise ValueError('A state reset requires a diagnostic reason')
+    self.adapter.reset_state()
+    self.prev_desire[:] = 0
+    self.state_reset_reason = reason
+    self.state_reset_count = getattr(self, 'state_reset_count', 0) + 1
 
   @property
   def mlsim(self) -> bool:
@@ -197,10 +232,14 @@ class ModelState(ModelStateBase):
   def run(self, bufs: dict[str, VisionBuf], transforms: dict[str, np.ndarray],
           inputs: dict[str, np.ndarray],
           after_enqueue: Callable[[], None] | None = None) -> dict[str, np.ndarray] | None:
-    if takes_nav(self):
+    if getattr(self, 'diagnostic', False) or takes_nav(self):
       # Recheck every invocation: withdrawing the offline permit must stop the graph,
       # including its recurrent navigation history, before any inference runs.
-      validate_model_inputs(self.navigation_input_specs)
+      try:
+        self._validate_navigation_inputs(self.navigation_input_specs)
+      except NavigationModelDisabled:
+        self.reset_state('diagnostic permission revoked')
+        raise
     self.adapter.copy_frames(bufs)
 
     desire_key = self.desire_key
