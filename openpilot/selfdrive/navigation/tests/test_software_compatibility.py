@@ -346,6 +346,27 @@ print('stdlib-only')
     with self.assertRaisesRegex(ExperimentalCatalogError, 'exceeds'):
       compatibility.validate_native_layout(header)
 
+  def test_kernel_globals_select_outer_arguments_with_compact_signature_slots(self):
+    header = copy.deepcopy(self.header)
+    call = header['calls'][0]
+    call.update(globals=[2, 0], ins=[0], outs=[2],
+                signature=[[None, 0, 'dtypes.u8', [1]], [None, 1, 'dtypes.u8', [1]]])
+    self.assertEqual(compatibility.validate_native_layout(header)['programs'], 1)
+    mutations = [lambda c: c.update(globals=[2, 2]),
+                 lambda c: c.update(globals=[-1, 0]),
+                 lambda c: c.update(globals=[len(c['args']), 0]),
+                 lambda c: c.update(globals=[True, 0]),
+                 lambda c: c['signature'][0].__setitem__(1, 2),  # Valid outer index; invalid compact slot.
+                 lambda c: c['signature'][1].__setitem__(1, 0),
+                 lambda c: c['signature'][0].__setitem__(3, [1 << 40]),
+                 lambda c: c['args'].__setitem__(1, {'input': 100000})]  # Unused arguments still require valid views.
+    for index, mutate in enumerate(mutations):
+      with self.subTest(mutation=index):
+        changed = copy.deepcopy(header)
+        mutate(changed['calls'][0])
+        with self.assertRaises(ExperimentalCatalogError):
+          compatibility.validate_native_layout(changed)
+
 
 if __name__ == '__main__':
   unittest.main()

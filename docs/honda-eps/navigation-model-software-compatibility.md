@@ -81,6 +81,26 @@ buffer layout, compiler evidence, runtime pin and registered camera profile.
 It inspects data-only metadata and never executes artifact pickles or kernels.
 It also reports the configured ordinary small-model fallback and driving status.
 
+The fallback parser follows the production compiler and loader formats:
+
+| Compiler layout | Native part keys |
+| --- | --- |
+| Native `compile_modeld_v2.py` | `run`; its external camera warp is fused by the loader |
+| Legacy `compile_modeld.py` split, multiple-policy or supercombo | `run_policy` plus camera-resolution tuples such as `(1344, 760)` and `(1928, 1208)` |
+
+`write_bundle()` stores tuple keys as JSON arrays; validation restores their
+tuple identity before checking duplicates. Dimensions must be positive integers,
+so booleans, floats, malformed arrays and duplicate resolution keys are rejected.
+The legacy compiler combines vision and policy inside `run_policy`; there is no
+required `run_vision` part. Tuple-only warp bundles are incomplete ordinary QCOM
+fallbacks. Kernel signatures use compact slots into the kernel's `globals`
+selection, which may omit unused outer arguments. All argument views still
+receive bounds checks, and catalog hashes and QCOM target checks remain required.
+
+The supplied on-device report for `e687b73c` passed all Bigv2, warp, compiler-proof
+and software-review checks. Its sole fallback failure exposed the old parser's
+string-only part-key assumption; it did not indicate an artifact or GPU failure.
+
 The accompanying automated software suite exercises the actual navigation
 producers/readers, tensor adapter, native output parsing and model lifecycle.
 It covers route-generation identity, reroutes/destination changes, stale or

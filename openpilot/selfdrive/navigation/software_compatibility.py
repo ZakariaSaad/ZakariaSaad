@@ -107,19 +107,22 @@ def validate_native_layout(header: dict) -> dict:
       _require(isinstance(value, list) and len(value) == 3 and all(type(dim) is int and dim > 0 for dim in value),
                'Invalid native kernel launch dimensions')
     globals_ = call.get('globals')
-    _require(isinstance(globals_, list) and len(globals_) == len(args)
-             and sorted(globals_) == list(range(len(args))), 'Native kernel global argument mapping mismatch')
+    # serialize_jit preserves every outer call argument, while ProgramInfo.globals
+    # selects the arguments used by the compiled kernel. ELF signature slots are
+    # compact indices into that selection (helpers._program_uop), not args.
+    _require(isinstance(globals_, list) and all(type(index) is int and 0 <= index < len(args) for index in globals_)
+             and len(globals_) == len(set(globals_)), 'Native kernel global argument mapping mismatch')
     for key in ('outs', 'ins'):
       indices = call.get(key)
       _require(isinstance(indices, list) and len(indices) == len(set(indices))
                and all(type(index) is int and 0 <= index < len(args) for index in indices), 'Native kernel access index mismatch')
     signature = call.get('signature')
-    _require(isinstance(signature, list) and len(signature) == len(args), 'Native kernel signature count mismatch')
+    _require(isinstance(signature, list) and len(signature) == len(globals_), 'Native kernel signature count mismatch')
     seen = set()
     for entry in signature:
       _require(isinstance(entry, list) and len(entry) == 4, 'Invalid native kernel signature entry')
       name, slot, dtype, shape = entry
-      _require((name is None or isinstance(name, str)) and type(slot) is int and 0 <= slot < len(args) and slot not in seen,
+      _require((name is None or isinstance(name, str)) and type(slot) is int and 0 <= slot < len(globals_) and slot not in seen,
                'Native kernel signature slot mismatch')
       seen.add(slot)
       _require(isinstance(shape, list) and bool(shape) and all(type(dim) is int and dim > 0 for dim in shape),
@@ -194,8 +197,28 @@ def _camera_profile(profile: Any, receipt: dict, warp_frame_size: int, root: Pat
     _require(_digest(path) == expected, 'Installed camera source binding changed: ' + name)
 
 
+def _fallback_part_key(value: Any) -> str | tuple[int, int]:
+  """Mirror write_bundle/read_parts for ordinary compiler entrypoint keys.
+
+  JSON arrays represent camera-resolution tuples, not string entrypoints. Keep
+  integer dimensions strict: bools and floats would otherwise alias integer
+  tuples during Python dictionary lookup and duplicate detection.
+  """
+  if isinstance(value, str):
+    _require(value in ('run', 'run_policy'), f'Unsupported ordinary fallback entrypoint: {value!r}')
+    return value
+  _require(isinstance(value, list) and len(value) == 2 and all(type(size) is int and size > 0 for size in value),
+           f'Invalid ordinary fallback camera-resolution key: {value!r}')
+  return value[0], value[1]
+
+
 def _fallback_headers(path: Path) -> list[dict]:
-  """Bounded data-only QCOM SPTG inspection, including split ordinary models."""
+  """Bounded data-only QCOM inspection of native and legacy combined bundles.
+
+  Native compile_modeld_v2 artifacts contain run. Legacy compile_modeld bundles
+  contain run_policy (including vision/multiple policies) and resolution-keyed
+  warp JITs. Metadata pickle extras and compiled kernels are never executed.
+  """
   with path.open('rb') as source:
     _require(source.read(8) == b'SPTGPLN1', 'Configured ordinary fallback is not installed in native SPTG format')
     size_bytes = source.read(8)
@@ -213,9 +236,10 @@ def _fallback_headers(path: Path) -> list[dict]:
   assert isinstance(parts, list)
   keys, headers = set(), []
   for part in parts:
-    _require(isinstance(part, dict) and isinstance(part.get('key'), str) and part['key'] not in keys,
-             'Invalid or duplicate ordinary fallback part')
-    keys.add(part['key'])
+    _require(isinstance(part, dict), 'Invalid ordinary fallback part declaration')
+    key = _fallback_part_key(part.get('key'))
+    _require(key not in keys, f'Duplicate ordinary fallback part: {key!r}')
+    keys.add(key)
     _range(part.get('blob'), blob_size)
     part_size = part['blob'][1] - part['blob'][0]
     header = part.get('header')
@@ -245,7 +269,14 @@ def _fallback_headers(path: Path) -> list[dict]:
         _require(call.get('target', {}).get('device') == 'QCOM', 'Ordinary fallback kernel must target QCOM')
     validate_native_layout(header)
     headers.append(header)
-  _require('run' in keys or {'run_policy', 'run_vision'} <= keys, 'Ordinary fallback lacks supported native entry points')
+  # Legacy vision_policy, vision_multi_policy and supercombo graphs are already
+  # combined inside run_policy; there is no separate run_vision entrypoint.
+  # A tuple-only bundle is not an ordinary QCOM model: LegacyModelAdapter.run
+  # needs both its camera warp and run_policy. Native run uses frame_fusion's
+  # external warp and must not be confused with the legacy layout.
+  native = keys == {'run'}
+  legacy = 'run_policy' in keys and len(keys) > 1 and all(key == 'run_policy' or isinstance(key, tuple) for key in keys)
+  _require(native or legacy, 'Ordinary fallback requires native run or run_policy plus camera-resolution warp parts')
   return headers
 
 
