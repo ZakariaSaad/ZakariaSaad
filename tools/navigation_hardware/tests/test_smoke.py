@@ -261,6 +261,9 @@ class TestSyntheticInference(unittest.TestCase):
     from tinygrad import Tensor
     loaded: dict = {kind: {name: (shape, dtype, 'CPU') for name, (shape, dtype, _) in specs.items()} for kind, specs in self.specs().items()}
     def run(output_buffers, **inputs):
+      from tinygrad.engine.jit import _prepare_jit_inputs
+      slots, _, _, _ = _prepare_jit_inputs((), dict(output_buffers=output_buffers, **inputs))
+      self.assertEqual(len(slots), 17, 'Five distinct state-output views must preserve the captured native JIT slots')
       image = inputs['state_img_q'].numpy().copy()
       image[:, :-1] = image[:, 1:]
       image[:, -1] = inputs['new_img'].numpy()

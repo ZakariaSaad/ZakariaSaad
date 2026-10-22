@@ -29,7 +29,7 @@ def isolated_io(*, allow_downloads=True):
   class NoControllers(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
       if fullname.startswith(('panda', 'openpilot.selfdrive.controls', 'openpilot.sunnypilot.selfdrive.controls',
-                              'openpilot.system.manager', 'openpilot.selfdrive.pandad', 'openpilot.system.camerad')):
+                              'openpilot.system.manager', 'openpilot.selfdrive.pandad', 'openpilot.system.camerad.camerad')):
         raise RuntimeError('Vehicle controller/Panda/camera imports forbidden in GPU smoke workers')
       return None
   guards = [NoPersistentFlash(), NoControllers()]
@@ -104,6 +104,7 @@ def synthetic_inputs(specs, index, arm):
 
 def infer_sequence(loaded, device, *, arms=('neutral', 'map_only', 'maneuver_only', 'both')):
   from examples.openpilot.helpers import allocate_inputs
+  from openpilot.sunnypilot.modeld_v2.model_adapters import input_view
   from tinygrad import Tensor
   specs, output_specs = loaded['input_specs'], loaded['output_specs']
   pairs = {name: 'next_' + name for name in specs if name.startswith('state_')}
@@ -113,7 +114,9 @@ def infer_sequence(loaded, device, *, arms=('neutral', 'map_only', 'maneuver_onl
   for arm in arms:
     inputs, outputs = allocate_inputs(specs), allocate_inputs(output_specs)
     for state, next_state in pairs.items():
-      outputs[next_state] = inputs[state]  # Same in-place alias policy as the native driving adapter.
+      queue = inputs[state]
+      # Distinct Tensor/Buffer view keeps all17 JIT slots while sharing state memory, exactly as the production adapter.
+      outputs[next_state] = input_view(queue._buffer(), tuple(int(d) for d in queue.shape), queue.dtype, 0)
     for index in range(2):
       arrays = synthetic_inputs(specs, index, arm)
       for name, value in arrays.items():
