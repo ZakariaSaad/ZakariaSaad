@@ -1,8 +1,9 @@
-# Navigation-model integration: software completion and hardware gates
+# Navigation-model integration: historical software review
 
-Current changes and remaining software requirements are in the [software compatibility correction](navigation-model-software-status.md). It supersedes this snapshot's clock limitation, extra big-model allocation and mandatory extended hardware procedure. Start with the short SSH probe; extended sequences remain optional.
-
-The subsequent [parked-car SSH smoke workflow](navigation-model-ssh-smoke.md) simplifies initial hardware checks. The [activation workflow](navigation-model-activation-workflow.md) defines result review and the later explicitly authorized delivery; candidate activation remains disabled.
+**Historical snapshot:** this report records the earlier implementation and test
+revision named below. Its missing-artifact and approval-state statements describe
+that revision. The [current workflow](navigation-model-software-compatibility.md)
+supersedes its retired hardware procedures and activation requirements.
 
 This review continues the existing implementation; no upstream driving-system merge,
 model-runtime upgrade, new Git branch, device installation or firmware operation was
@@ -36,12 +37,12 @@ to false. Both comma 4 and comma 3 layouts display status, eligibility reasons a
 off-road-only opt-in control. Runtime identity reflects successful candidate or small
 fallback inference rather than relabelling an unchanged ordinary selection.
 
-Bigv2 is **visible/selectable for preparation**, **supported by file-input diagnostic
-code**, and **not eligible for normal activation in this revision**. Its specific
-remaining gates are physical compiler/reference/transition/resource results and
-reviewed model, warp and compiler-metadata hashes. `hardware_reviewed` and
-`activation_approved` remain false, and those hashes remain unset. A UI checkbox or
-locally generated diagnostic manifest cannot approve the candidate.
+At the historical revision reviewed here, Bigv2 was visible for preparation and
+supported by the file-input inference code, but was ineligible for activation.
+The physical compiler evidence and registered hashes were not yet available.
+Those outstanding preparation items are now completed; see the current workflow
+for the received evidence. A UI checkbox or local manifest still cannot approve
+vehicle control.
 
 The completed runtime path checks branch approval, exact source/artifact/metadata
 identity, native tensor layout, actual USB firmware/product and discovered AMD LLVM
@@ -91,7 +92,7 @@ executed, source-compatible and unknown requirements.
 | Initial checkpoint | Bigv2 ONNX SHA256 `1d18c42ea4cd95c8bffab4635844b78b8e2d4e25b9de44a9c5ac2e0961371a2e`; official comma commit `a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9` |
 | Official latest reference | `afbf2e547e9319e2eb9f515e1e4330af63705cec`; its n16 PKL declares a different checkpoint despite unchanged ONNX pointer/shapes |
 | Firmware / USB | Existing source expects `custom 8516b768-CLEAN`; driver/firmware interfaces agree with the official reference. No additional Bigv2-specific firmware dependency found; current physical product is unobserved |
-| GPU / backend | Physical USB AMD LLVM `gfx1200` required by this reviewed profile; hardware package discovers and verifies it rather than forcing its architecture |
+| GPU / backend | Physical USB AMD LLVM `gfx1200` required by this reviewed profile; production initialization discovers and verifies it rather than forcing its architecture |
 | Runtime | Existing tinygrad `69fd4d34d4430036378aba2b43f9d339cdd6ea73`, unchanged; official reference pins `d3f09c9bbd542fbfbe68c8569a1173550c408969`, with inspected compile recipes equal but runtime internals not generally equivalent |
 | Native artifact | Branch `SPTGPLN1`, full typed input/output/state metadata and compiler source/reload verification; official TinyJit PKL is not interchangeable |
 | Selector / catalog | Existing Selector21 and v28 production catalog retained; separate branch extension and local verified diagnostic manifest. The catalog's advertised tinygrad ref is not the actual runtime pin |
@@ -146,7 +147,7 @@ ONNX oracle. Inference took 26.37–27.11s/frame
 The fixture uses neutral desires and reconstructed timing, including its original
 zero smoothing; it does not reproduce the newly reviewed live candidate's0.3s
 longitudinal smoothing or original on-device model inputs. Navigation is synthetic;
-full132-frame learned inference remains a hardware-package task.
+full132-frame learned inference was not executed in that historical CPU run.
 
 Existing Stage2 compiler and four-arm camera experiments are reused with their
 original artifact/source identities; they are not relabelled as final-source or
@@ -170,42 +171,12 @@ ACC and DEC `acc` exclude that direct candidate, but model leads, predicted traj
 SCC-V and DEC mode selection can still affect longitudinal behavior indirectly.
 Unchanged controller code is not proof of unchanged behavior with different predictions.
 
-## Physical off-road package and remaining acceptance
+## Retired diagnostic procedure
 
-Follow [the complete SSH preparation/run/cleanup guide](navigation-model-hardware.md).
-Use a separate checkout, retain the active `/data/openpilot` installation and its
-settings, stop the existing supervisor manually and inspect process/USB ownership
-before compute. The guide builds only explicit Params/Msgq/VisionIPC bindings; a
-full on-device SCons build is deliberately not part of this isolated package.
-
-`python -m tools.navigation_hardware` supplies read-only inspection, a reproducible
-plan, bounded workers and an archive. Its bootstrap independently compiles CPU and
-physical AMD artifacts, verifies source against reloaded output, verifies matching
-warps, exports a ready AMD manifest only from successful physical compiler evidence,
-runs a short smoke test, compares four input arms including every recurrent queue,
-and runs164-frame transition sequences. Numerical tolerances are explicit and no
-looser than `atol=rtol=1e-3`; they are provisional engineering checks, not a quality
-verdict. Watchdogs retain time, memory, errors and available USB/power/temperature
-telemetry. Unknown measurements are labelled unavailable.
-
-A short private prepared-camera input package accompanies the report. Repeating it
-requires explicit `--allow-repeated-cameras`; generated timestamps/route overlays
-remain labelled synthetic. Prefer164 distinct actual paired captures with genuine
-navigation source metadata for subsequent review. Do not call these repeated-camera
-experiments recorded navigation replay.
-
-Send `results.tar.gz` and its SHA256 privately. State snapshots contain derived
-camera pixels; do not publish them to GitHub. Neither the package nor this software
-push installs or enables a driving candidate, changes firmware or touches CAN.
-
-Before candidate approval, physical results must establish successful actual
-AMD/warp compilation, tensor/state numerical consistency,132+ learned history and
-transition behavior, sustained20Hz/memory/thermal/power/USB stability, real route/map
-palette/orientation and camera/GPS clock agreement including suspend/resume. The
-file-only single-model package does not validate simultaneous AMD navigation plus
-continuously warm QCOM fallback, resource coexistence, real failure handover or road
-quality. Those need separately reviewed non-actuating measurements and later explicit
-live-integration authorization. No vehicle-control validation was performed here.
+The former standalone hardware-test framework and its operational instructions
+were removed after successful physical compilation and existing-model
+registration. They are not prerequisites for this branch. Use the
+[software compatibility workflow](navigation-model-software-compatibility.md).
 
 ## Update and rollback
 

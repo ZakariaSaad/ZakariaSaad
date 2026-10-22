@@ -1,7 +1,8 @@
 """Navigation-conditioned model handover; ordinary model inference is the fallback.
 
 Priming is an explicit eligibility policy, not proof of learned driving quality.
-The candidate remains branch-gated until its physical transition behavior is reviewed.
+The candidate requires reviewed artifact/software evidence and explicit driving
+activation authorization; registration and priming do not grant that approval.
 """
 import numpy as np
 

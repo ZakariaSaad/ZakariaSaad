@@ -13,8 +13,9 @@ from openpilot.common.prefix import OpenpilotPrefix
 from openpilot.selfdrive.navigation import model_inputs
 from openpilot.selfdrive.navigation.mapsd import MapsD
 from openpilot.selfdrive.navigation.navd import RouteEngine
-from openpilot.selfdrive.navigation.renderer import SIZE
+from openpilot.selfdrive.navigation.renderer import SIZE, MapRenderer
 from openpilot.selfdrive.navigation.tests.test_maneuver_contract import METER, step
+from openpilot.selfdrive.navigation.tests.test_navigation import local_archive, make_archive
 
 
 class TestNativeRouteAdmission(unittest.TestCase):
@@ -37,14 +38,18 @@ class TestNativeRouteAdmission(unittest.TestCase):
         step((0, 0), (0, 100), 'depart'), step((0, 100), (100, 100), 'turn', 'left')]}]}]}
       maps = MapsD(params)
       self.addCleanup(maps.close)
-      maps.renderer = MagicMock()
-      maps.renderer.render.return_value = (np.full((SIZE, SIZE), 128, np.uint8), True)
+      # Decode a real in-memory vector tile and run the production renderer.
+      # The north-then-east route is asymmetric, exposing image flips, rotations
+      # and accidental normalization across the real VisionIPC transport.
+      archive = self.enterContext(local_archive(make_archive()))
+      maps.renderer = MapRenderer(archive)
       server = VisionIpcServer('mapsd')
       server.create_buffers_with_sizes(VisionStreamType.VISION_STREAM_MAP, 4, SIZE, SIZE, SIZE * SIZE, SIZE, SIZE * SIZE)
       server.start_listener()
       client = VisionIpcClient('mapsd', VisionStreamType.VISION_STREAM_MAP, True)
       reader = model_inputs.NavigationInputs(params, client)
       frame_id = 0
+      rendered = []
 
       def tick(fix=True):
         nonlocal frame_id
@@ -55,6 +60,7 @@ class TestNativeRouteAdmission(unittest.TestCase):
           engine.update()
         map_sm.update(0)
         image, source = maps.update(map_sm)
+        rendered.append(image.copy())
         render_ns = time.monotonic_ns()
         server.send(VisionStreamType.VISION_STREAM_MAP, image.tobytes(), frame_id, source, render_ns)
         pm.send('navModelStateSP', maps.state_message(frame_id, source, render_ns))
@@ -74,6 +80,10 @@ class TestNativeRouteAdmission(unittest.TestCase):
       accepted = receive_valid()
       self.assertEqual(accepted['nav_map'].shape, (256, 256))
       self.assertEqual(accepted['nav_map'].dtype, np.uint8)
+      np.testing.assert_array_equal(accepted['nav_map'], rendered[-1])
+      self.assertEqual(int(accepted['nav_map'].max()), 255)
+      self.assertFalse(np.array_equal(accepted['nav_map'], accepted['nav_map'][::-1]))
+      self.assertFalse(np.array_equal(accepted['nav_map'], accepted['nav_map'][:, ::-1]))
       self.assertEqual(accepted['navigation'][15], 1)
       self.assertTrue(reader.reset_required)
       old_context = reader.context

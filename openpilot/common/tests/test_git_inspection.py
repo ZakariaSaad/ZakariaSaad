@@ -1,4 +1,4 @@
-"""Git-only regressions for root supervision of an unprivileged owner's checkout.
+"""Read-only Git helper regressions for mixed repository and caller ownership.
 
 The real subprocess cases run in a root test container, including with --read-only.
 Only disposable fixtures are created; no GPU, service or Git trust/config changes.
@@ -16,9 +16,6 @@ from unittest.mock import patch
 import uuid
 
 from openpilot.common.git_inspection import GitInspectionError, read_only_git
-from openpilot.selfdrive.navigation import export_experimental_model as exporter
-from openpilot.selfdrive.navigation.experimental_catalog import ExperimentalCatalogError
-from tools.navigation_hardware import safety
 
 
 class TestGitInspection(unittest.TestCase):
@@ -58,17 +55,14 @@ class TestGitInspection(unittest.TestCase):
         read_only_git(self.root, *args)
       run.assert_not_called()
 
-  def test_original_git_stderr_survives_admission_and_export_errors(self):
+  def test_original_git_stderr_survives_errors(self):
     stderr = 'fatal: detected dubious ownership in repository at /data/openpilot\noriginal detail\n'
     with patch('subprocess.run', return_value=SimpleNamespace(returncode=128, stdout='', stderr=stderr)):
-      with self.assertRaises(safety.HardwareAdmissionError) as failure:
-        safety.git(self.root, 'rev-parse', 'HEAD')
-      self.assertIn(stderr, str(failure.exception))
-      self.assertIn(str(self.root), str(failure.exception))
-      self.assertIn('exit 128', str(failure.exception))
-      with self.assertRaises(ExperimentalCatalogError) as export_failure:
-        exporter._runtime_checkout(self.root)
-      self.assertIn(stderr, str(export_failure.exception))
+      with self.assertRaises(GitInspectionError) as failure:
+        read_only_git(self.root, 'rev-parse', 'HEAD')
+    self.assertIn(stderr, str(failure.exception))
+    self.assertIn(str(self.root), str(failure.exception))
+    self.assertIn('exit 128', str(failure.exception))
 
   def test_timeout_stderr_is_not_lost(self):
     with patch('subprocess.run', side_effect=subprocess.TimeoutExpired('git', 15, stderr=b'original timeout detail\n')):
@@ -98,26 +92,17 @@ leaf, runtime, checkout = repo('leaf'), repo('runtime'), repo('openpilot')
 git(runtime, 'submodule', 'add', '-q', str(leaf), 'nested/leaf')
 git(runtime, 'commit', '-qam', 'nested fixture')
 git(checkout, 'submodule', 'add', '-q', str(runtime), 'tinygrad_repo')
-for name in ('openpilot/sunnypilot/modeld_v2/compile_modeld_v2.py', 'openpilot/sunnypilot/modeld_v2/compile_warp.py',
-             'tools/navigation_model_diagnostic.py', 'openpilot/system/hardware/chestnut/firmware_wrapped.bin'):
-  path = checkout / name
-  path.parent.mkdir(parents=True, exist_ok=True)
-  path.write_bytes(b'inert fixture')
-path = checkout / 'openpilot/common/hardware/usb.py'
-path.parent.mkdir(parents=True)
-path.write_text('CHESTNUT_FW_VERSION = "8516b768"\n')
-git(checkout, 'add', '.')
-git(checkout, 'commit', '-qm', 'source fixture')
+git(checkout, 'commit', '-qm', 'submodule fixture')
 git(checkout, 'submodule', 'update', '--init', '--recursive', '-q')
 git(checkout, 'config', 'core.fsmonitor', str(root / 'must-not-run'))
 '''
 
 
-@unittest.skipUnless(os.geteuid() == 0, 'Root-only subprocess regression runs in the AGNOS-style test container')
+@unittest.skipUnless(os.geteuid() == 0, 'Root-only Git child credential regression')
 class TestRootSupervisorGit(unittest.TestCase):
   def setUp(self):
     self.owner = pwd.getpwnam('nobody')  # Existing unprivileged fixture identity; device owner is comma.
-    self.root = Path(tempfile.gettempdir()) / ('navigation-git-owner-' + uuid.uuid4().hex)
+    self.root = Path(tempfile.gettempdir()) / ('git-owner-' + uuid.uuid4().hex)
     self.environment = {key: value for key, value in os.environ.items() if not key.startswith('GIT_') and key != 'SUDO_UID'}
     self.environment.update(HOME='/root', XDG_CONFIG_HOME='/root/.config', GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_SYSTEM='/dev/null')
     fixture_python = shutil.which('python3')  # System stdlib Python is accessible to the unprivileged fixture owner.
@@ -141,43 +126,24 @@ class TestRootSupervisorGit(unittest.TestCase):
     self.assertNotEqual(raw.returncode, 0)
     self.assertIn('dubious ownership', raw.stderr)
     before = self.snapshot()
-    runtime_sha = safety.git(self.runtime, 'rev-parse', 'HEAD')
-    with patch.object(safety, 'TINYGRAD_REF', runtime_sha):
-      identity = safety.source_identity(self.checkout)
-    self.assertEqual(identity['tinygrad_ref'], runtime_sha)
-    self.assertFalse(identity['dirty'])
-    self.assertFalse(identity['tinygrad_dirty'])
-    self.assertEqual(len(identity['submodules']), 2)
-    self.assertIn('tinygrad_repo/nested/leaf', identity['submodules'][1])
-    self.assertEqual(len(safety.git(self.runtime / 'nested/leaf', 'rev-parse', 'HEAD')), 40)
+    self.assertEqual(len(read_only_git(self.runtime, 'rev-parse', 'HEAD')), 40)
+    self.assertEqual(read_only_git(self.checkout, 'status', '--porcelain', '--untracked-files=all'), '')
+    self.assertEqual(read_only_git(self.runtime, 'status', '--porcelain', '--untracked-files=all'), '')
+    submodules = read_only_git(self.checkout, 'submodule', 'status', '--recursive').splitlines()
+    self.assertEqual(len(submodules), 2)
+    self.assertIn('tinygrad_repo/nested/leaf', submodules[1])
+    self.assertEqual(len(read_only_git(self.runtime / 'nested/leaf', 'rev-parse', 'HEAD')), 40)
     self.assertEqual(before, self.snapshot())  # No index writes, ownership/mode changes or Git config workaround.
     self.assertEqual(os.geteuid(), 0)  # Only Git children dropped privileges.
 
-  def test_compiler_export_and_file_diagnostic_share_owner_aware_inspection(self):
-    from openpilot.sunnypilot.modeld_v2 import compile_modeld_v2 as compiler
-    from tools import navigation_model_diagnostic as diagnostic
-    before = self.snapshot()
-    revision = safety.git(self.runtime, 'rev-parse', 'HEAD')
-    self.assertEqual(compiler.tinygrad_provenance(self.runtime)['revision'], revision)
-    with patch.object(exporter, 'TINYGRAD_REF', revision):
-      exporter._runtime_checkout(self.runtime)
-    with patch('openpilot.common.basedir.BASEDIR', str(self.checkout)), patch.object(diagnostic, 'TINYGRAD_REF', revision):
-      self.assertEqual(diagnostic.verify_runtime(), revision)
-    self.assertEqual(before, self.snapshot())
-
-  def test_dirty_checkout_and_wrong_runtime_pin_still_refuse_admission(self):
-    revision = safety.git(self.runtime, 'rev-parse', 'HEAD')
+  def test_owner_aware_status_retains_dirty_repository_evidence(self):
     tracked = self.runtime / 'tracked'
-    original = tracked.read_bytes()
     tracked.write_bytes(b'changed fixture\n')
-    with patch.object(safety, 'TINYGRAD_REF', revision), self.assertRaisesRegex(safety.HardwareAdmissionError, 'clean committed'):
-      safety.source_identity(self.checkout)
-    tracked.write_bytes(original)
-    with patch.object(safety, 'TINYGRAD_REF', '0' * 40), self.assertRaisesRegex(safety.HardwareAdmissionError, 'runtime pin'):
-      safety.source_identity(self.checkout)
+    self.assertIn('tracked', read_only_git(self.runtime, 'status', '--porcelain', '--untracked-files=all'))
+    self.assertIn('tinygrad_repo', read_only_git(self.checkout, 'status', '--porcelain', '--untracked-files=all'))
 
   @unittest.skipUnless(bool(os.statvfs('/').f_flag & os.ST_RDONLY), 'Read-only-root regression runs with Docker --read-only')
   def test_read_only_root_needs_no_root_gitconfig(self):
     self.assertTrue(os.statvfs('/').f_flag & os.ST_RDONLY)
-    self.assertEqual(len(safety.git(self.checkout, 'rev-parse', 'HEAD')), 40)
-    self.assertEqual(len(safety.git(self.checkout, 'submodule', 'status', '--recursive').splitlines()), 2)
+    self.assertEqual(len(read_only_git(self.checkout, 'rev-parse', 'HEAD')), 40)
+    self.assertEqual(len(read_only_git(self.checkout, 'submodule', 'status', '--recursive').splitlines()), 2)

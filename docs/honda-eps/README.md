@@ -237,3 +237,7 @@ Existing files modified:
 The [file manifest](files.txt) lists every added/modified path. No longitudinal,
 Honda transport, Panda, submodule pointer, inference kernel, model weight or model asset file is
 changed by this port.
+
+## Navigation-model integration
+
+The current Nav Bigv2 procedure is the [software compatibility workflow](navigation-model-software-compatibility.md). It reuses the already compiled and registered model and leaves Navigation Model Driving disabled pending explicit approval.

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "scope": "non_actuating_diagnostic_only",
   "normal_activation_allowed": false,
-  "description": "Local, explicit diagnostic admission only. This is not a production Selector catalog and contains no downloadable compiled model.",
+  "description": "Local registered-package wrapper, separate from production Selector catalogs. No downloadable compiled model or driving authorization is provided.",
   "entries": [
     {
       "id": "big-nav-v2",
@@ -304,11 +304,11 @@
       "warp_artifact": null,
       "compiler_metadata": null,
       "limitations": [
-        "No compatible compiled AMD gfx1200 USB artifact has been supplied or verified.",
-        "Source ONNX provenance is distinct from compiled SPTG artifact provenance and hashes.",
-        "Compiler JSON sidecar declarations and static header agreement do not prove numerical parity or learned behavior.",
-        "Selector generation 0 is an unverified schema placeholder; normal selection, activation and action conversion are prohibited.",
-        "Use a separately supplied local manifest only after compiler and hardware validation; no auto-download or firmware flashing occurs."
+        "Physical AMD LLVM gfx1200 USB source/reload compilation evidence and the registered OS04 warp have been reviewed; exact artifact identities are pinned separately in driving_models.json.",
+        "This template deliberately contains no installed file paths; the existing local registered manifest supplies artifact, warp and provenance records.",
+        "Source ONNX identity is distinct from compiled SPTG identity. Static metadata inspection never executes pickle extras or kernels.",
+        "The legacy generation 0 bundle field is not a driving contract; navigation driving uses the separate Bigv2 native 20 Hz action contract and never selects this bundle.",
+        "Driving activation remains disabled pending explicit user authorization. Compiler consistency and software regression tests do not establish live performance or driving safety."
       ]
     }
   ]

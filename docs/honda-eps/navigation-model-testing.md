@@ -1,8 +1,14 @@
 # Navigation-model research branch
 
-For the current integrated source, selection/status and complete physical off-road workflow, use the [software integration report](navigation-model-integration.md) and [hardware guide](navigation-model-hardware.md). This earlier prototype guide is retained as historical investigation evidence.
+**Historical source/experiment record.** Claims, branch restrictions, test counts
+and outstanding requirements below apply to the stated historical revision.
+They are not current operator instructions. See the
+[current software compatibility workflow](navigation-model-software-compatibility.md)
+for the compiled and registered model, current status and activation boundaries.
 
-The [Stage 2 report](navigation-model-stage2.md) is the current development guide,
+For the installed branch, use the [current compatibility workflow](navigation-model-software-compatibility.md). This earlier prototype guide is retained as historical investigation evidence.
+
+The [Stage 2 report](navigation-model-stage2.md) records the subsequent research stage,
 including route/frame association, recurrent resets, file-only CPU/Chestnut
 diagnostics and updated inference results. The sections below retain the Stage 1
 record at `0556a2ea6`; its outstanding-work list is historical.

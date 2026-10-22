@@ -27,4 +27,8 @@ def selection_description(params) -> str:
   status = candidate_status(params)
   requested = params.get_bool('NavigationModelDrivingEnabled')
   state = 'Requested on' if requested and status['eligible'] else 'Blocked' if requested else 'Off'
-  return f"{status['display_name']} — {state}. {status['reason']}"
+  registration = 'Registered' if status.get('registered') else 'Not registered'
+  software = 'Software integration reviewed' if status.get('software_compatible') else 'Software review incomplete'
+  artifact = 'Compiler/artifact evidence reviewed' if status.get('artifact_evidence_reviewed') else 'Artifact evidence incomplete'
+  runtime = status.get('runtime_compatibility', 'unverified')
+  return f"{status['display_name']} — {state}. {registration}. {software}. {artifact}. Runtime compatibility: {runtime}. {status['reason']}"

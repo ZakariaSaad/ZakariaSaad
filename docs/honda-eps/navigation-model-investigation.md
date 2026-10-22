@@ -1,5 +1,11 @@
 # Navigation-aware model integration: technical investigation and offline testing boundary
 
+**Historical source/experiment record.** Claims, branch restrictions, test counts
+and outstanding requirements below apply to the stated historical revision.
+They are not current operator instructions. See the
+[current software compatibility workflow](navigation-model-software-compatibility.md)
+for the compiled and registered model, current status and activation boundaries.
+
 This document records the Stage 1 investigation. See the [Stage 2 technical
 report](navigation-model-stage2.md) for implemented follow-up work and current
 limitations. Original evidence and earlier limitations are retained below.

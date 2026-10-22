@@ -1,6 +1,6 @@
-"""Branch-reviewed navigation model admission, separate from display and diagnostics.
+"""Branch-reviewed navigation model admission, separate from map display.
 
-A local diagnostic manifest or a UI checkbox cannot approve a driving artifact.
+A local registration or a UI checkbox cannot approve a driving artifact.
 Only a branch-reviewed candidate with pinned compiled hashes can issue a permit.
 """
 from dataclasses import dataclass
@@ -55,30 +55,57 @@ def ordinary_fallback_reason(params) -> str:
 
 
 def candidate_status(params=None, *, candidate_id=None) -> dict:
-  """Lightweight UI status; no model hashing, loading, selection or device I/O."""
+  """Lightweight review/registration status; no weights, kernels or device I/O.
+
+  Registration checks declared identities only. Full byte/provenance validation
+  occurs in the read-only software validator and again on runtime admission.
+  Software review and completed physical compiler evidence do not assert live
+  inference performance, camera execution, or candidate/fallback handover.
+  """
   params = params if params is not None else Params()
   try:
     entry = _candidate(params, candidate_id)
     reasons = []
     if entry.get('software_contract_reviewed') is not True:
       reasons.append('Model action and temporal contract has not been reviewed')
-    if entry.get('hardware_reviewed') is not True:
-      reasons.append(entry.get('hardware_gate_reason', 'Physical Chestnut validation has not been reviewed'))
+    if entry.get('software_integration_reviewed') is not True:
+      reasons.append('Navigation model software integration regressions have not been reviewed')
+    if entry.get('artifact_evidence_reviewed') is not True:
+      reasons.append('Artifact, compiler verification and camera-warp evidence have not been reviewed')
     if entry.get('activation_approved') is not True:
-      reasons.append('This branch has not approved normal activation of this candidate')
+      reasons.append('Explicit user authorization for Navigation Model Driving is still required')
     if any(not isinstance(entry.get(key), str) or re.fullmatch('[0-9a-f]{64}', entry[key]) is None
-           for key in ('artifact_sha256', 'warp_sha256', 'metadata_sha256')):
-      reasons.append('Reviewed compiled model, warp and compiler-metadata hashes are not pinned')
+           for key in ('artifact_sha256', 'warp_sha256', 'metadata_sha256', 'compiler_sha256', 'compiler_report_sha256')):
+      reasons.append('Reviewed model, warp, metadata, compiler and verification-report hashes are not pinned')
     manifest = _text(params.get('NavigationModelManifest'))
-    if not manifest or not Path(manifest).is_file():
+    registered = False
+    if manifest and Path(manifest).is_file():
+      records = _json_file(Path(manifest)).get('entries', [])
+      if not isinstance(records, list) or not all(isinstance(record, dict) for record in records):
+        raise ValueError('The configured navigation manifest has invalid entries')
+      matches = [record for record in records if record.get('id') == entry['id']]
+      registered = len(matches) == 1 and all(isinstance(matches[0].get(field), dict) and
+        matches[0][field].get('sha256') == entry.get(key)
+        for field, key in (('compiled_artifact', 'artifact_sha256'), ('warp_artifact', 'warp_sha256'),
+                           ('compiler_metadata', 'metadata_sha256')))
+      if not registered:
+        reasons.append('The configured manifest does not declare the reviewed model, warp and metadata identities')
+    else:
       reasons.append('A matching local verified manifest has not been configured')
     fallback_reason = ordinary_fallback_reason(params)
     if fallback_reason:
       reasons.append(fallback_reason)
+    software_reviewed = entry.get('software_contract_reviewed') is True and entry.get('software_integration_reviewed') is True
     return {'id': entry['id'], 'display_name': entry['display_name'], 'eligible': not reasons,
-            'reason': '; '.join(reasons), 'enabled': params.get_bool('NavigationModelDrivingEnabled')}
+            'reason': '; '.join(reasons), 'enabled': params.get_bool('NavigationModelDrivingEnabled'),
+            'registered': registered, 'software_compatible': software_reviewed,
+            'artifact_evidence_reviewed': entry.get('artifact_evidence_reviewed') is True,
+            'runtime_compatibility': entry.get('runtime_compatibility', 'unverified'),
+            'local_file_validation': 'Required at runtime admission; registration status checks declared identities only'}
   except (ValueError, OSError, TypeError, KeyError) as error:
-    return {'id': '', 'display_name': 'Navigation model', 'eligible': False, 'reason': str(error), 'enabled': False}
+    return {'id': '', 'display_name': 'Navigation model', 'eligible': False, 'reason': str(error), 'enabled': False,
+            'registered': False, 'software_compatible': False, 'artifact_evidence_reviewed': False,
+            'runtime_compatibility': 'unverified'}
 
 
 def _fingerprint(path):
@@ -123,7 +150,11 @@ def authorize_runtime(params=None) -> DrivingPermit | None:
   if not entry.compiler_verification_validated or any(
     getattr(entry, key) != approved[key] for key in ('artifact_sha256', 'warp_sha256', 'metadata_sha256')
   ):
-    raise NavigationModelDisabled('Local artifacts do not match the branch-reviewed compiler and hardware result')
+    raise NavigationModelDisabled('Local artifacts do not match the branch-reviewed compiler and registration evidence')
+  proof = entry.metadata.get('compiler_verification', {})
+  if proof.get('compiler', {}).get('sha256') != approved['compiler_sha256'] or \
+     proof.get('report', {}).get('sha256') != approved['compiler_report_sha256']:
+    raise NavigationModelDisabled('Local compiler source or verification report differs from the reviewed evidence')
   minimum = approved.get('minimum_valid_frames')
   if type(minimum) is not int or minimum < 132:
     raise NavigationModelDisabled('The reviewed navigation history policy is missing')

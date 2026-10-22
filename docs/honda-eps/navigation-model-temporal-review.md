@@ -1,5 +1,11 @@
 # Navigation temporal review
 
+**Historical source/experiment record.** Claims, branch restrictions, test counts
+and outstanding requirements below apply to the stated historical revision.
+They are not current operator instructions. See the
+[current software compatibility workflow](navigation-model-software-compatibility.md)
+for the compiled and registered model, current status and activation boundaries.
+
 The coordinated committed-source test result is recorded in the [software integration report](navigation-model-integration.md). Earlier focused results below are historical and are not substituted for that run.
 
 This continues the Stage 2 implementation at experimental starting commit

@@ -177,7 +177,12 @@ class ModelState(ModelStateBase):
         validate_runtime_metadata(self._driving_permit, extras)
       return fuse(parts, extras)
 
-    jits = load_model(pkl_path, extend=checked_fusion)
+    # A navigation permit pins the actual model and warp bytes. Its mutable
+    # sibling boot cache is not part of that proof and contains pickled JITs,
+    # so reconstruct this candidate from the reviewed native kernel binaries.
+    # Ordinary models retain their existing boot-cache behavior.
+    load_options = {'cache': False} if getattr(self, '_driving_permit', None) is not None else {}
+    jits = load_model(pkl_path, extend=checked_fusion, **load_options)
     self.navigation_input_specs = _navigation_input_specs(jits)
     self._validate_navigation_inputs(self.navigation_input_specs)
     if getattr(self, '_driving_permit', None) is not None:

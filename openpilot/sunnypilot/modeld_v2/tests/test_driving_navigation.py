@@ -107,8 +107,9 @@ class TestDrivingNavigation(unittest.TestCase):
 
   def test_actual_modelstate_approved_loading_guard_and_upstream_action_profile(self):
     jits, metadata = fixture_data()
-    with reviewed_fixture(jits['input_specs'], metadata) as (_, permit, _), patch.object(modeld, 'load_model', return_value=jits):
+    with reviewed_fixture(jits['input_specs'], metadata) as (_, permit, _), patch.object(modeld, 'load_model', return_value=jits) as load:
       state = modeld.NavigationModelState(1344, 760, chestnut=True, driving_permit=permit)
+      self.assertIs(load.call_args.kwargs['cache'], False, 'Mutable boot-cache JITs are outside the reviewed artifact proof')
       self.assertIsNone(state.generation)
       self.assertEqual((state.LAT_SMOOTH_SECONDS, state.LONG_SMOOTH_SECONDS), (0., .3))
       modeld._reject_navigation_publication(state)
@@ -123,6 +124,16 @@ class TestDrivingNavigation(unittest.TestCase):
       state.diagnostic = True
       with self.assertRaises(model_inputs.NavigationModelDisabled):
         modeld._reject_navigation_publication(state)
+
+  def test_ordinary_native_model_retains_existing_boot_cache_behavior(self):
+    jits, _ = fixture_data()
+    jits['input_specs'] = {name: spec for name, spec in jits['input_specs'].items() if name not in ('nav_map', 'navigation')}
+    with patch.object(modeld, 'get_active_bundle', return_value=None), \
+         patch.object(modeld, '_find_driving_pkl', return_value='ordinary-native.sptg'), \
+         patch.object(modeld, 'load_model', return_value=jits) as load:
+      state = modeld.ModelState(1344, 760, chestnut=False)
+      self.assertNotIn('cache', load.call_args.kwargs)
+      self.assertFalse(modeld.takes_nav(state))
 
   def test_wrong_camera_extent_rejected_before_any_artifact_loading(self):
     with patch.object(modeld.ModelState, '__init__') as initialize:

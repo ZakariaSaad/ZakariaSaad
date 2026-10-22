@@ -1,6 +1,12 @@
 # Navigation-model compatibility and checkpoint audit
 
-The [latest software status](navigation-model-software-status.md) records the measured camera clock bridge, candidate-first startup, short SSH workflow and a fresh bounded artifact-availability check. Extended physical characterization is optional; exact artifact/runtime integration remains required before activation.
+**Historical source/experiment record.** Claims, branch restrictions, test counts
+and outstanding requirements below apply to the stated historical revision.
+They are not current operator instructions. See the
+[current software compatibility workflow](navigation-model-software-compatibility.md)
+for the compiled and registered model, current status and activation boundaries.
+
+The later [software status](navigation-model-software-status.md) records follow-up clock and candidate-startup corrections. Use the current workflow for received artifact evidence and remaining activation decisions.
 
 This continues the Stage 2 investigation from experimental commit
 `036fd8ca9afb5240fa163c377bcfa2b961a38fe0`. The working selector/navigation
@@ -52,9 +58,9 @@ turn compliance, red-light behavior or a private training specification.
 `gfx1200` is derived from the JSON target descriptors of the already-tracked
 working Chestnut warp, not from the navigation model's name. That warp's SHA256
 is `f1689356ff8e516f87e3d75f6b53e66953a11ee5a97e859b4808c9a16bfe671b`.
-The hardware package must still detect the actual attached device and compare
-its target. No `/dev/dri`, `/dev/kfd` or USB device passthrough was available in
-this environment.
+At this historical review, the attached device target was unobserved. The later
+physical compiler report now supplies AMD LLVM gfx1200/USB evidence. No
+`/dev/dri`, `/dev/kfd` or USB passthrough was available to this cloud environment.
 
 ## Exact checkpoint lineage and official compiled variants
 
@@ -364,7 +370,7 @@ outputs after clearing history are not themselves validated driving fallbacks.
 ## Outstanding physical acceptance
 
 Before this exact candidate may be approved for ordinary opt-in driving, the
-file-only hardware package must record the actual USB product and GPU target,
+then-proposed device procedure was intended to record the actual USB product and GPU target,
 compile native model and matching warp on the actual pinned runtime, verify
 independent source/reloaded outputs, run bounded and full-history sequences,
 measure timing/memory/USB/power/temperature, and compare equivalent prepared
