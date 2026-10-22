@@ -134,6 +134,21 @@ class TestDrivingNavigation(unittest.TestCase):
         modeld.ModelState(1928, 1208, chestnut=True, driving_permit=permit)
       load.assert_not_called()
 
+  def test_registered_camera_geometry_rejects_equal_extent_before_artifact_loading(self):
+    from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
+    profile = {'width': 1344, 'height': 760, 'stride': 1408, 'y_height': 768, 'uv_height': 384, 'frame_size': 1622016}
+    for width, height in ((1342, 760), (1344, 758)):
+      stride, y_height, uv_height, _ = get_nv12_info(width, height)
+      # NV12 alignment can hide different image geometries behind the same
+      # copied byte extent. An approved warp must match the actual geometry.
+      self.assertEqual(stride * (y_height + uv_height), profile['frame_size'])
+      with self.subTest(width=width, height=height), reviewed_fixture(metadata={'camera_profile': profile}) as (_, permit, _), \
+           patch.object(modeld.ModelState, '_init_combined') as initialize, patch.object(modeld, 'load_model') as load:
+        with self.assertRaisesRegex(model_inputs.NavigationModelDisabled, 'warp geometry'):
+          modeld.ModelState(width, height, chestnut=True, driving_permit=permit)
+        initialize.assert_not_called()
+        load.assert_not_called()
+
   def test_equivalent_negative_output_slices_are_admitted_but_changed_actions_are_not(self):
     jits, metadata = fixture_data()
     slices = {key: slice(value['start'], value['stop'], value['step']) for key, value in metadata['output_slices'].items()}

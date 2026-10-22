@@ -111,26 +111,34 @@ def _verification_report(report: dict, artifact_sha256: str, compiler_sha256: st
            'Primary prediction must change across verification seeds')
 
 
-def validate_exported_verification(proof: dict, artifact_sha256: str, contract: dict, header: dict) -> None:
+def validate_exported_verification(proof: dict, artifact_sha256: str, contract: dict, header: dict, *, anchor: Path | None = None) -> None:
   """Recheck exported provenance on every load; no report claim enables actuation."""
   _require(isinstance(proof, dict) and proof.get('scope') == 'source_reload_consistency_only', 'Unsupported compiler verification scope')
-  anchor = Path.cwd() / 'local-manifest.json'
+  anchor = anchor if anchor is not None else Path.cwd() / 'local-manifest.json'
   report_path, _ = _local_file(anchor, proof.get('report'), 'Verification report')
   _, compiler_sha = _local_file(anchor, proof.get('compiler'), 'Compiler source')
-  _source_file(anchor, proof.get('source_onnx', {}))
-  _runtime_checkout(proof.get('tinygrad_root', ''))
+  source = proof.get('source_onnx', {})
+  if source.get('bytes_retained') is False:
+    _require(source == {'sha256': SOURCE_ONNX_SHA256, 'bytes_retained': False}, 'Unretained source must retain the pinned ONNX digest')
+  else:
+    _source_file(anchor, source)
+  runtime = Path(proof.get('tinygrad_root', ''))
+  _runtime_checkout(runtime if runtime.is_absolute() else anchor.parent / runtime)
   _verification_report(_json_file(report_path), artifact_sha256, compiler_sha, contract, header)
 
 
 def export_experimental_model(artifact_path: str | Path, warp_path: str | Path, verification_path: str | Path,
-                              source_onnx_path: str | Path, compiler_path: str | Path, tinygrad_root: str | Path,
-                              output_manifest: str | Path, *, experimental: bool) -> Path:
+                              source_onnx_path: str | Path | None, compiler_path: str | Path, tinygrad_root: str | Path,
+                              output_manifest: str | Path, *, experimental: bool, portable: bool = False,
+                              camera_profile: dict | None = None) -> Path:
   """Export new JSON files after validation; never overwrite an existing manifest.
 
-  Requires a real future AMD artifact and its successful compiler report. The
+  Requires an existing AMD artifact and its successful compiler report. The
   checked-in disabled catalog, model binaries, firmware and active selection are
-  untouched. The resulting manifest is local to these files/checkouts; moving it
-  requires relocating and re-exporting its explicit paths.
+  untouched. Portable manifests anchor relative provenance paths to the metadata
+  file, so an atomic package rename does not invalidate compiler/report bindings.
+  Unretained source bytes are recorded explicitly; the complete physical compiler
+  report still binds the pinned source digest and actual compiled artifact.
   """
   try:
     catalog = copy.deepcopy(load_experimental_catalog(DEFAULT_CATALOG, experimental=experimental))
@@ -142,36 +150,54 @@ def export_experimental_model(artifact_path: str | Path, warp_path: str | Path, 
     artifact_record, warp_record = _record(artifact), _record(warp)
     header = _header(artifact, entry['target'])
     _warp_contract(_header(warp, entry['target']))
-    proof = {'scope': 'source_reload_consistency_only', 'report': _record(Path(verification_path)),
-             'compiler': _record(Path(compiler_path)), 'source_onnx': _record(Path(source_onnx_path)),
+    output = Path(output_manifest).resolve()
+    sidecar = output.with_name(output.name + '.metadata.json')
+    proof: dict[str, Any] = {'scope': 'source_reload_consistency_only', 'report': _record(Path(verification_path)),
+             'compiler': _record(Path(compiler_path)),
+             'source_onnx': (_record(Path(source_onnx_path)) if source_onnx_path is not None else
+                             {'sha256': SOURCE_ONNX_SHA256, 'bytes_retained': False}),
              'tinygrad_root': str(Path(tinygrad_root).resolve(strict=True))}
-    validate_exported_verification(proof, artifact_record['sha256'], contract, header)
+    if portable:
+      for key in ('report', 'compiler', 'source_onnx'):
+        if 'path' in proof[key]:
+          proof[key]['path'] = os.path.relpath(proof[key]['path'], output.parent)
+      proof['tinygrad_root'] = os.path.relpath(proof['tinygrad_root'], output.parent)
+      for record in (artifact_record, warp_record):
+        record['path'] = os.path.relpath(record['path'], output.parent)
+    validate_exported_verification(proof, artifact_record['sha256'], contract, header, anchor=sidecar)
     named = {row['name']: row for row in header['inputs'] if row['name'] is not None}
     metadata = {'schema_version': 1, 'source_onnx_sha256': SOURCE_ONNX_SHA256, 'tinygrad_ref': TINYGRAD_REF,
                 'target': entry['target'], 'output_slices': contract['output_slices'], 'compiler_verification': proof,
                 'hardware_driving_validation': False, 'selector_generation_verified': False,
+                'source_onnx_bytes_rechecked': source_onnx_path is not None,
                 'limitations': ['Local report and static byte bindings were validated; reports are not authenticated attestations.',
                                 'Source/reload consistency does not prove model quality, vehicle safety or firmware compatibility.',
                                 'The exporter never reads pickle extras; diagnostic adapters must use their bounded literal-slice decoder.']}
+    if camera_profile is not None:
+      metadata['camera_profile'] = camera_profile
     for kind in ('input', 'output'):
       metadata[f'{kind}_specs'] = {row['name']: {'shape': row['shape'], 'dtype': _dtype(row['dtype']),
                                               'device': named[row['name']]['device'] if kind == 'input' else 'AMD'}
                                  for row in contract[f'{kind}s']}
     _model_contract(header, metadata, contract)
-    output = Path(output_manifest).resolve()
-    sidecar = output.with_name(output.name + '.metadata.json')
-    inputs = {artifact, warp, Path(verification_path).resolve(), Path(source_onnx_path).resolve(), Path(compiler_path).resolve(), DEFAULT_CATALOG}
+    inputs = {artifact, warp, Path(verification_path).resolve(), Path(compiler_path).resolve(), DEFAULT_CATALOG}
+    if source_onnx_path is not None:
+      inputs.add(Path(source_onnx_path).resolve())
     _require(output not in inputs and sidecar not in inputs and not output.exists() and not sidecar.exists(), 'Export must use new local output paths')
     output.parent.mkdir(parents=True, exist_ok=True)
     published_sidecar, published_manifest = False, False
     try:
-      with tempfile.TemporaryDirectory(dir=output.parent, prefix='.nav-model-export-') as directory:
-        temporary_sidecar, temporary_manifest = Path(directory) / 'metadata.json', Path(directory) / 'manifest.json'
-        temporary_sidecar.write_text(json.dumps(metadata, indent=2) + '\n')
+      # Same-parent temporary files preserve portable relative-path resolution.
+      with tempfile.NamedTemporaryFile(mode='w', dir=output.parent, prefix='.nav-model-export-', suffix='.metadata.json') as sidecar_file, \
+           tempfile.NamedTemporaryFile(mode='w', dir=output.parent, prefix='.nav-model-export-', suffix='.manifest.json') as manifest_file:
+        temporary_sidecar, temporary_manifest = Path(sidecar_file.name), Path(manifest_file.name)
+        sidecar_file.write(json.dumps(metadata, indent=2) + '\n')
+        sidecar_file.flush()
         entry.update(enabled=True, compiled_artifact=artifact_record, warp_artifact=warp_record,
-                     compiler_metadata={'path': str(sidecar), 'sha256': _digest(temporary_sidecar)})
+                     compiler_metadata={'path': sidecar.name if portable else str(sidecar), 'sha256': _digest(temporary_sidecar)})
         entry['limitations'] = metadata['limitations'] + ['Generation 0 remains an unverified placeholder; normal activation is prohibited.']
-        temporary_manifest.write_text(json.dumps(catalog, indent=2) + '\n')
+        manifest_file.write(json.dumps(catalog, indent=2) + '\n')
+        manifest_file.flush()
         os.link(temporary_sidecar, sidecar)  # Atomic no-overwrite publication.
         published_sidecar = True
         inspected = load_experimental_model(temporary_manifest, experimental=True, backend='AMD')

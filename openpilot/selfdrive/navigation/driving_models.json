@@ -14,7 +14,7 @@
       "artifact_sha256": null,
       "warp_sha256": null,
       "metadata_sha256": null,
-      "hardware_gate_reason": "Physical Chestnut compiler, repeated inference, timing, transition and reference-parity results have not been reviewed.",
+      "hardware_gate_reason": "Physical Chestnut compiler report reviewed; normal activation remains unapproved pending registered-package and candidate/fallback integration review.",
       "minimum_valid_frames": 132
     }
   ]

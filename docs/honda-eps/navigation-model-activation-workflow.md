@@ -1,5 +1,7 @@
 # From software compatibility to reviewed navigation-model activation
 
+Bigv2 has now been manually compiled on the user's comma. Continue with the [existing-artifact registration workflow](navigation-model-existing-artifact.md); do not repeat the smoke diagnostic, download or model compilation in the older operator sequence below. Registration now includes automatic Settings preparation and keeps driving disabled.
+
 Navigation Model Driving remains OFF. The Bigv2 candidate is not approved, and an
 SSH smoke pass cannot approve it. The goal is a correct SunnyPilot implementation
 of comma's navigation-model software, not certification that Chestnut can execute

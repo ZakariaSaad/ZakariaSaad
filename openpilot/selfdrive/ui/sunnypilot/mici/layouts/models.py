@@ -4,6 +4,7 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
+import threading
 import time
 
 import pyray as rl
@@ -24,6 +25,35 @@ from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.label import UnifiedLabel
 from openpilot.system.ui.widgets.scroller import NavScroller
+
+
+class ExistingBigv2RegistrationDialog(BigDialog):
+  """Hash existing files off the render thread; result widgets stay on the UI thread."""
+  def __init__(self, params, *, is_offroad: bool):
+    super().__init__(tr("Register existing Bigv2"), tr("Checking existing model and camera warp. Navigation driving stays off."))
+    self._finished = threading.Event()
+    self._error: str | None = None
+    self._shown_result = False
+    def run():
+      try:
+        from openpilot.selfdrive.navigation.preparation import prepare_existing_model
+        receipt = prepare_existing_model(params, is_offroad=is_offroad)
+        if receipt.get('prepared') is not True or receipt.get('activation_allowed') is not False:
+          raise ValueError('Existing model registration was not completed')
+      except Exception as error:
+        self._error = str(error)
+      finally:
+        self._finished.set()
+    self.worker = threading.Thread(target=run, daemon=True, name='navigation-model-registration')
+    self.worker.start()
+
+  def _update_state(self):
+    super()._update_state()
+    if self._finished.is_set() and not self._shown_result:
+      self._shown_result = True
+      self._card.set_text(tr("Registration failed") if self._error else tr("Bigv2 registered"))
+      self._card.set_value(self._error or tr("Existing model and warp registered. Navigation driving stays off."))
+
 
 def _model_info() -> tuple[str, str, str]:
   """(active model, info header, info text) for the panel. Runner-matched: the
@@ -83,6 +113,7 @@ class ModelsLayoutMici(NavScroller):
     self._download_frame = 0
     self._was_downloading = False
     self._selection_source: str | None = None
+    self._navigation_registration: ExistingBigv2RegistrationDialog | None = None
 
     self.select_model_btn = BigButton(tr("select model"))
     self.select_model_btn.set_click_callback(self._show_folders)
@@ -133,7 +164,24 @@ class ModelsLayoutMici(NavScroller):
           gui_app.push_widget(BigDialog(tr("Navigation model unavailable"), str(error)))
       button.set_click_callback(choose)
       items.append(button)
+    self.navigation_register_btn = BigButton(tr("Register existing Bigv2"), value=tr("use installed files"), font_size=36)
+    self.navigation_register_btn.set_enabled(lambda: ui_state.is_offroad() and not self._navigation_registration_running())
+    self.navigation_register_btn.set_click_callback(self._register_existing_navigation)
+    items.append(self.navigation_register_btn)
     self._push_selection_view(items)
+
+  def _navigation_registration_running(self):
+    return self._navigation_registration is not None and self._navigation_registration.worker.is_alive()
+
+  def _register_existing_navigation(self):
+    offroad = ui_state.is_offroad()
+    if not offroad:
+      gui_app.push_widget(BigDialog(tr("Registration unavailable"), tr("Register navigation models only while off road.")))
+      return
+    if self._navigation_registration_running():
+      return
+    self._navigation_registration = ExistingBigv2RegistrationDialog(ui_state.params, is_offroad=offroad)
+    gui_app.push_widget(self._navigation_registration)
 
   @property
   def model_manager(self):

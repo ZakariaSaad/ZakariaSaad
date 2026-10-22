@@ -4,6 +4,7 @@ Only the positive eligibility case uses a synthetic reviewed status. All default
 unreviewed, unknown-candidate and on-road gates use the actual admission helpers.
 """
 import os
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -38,6 +39,8 @@ class TestNavigationModelUI(OpenpilotTestCase):
     self.params.put('ModelManager_ActiveBundleChestnut', {'preserve': 'ordinary-big'}, block=True)
     self.params.put('ModelRunnerTypeCache', 0, block=True)
     self.params.put_bool('NavigationEnabled', True, block=True)
+    self.params.put_bool('IsOffroad', True, block=True)
+    self.params.put_bool('IsEngaged', False, block=True)
     self.preserved = {key: self.params.get(key) for key in ('ModelManager_ActiveBundle', 'ModelManager_ActiveBundleChestnut',
                                                           'ModelRunnerTypeCache', 'NavigationEnabled')}
     self.enterContext(patch.object(ui_state, 'params', self.params))
@@ -165,3 +168,96 @@ class TestNavigationModelUI(OpenpilotTestCase):
     self.assertFalse(layout.navigation_driving.action_item.get_state())
     self.assertFalse(self.params.get_bool('NavigationModelDrivingEnabled'))
     self.assert_ordinary_settings_preserved()
+
+  def test_mici_register_existing_model_uses_background_worker_and_keeps_driving_off(self):
+    import pyray as rl
+    from openpilot.selfdrive.ui.sunnypilot.mici.layouts.models import ExistingBigv2RegistrationDialog
+    from openpilot.system.ui.lib.application import gui_app
+    entered, release = threading.Event(), threading.Event()
+    ui_thread = threading.get_ident()
+    def prepare(params, *, is_offroad):
+      self.assertNotEqual(threading.get_ident(), ui_thread)
+      self.assertIs(params, self.params)
+      self.assertTrue(is_offroad)
+      entered.set()
+      if not release.wait(3):
+        raise RuntimeError('Test did not release registration worker')
+      params.put('NavigationModelManifest', '/fixture/validated/manifest.json', block=True)
+      return {'prepared': True, 'activation_allowed': False}
+    self.addCleanup(release.set)
+    with patch('openpilot.selfdrive.navigation.preparation.prepare_existing_model', side_effect=prepare) as service:
+      layout, _details, _toggle, _candidates = self.open_mici()
+      button = layout.navigation_register_btn
+      self.assertEqual(button.text, 'Register existing Bigv2')
+      button._handle_mouse_release(rl.Vector2(0, 0))
+      dialog = gui_app.get_active_widget()
+      self.assertIsInstance(dialog, ExistingBigv2RegistrationDialog)
+      self.assertTrue(entered.wait(1))
+      self.draw(dialog)
+      self.assertIn('Checking existing', dialog._card.value)
+      self.assertFalse(button.enabled)
+      layout._register_existing_navigation()  # Stale callbacks cannot launch a duplicate job.
+      self.assertEqual(service.call_count, 1)
+      release.set()
+      dialog.worker.join(3)
+      self.assertFalse(dialog.worker.is_alive())
+      self.draw(dialog)
+      self.assertEqual(dialog._card.text, 'Bigv2 registered')
+      self.assertTrue(button.enabled)
+      self.assertEqual(self.params.get('NavigationModelManifest'), '/fixture/validated/manifest.json')
+      self.assertFalse(self.params.get_bool('NavigationModelDrivingEnabled'))
+      self.assert_ordinary_settings_preserved()
+
+  def test_mici_registration_onroad_and_failure_keep_selection_and_report_reason(self):
+    import pyray as rl
+    from openpilot.system.ui.lib.application import gui_app
+    self.params.put('NavigationModelManifest', '/fixture/previous.json', block=True)
+    with patch('openpilot.selfdrive.navigation.preparation.prepare_existing_model', side_effect=ValueError('Camera warp hash mismatch')) as service:
+      layout, _details, _toggle, _candidates = self.open_mici()
+      self.offroad.return_value = False
+      self.assertFalse(layout.navigation_register_btn.enabled)
+      layout._register_existing_navigation()
+      service.assert_not_called()
+      self.assertIn('off road', gui_app.get_active_widget()._card.value)
+      gui_app.pop_widget()
+      self.offroad.return_value = True
+      layout.navigation_register_btn._handle_mouse_release(rl.Vector2(0, 0))
+      dialog = gui_app.get_active_widget()
+      dialog.worker.join(3)
+      self.draw(dialog)
+      self.assertEqual(dialog._card.text, 'Registration failed')
+      self.assertEqual(dialog._card.value, 'Camera warp hash mismatch')
+      self.assertEqual(self.params.get('NavigationModelManifest'), '/fixture/previous.json')
+      self.assertFalse(self.params.get_bool('NavigationModelDrivingEnabled'))
+      self.assert_ordinary_settings_preserved()
+
+  def test_tici_register_existing_model_success_and_failure_are_explicit_and_never_enable(self):
+    from openpilot.selfdrive.ui.sunnypilot.layouts.settings.models import ModelsLayout, ExistingBigv2RegistrationDialog
+    from openpilot.system.ui.lib.application import gui_app
+    layout = ModelsLayout()
+    gui_app.push_widget(layout)
+    self.draw(layout, 2160, 1080)
+    for error in (None, ValueError('Source report does not match installed model')):
+      with self.subTest(error=error), patch('openpilot.selfdrive.navigation.preparation.prepare_existing_model',
+                                           return_value={'prepared': True, 'activation_allowed': False}, side_effect=error) as service:
+        self.assertTrue(layout.navigation_register.action_item.enabled)
+        assert layout.navigation_register.callback is not None
+        layout.navigation_register.callback()
+        dialog = gui_app.get_active_widget()
+        self.assertIsInstance(dialog, ExistingBigv2RegistrationDialog)
+        dialog.worker.join(3)
+        self.draw(dialog, 2160, 1080)
+        service.assert_called_once_with(self.params, is_offroad=True)
+        if error:
+          self.assertIn(str(error), dialog._label._text)
+        else:
+          self.assertIn('registered', dialog._label._text)
+        self.assertFalse(self.params.get_bool('NavigationModelDrivingEnabled'))
+        self.assert_ordinary_settings_preserved()
+        gui_app.pop_widget()
+    self.offroad.return_value = False
+    with patch('openpilot.selfdrive.navigation.preparation.prepare_existing_model') as service:
+      self.assertFalse(layout.navigation_register.action_item.enabled)
+      layout._register_existing_navigation()
+      service.assert_not_called()
+      self.assertIn('off road', gui_app.get_active_widget()._label._text)

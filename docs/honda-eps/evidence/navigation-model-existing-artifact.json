@@ -1,0 +1,96 @@
+{
+  "report_review": {
+    "scope": "report-only validation; actual SPTG bytes/header not available in workspace",
+    "report_sha256": "4e0ba83f80758e4c5e9f9d7369febd0862957a28fb706d79f1188125a90241d1",
+    "reported_artifact_path": "/data/nav-bigv2/bigv2-amd.sptg",
+    "reported_artifact_sha256": "feb2532e2fcd65375ca61d82b1ce16b397244683cb2b183aead316f26454feb4",
+    "compiler_sha256": "d55aa36999ce05fa545d77dc1cc28e1e46fc28e60620c0b0db816e698bf79e7a",
+    "compiler_commit": "3aced94d7432ade1bffda9d07a495356f2775d86",
+    "source_onnx_sha256": "1d18c42ea4cd95c8bffab4635844b78b8e2d4e25b9de44a9c5ac2e0961371a2e",
+    "tinygrad_ref": "69fd4d34d4430036378aba2b43f9d339cdd6ea73",
+    "reported_targets": [
+      {
+        "device": "AMD",
+        "renderer": "LLVM",
+        "arch": "gfx1200",
+        "interface": "USB",
+        "indices": ""
+      }
+    ],
+    "report_semantic_contract_checks_passed": true,
+    "seeds": [
+      42,
+      43
+    ],
+    "all_output_max_abs_difference": 0.0,
+    "source_repeatability_exact": true,
+    "primary_changes_between_seeds": true,
+    "actual_model_bytes_rehashed": false,
+    "actual_model_header_target_contract_validated": false,
+    "warp_validated": false,
+    "inference_timing_available": false,
+    "normal_driving_approved": false
+  },
+  "warp_review": {
+    "scope": "branch_pinned_warp_static_and_saved_capture",
+    "artifact_sha256": "f1689356ff8e516f87e3d75f6b53e66953a11ee5a97e859b4808c9a16bfe671b",
+    "tinygrad_ref": "69fd4d34d4430036378aba2b43f9d339cdd6ea73",
+    "target": {
+      "backend": "AMD",
+      "arch": "gfx1200",
+      "interface": "USB",
+      "renderer": "LLVM"
+    },
+    "camera": {
+      "width": 1344,
+      "height": 760,
+      "stride": 1408,
+      "y_height": 768,
+      "uv_height": 384,
+      "copied_frame_bytes": 1622016,
+      "allocated_frame_bytes": 2428928
+    },
+    "width": 1344,
+    "height": 760,
+    "stride": 1408,
+    "y_height": 768,
+    "uv_height": 384,
+    "frame_size": 1622016,
+    "allocation_size": 2428928,
+    "output_shape": [
+      2,
+      6,
+      128,
+      256
+    ],
+    "output_dtype": "uint8",
+    "captured_check_passed": true,
+    "warp_frame_size": 1622016,
+    "model_image": {
+      "shape": [
+        2,
+        6,
+        128,
+        256
+      ],
+      "dtype": "uint8"
+    },
+    "source_bindings": {
+      "openpilot/sunnypilot/modeld_v2/compile_warp.py": "a182425b51918b35de8b7317461c4386e465bc5a4c9064a39e4ff64e29ca0282",
+      "openpilot/system/camerad/cameras/nv12_info.py": "b3f39bbfdd75c43d396b01f746d460068aa8e98862217d46bf3cd426cd034e1a",
+      "tinygrad:examples/openpilot/compile_warp.py": "97a6814fde7f16e1ce265c6b6388cd5799c8e2f8969ac78cfc4fd5a929b1921d"
+    },
+    "embedded_compiler_attestation": false,
+    "captured_reference": {
+      "passed": true,
+      "output_bytes": 393216,
+      "differing_bytes": 0,
+      "output_sha256": "124d4a811290f1c4bc1bbf0d922a80ca870a72e46cfea909f6431c97f46d72b1"
+    },
+    "gpu_execution_performed": false,
+    "normal_activation_allowed": false
+  },
+  "new_gpu_execution": false,
+  "bigv2_recompiled": false,
+  "normal_activation_approved": false
+}

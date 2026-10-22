@@ -297,10 +297,13 @@ def load_experimental_model(manifest_path: str | Path, *, experimental: bool, ba
     model_header = _header(artifact, target)
     specs = _model_contract(model_header, metadata, contract)
     frame_size = _warp_contract(_header(warp, target))
+    if 'camera_profile' in metadata:
+      from openpilot.selfdrive.navigation.warp_compatibility import validate_camera_profile
+      validate_camera_profile(metadata['camera_profile'], warp_hash, frame_size)
     verified = False
     if 'compiler_verification' in metadata:
       from openpilot.selfdrive.navigation.export_experimental_model import validate_exported_verification
-      validate_exported_verification(metadata['compiler_verification'], artifact_hash, contract, model_header)
+      validate_exported_verification(metadata['compiler_verification'], artifact_hash, contract, model_header, anchor=metadata_path)
       verified = True
     # This schema-compatible object is returned for diagnostic inspection only.
     # It is never saved to a production catalog or passed to an active manager.

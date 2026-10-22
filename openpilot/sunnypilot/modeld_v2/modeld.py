@@ -131,6 +131,11 @@ class ModelState(ModelStateBase):
       stride, y_height, uv_height, _ = get_nv12_info(cam_w, cam_h)
       if driving_permit.warp_frame_size != stride * (y_height + uv_height):
         raise NavigationModelDisabled('Approved navigation warp does not match the actual camera copied extent')
+      profile = driving_permit.metadata.get('camera_profile')
+      if profile is not None and any(profile.get(key) != value for key, value in
+                                    {'width': cam_w, 'height': cam_h, 'stride': stride, 'y_height': y_height,
+                                     'uv_height': uv_height, 'frame_size': stride * (y_height + uv_height)}.items()):
+        raise NavigationModelDisabled('Registered navigation warp geometry does not match the actual camera')
       warp_path = str(driving_permit.warp_path)
     self._diagnostic_token = diagnostic_session_token() if diagnostic else None
     self._diagnostic_backend = diagnostic_session_backend() if diagnostic else None

@@ -1,5 +1,7 @@
 # Navigation-model software compatibility correction
 
+The [existing-artifact follow-up](navigation-model-existing-artifact.md) reviews the user's successful AMD compiler report, validates the shipped camera warp and implements automatic registration. It supersedes this snapshot's missing-artifact and missing-preparation status; no Bigv2 recompilation or smoke rerun is needed.
+
 This continues the existing implementation on
 `mvl-honda-eps-selector21-chestnut-v28`, starting at rollback commit
 `0843c50307bda103a7e6884ea761ea7ef7ad60da`. It supersedes the older reports'

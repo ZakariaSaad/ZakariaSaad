@@ -1,5 +1,7 @@
 # Short Chestnut compatibility check from Windows
 
+For the already compiled Bigv2 model, use [existing-artifact registration](navigation-model-existing-artifact.md). This smoke tool is optional and is not the next step for that model.
+
 Use your existing 2022 Insight, installed comma 4, USB-connected Chestnut and 180 W
 accessory outlet. No bench, external supply, AMD workstation, camera recordings,
 manifests or hand-edited settings are needed. Navigation Model Driving stays OFF.

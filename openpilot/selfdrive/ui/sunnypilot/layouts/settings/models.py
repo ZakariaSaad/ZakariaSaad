@@ -5,6 +5,7 @@ This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
 import re
+import threading
 import time
 import pyray as rl
 
@@ -34,6 +35,34 @@ if gui_app.sunnypilot_ui():
   from openpilot.system.ui.sunnypilot.widgets.list_view import button_item_sp as button_item
 
 
+class ExistingBigv2RegistrationDialog(ConfirmDialog):
+  """Background file verification with all visual updates on the render thread."""
+  def __init__(self, params, *, is_offroad: bool):
+    super().__init__(tr("Checking existing Bigv2 and camera warp. Navigation driving stays off."), tr("Close"), cancel_text="")
+    self._finished = threading.Event()
+    self._error: str | None = None
+    self._shown_result = False
+    def run():
+      try:
+        from openpilot.selfdrive.navigation.preparation import prepare_existing_model
+        receipt = prepare_existing_model(params, is_offroad=is_offroad)
+        if receipt.get('prepared') is not True or receipt.get('activation_allowed') is not False:
+          raise ValueError('Existing model registration was not completed')
+      except Exception as error:
+        self._error = str(error)
+      finally:
+        self._finished.set()
+    self.worker = threading.Thread(target=run, daemon=True, name='navigation-model-registration')
+    self.worker.start()
+
+  def _update_state(self):
+    super()._update_state()
+    if self._finished.is_set() and not self._shown_result:
+      self._shown_result = True
+      self.set_text((tr("Registration failed: ") + self._error) if self._error else
+                    tr("Existing Bigv2 and camera warp registered. Navigation driving stays off."))
+
+
 class ModelsLayout(Widget):
   def __init__(self):
     super().__init__()
@@ -46,6 +75,7 @@ class ModelsLayout(Widget):
     self._refreshing = False
     self._refresh_start: float | None = None
     self._last_note = None
+    self._navigation_registration: ExistingBigv2RegistrationDialog | None = None
     self.last_cache_calc_time = 0
 
     self._initialize_items()
@@ -120,9 +150,13 @@ class ModelsLayout(Widget):
                                                enabled=lambda: ui_state.is_offroad() and
                                                (candidate_status(ui_state.params)['eligible'] or
                                                 ui_state.params.get_bool('NavigationModelDrivingEnabled')))
+    self.navigation_register = button_item(tr("Register existing Bigv2"), tr("REGISTER"),
+                                              tr("Validate and register the installed model and camera warp. Navigation driving stays off."),
+                                              self._register_existing_navigation,
+                                              enabled=lambda: ui_state.is_offroad() and not self._navigation_registration_running())
 
     self.items = [self.small_model_item, self.big_model_item, self.cancel_download_item, self.download_item, self.refresh_item, self.clear_cache_item,
-                  self.navigation_status, self.navigation_driving, self.lane_turn_desire_toggle, self.lane_turn_value_control,
+                  self.navigation_status, self.navigation_driving, self.navigation_register, self.lane_turn_desire_toggle, self.lane_turn_value_control,
                   self.lagd_toggle, self.delay_control, self.camera_offset]
 
   def _set_navigation_driving(self, enabled):
@@ -131,6 +165,19 @@ class ModelsLayout(Widget):
     except NavigationModelDisabled as error:
       gui_app.push_widget(alert_dialog(str(error)))
     self.navigation_driving.action_item.set_state(ui_state.params.get_bool('NavigationModelDrivingEnabled'))
+
+  def _navigation_registration_running(self):
+    return self._navigation_registration is not None and self._navigation_registration.worker.is_alive()
+
+  def _register_existing_navigation(self):
+    offroad = ui_state.is_offroad()
+    if not offroad:
+      gui_app.push_widget(alert_dialog(tr("Register navigation models only while off road.")))
+      return
+    if self._navigation_registration_running():
+      return
+    self._navigation_registration = ExistingBigv2RegistrationDialog(ui_state.params, is_offroad=offroad)
+    gui_app.push_widget(self._navigation_registration)
 
   def _update_lagd_description(self, lagd_toggle: bool):
     desc = tr("Enable this for the car to learn and adapt its steering response time. Disable to use a fixed steering response time. " +
