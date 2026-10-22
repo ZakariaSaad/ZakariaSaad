@@ -246,7 +246,7 @@ class ModelState(ModelStateBase):
 
 def _require_non_navigation_publication(*models: ModelState | None) -> None:
   if any(model is not None and (model._navigation_input_names or getattr(model, 'diagnostic', False)) for model in models):
-    raise NavigationModelDisabled('Use the isolated offline ModelState harness; modeld may not publish navigation-conditioned outputs')
+    raise NavigationModelDisabled('Diagnostic and unapproved navigation artifacts cannot publish through the stock runner')
 
 
 def main(demo=False):
@@ -329,7 +329,7 @@ def main(demo=False):
   needs_navigation = any(m is not None and m._navigation_input_names for m in (model, small_model))
   sm = SubMaster(["deviceState", "carState", "narrowRoadCameraState", "extrinsicsCalibration", "driverMonitoringState",
                   "carControl", "controlsState", "lateralDelay"] +
-                 (["navInstruction", "gpsLocation", "gpsLocationExternal"] if needs_navigation else []))
+                 (["navInstruction", "navModelStateSP", "gpsLocation", "gpsLocationExternal"] if needs_navigation else []))
   navigation_inputs = NavigationInputs(params) if needs_navigation else None
 
   publish_state = PublishState()

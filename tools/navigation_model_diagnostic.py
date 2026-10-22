@@ -74,12 +74,14 @@ def measurements():
           'tinygrad_logical_allocated_bytes': GlobalCounters.mem_used}
 
 
-def prepare_contexts(path, frames, *, synthetic_suite=False):
+def prepare_contexts(path, frames, *, synthetic_suite=False, synthetic_long_sequence=False):
   with np.load(path, allow_pickle=False) as data:
     arrays = {key: data[key] for key in data.files}
   count = len(frames)
   if count < 1:
     raise ValueError('Diagnostic needs at least one recorded camera frame')
+  if synthetic_long_sequence and count < 164:
+    raise ValueError('The long synthetic sequence requires at least 164 selected frames')
 
   def scalar(name, kind, default):
     if name not in arrays:
@@ -118,7 +120,7 @@ def prepare_contexts(path, frames, *, synthetic_suite=False):
   for name in ('frame_id', 'metadata_frame_id'):
     if any(int(value) >= (1 << 32) for value in values[name]):
       raise ValueError(f'{name} must contain UInt32 frame identifiers')
-  if not synthetic_suite and values['nav_valid'].any():
+  if not (synthetic_suite or synthetic_long_sequence) and values['nav_valid'].any():
     required = (*integer_fields, 'destination_key', 'instruction_destination_key', 'map_destination_key', 'gps_valid')
     missing = sorted(name for name in required if name not in arrays)
     if missing:
@@ -138,7 +140,8 @@ def prepare_contexts(path, frames, *, synthetic_suite=False):
     source = int(values['map_source_ns'][i])
     rendered = int(values['map_render_ns'][i])
     scenario = str(values['scenario'][i])
-    if synthetic_suite:
+    permission_valid = True
+    if synthetic_suite or synthetic_long_sequence:
       # Explicitly simulated route/map/timing, over unchanged recorded cameras.
       # This is never described as a recorded GPS/route/map observation.
       generation, key = 1, hashlib.sha256(b'simulated-route-a').hexdigest()
@@ -165,17 +168,65 @@ def prepare_contexts(path, frames, *, synthetic_suite=False):
         source = camera - 3_000_000_000
       instruction_generation, instruction_key, map_key = generation, key, key
       frame_id = metadata_frame_id = i
+      if synthetic_long_sequence:
+        # A full continuous 144-frame history precedes the first simulated defect.
+        # Only camera pixels originate in the recording; these route and source
+        # annotations are explicitly synthetic, never recorded navigation replay.
+        generation = 1 if i < 144 else 2
+        key = hashlib.sha256(f'simulated-long-route-{generation}'.encode()).hexdigest()
+        instruction_generation, instruction_key, map_generation, map_key = generation, key, generation, key
+        gps = instruction = source = rendered = camera
+        gps_valid = valid = True
+        scenario = ('history_intersection' if i < 48 else 'history_highway_exit' if i < 96 else
+                    'history_consecutive_turns' if i < 144 else 'route_reacquired')
+        if i == 144:
+          map_generation, scenario = 1, 'reroute_old_map'
+        elif i == 148:
+          gps_valid, scenario = False, 'missing_gps'
+        elif i == 152:
+          permission_valid, scenario = False, 'permission_revoked'
+        elif i == 156:
+          source, scenario = camera - 3_000_000_000, 'stale_map'
+        elif i == 160:
+          metadata_frame_id, scenario = i - 1, 'map_frame_mismatch'
+        command = 20 if 48 <= i < 96 else 15 if i >= 96 and (i // 8) % 2 else 10
+        pixels = np.zeros((256, 256), np.uint8)
+        pixels[20:230, 125:132] = 255
+        pixels[97:104, 30:230] = 255
+        pixels[100:193, 127:130] = 128
+        pixels[99:102, 48:129 if command == 15 else 210] = 128
+        vector = np.zeros(47, np.float32)
+        vector[command], vector[-1] = 1, max(.01, 1.5 - (i % 48) * .02)
+        frame['navigation'] = {'nav_map': pixels, 'navigation': vector}
     context = NavigationContext(
       camera_ns=camera, gps_ns=gps, instruction_ns=instruction, map_source_ns=source, map_render_ns=rendered,
       generation=generation, destination_key=key, instruction_generation=instruction_generation, instruction_destination_key=instruction_key,
       map_generation=map_generation, map_destination_key=map_key, frame_id=frame_id, metadata_frame_id=metadata_frame_id,
-      gps_valid=gps_valid, instruction_valid=valid, map_valid=valid)
+      gps_valid=gps_valid, instruction_valid=valid, map_valid=valid, permission_valid=permission_valid)
     contexts.append(context)
     scenarios.append(scenario)
   return contexts, scenarios
 
 
-def run_diagnostic(factory, frames, contexts, scenarios, output, *, arms=ARMS, fallback_factory=None):
+def prediction_snapshot(model, raw, *, capture_states=False):
+  values = {key: np.asarray(value).copy() for key, value in raw.items()}
+  if capture_states:
+    adapter = getattr(model, 'adapter', None)
+    queues = getattr(adapter, 'input_queues', {})
+    state_names = getattr(adapter, 'state_pairs', queues)
+    if not state_names:
+      raise ValueError('Recurrent-state capture requires exposed native state buffers')
+    for name in state_names:
+      key = '_state.' + name
+      if key in values:
+        raise ValueError('Prediction/state key collision')
+      values[key] = queues[name].numpy().copy()
+  if not all(np.isfinite(value).all() for value in values.values()):
+    raise ValueError('Non-finite model prediction or recurrent state')
+  return values
+
+
+def run_diagnostic(factory, frames, contexts, scenarios, output, *, arms=ARMS, fallback_factory=None, capture_states=False):
   """Independent arms, explicit resets, failures/skips visible, no actuator conversion."""
   output = Path(output)
   output.mkdir(parents=True, exist_ok=True)
@@ -244,9 +295,7 @@ def run_diagnostic(factory, frames, contexts, scenarios, output, *, arms=ARMS, f
         try:
           raw = active.run(frame['bufs'], frame['transforms'], inputs)
           inference_seconds = time.perf_counter()-started
-          parsed = {key: np.asarray(value).copy() for key, value in raw.items()}
-          if not all(np.isfinite(value).all() for value in parsed.values()):
-            raise ValueError('Non-finite model prediction')
+          parsed = prediction_snapshot(active, raw, capture_states=capture_states)
           if event['model_role'] == 'primary':
             predictions[arm][i] = parsed
           folder = output / arm
@@ -275,9 +324,7 @@ def run_diagnostic(factory, frames, contexts, scenarios, output, *, arms=ARMS, f
                 started = time.perf_counter()
                 raw = fallback.run(frame['bufs'], frame['transforms'], base_inputs)
                 inference_seconds = time.perf_counter()-started
-                parsed = {key: np.asarray(value).copy() for key, value in raw.items()}
-                if not all(np.isfinite(value).all() for value in parsed.values()):
-                  raise ValueError('Non-finite fallback prediction')
+                parsed = prediction_snapshot(fallback, raw, capture_states=capture_states)
                 folder = output / arm
                 folder.mkdir(exist_ok=True)
                 path = folder / f'{i:06d}-fallback.npz'
@@ -324,8 +371,11 @@ def main():
   parser.add_argument('--artifact', type=Path, help='Trusted CPU native artifact')
   parser.add_argument('--warp-artifact', type=Path, help='Trusted CPU warp')
   parser.add_argument('--fallback-artifact', type=Path, help='Optional trusted CPU non-navigation artifact; no production selection')
+  parser.add_argument('--capture-recurrent-state', action='store_true', help='Save every native state queue for short CPU/GPU comparisons (large files)')
   parser.add_argument('--experimental-catalog', type=Path, help='Ready local AMD diagnostic manifest')
-  parser.add_argument('--synthetic-suite', action='store_true', help='Explicitly simulate navigation contexts over recorded cameras')
+  synthetic = parser.add_mutually_exclusive_group()
+  synthetic.add_argument('--synthetic-suite', action='store_true', help='Explicitly simulate navigation contexts over recorded cameras')
+  synthetic.add_argument('--synthetic-long-sequence', action='store_true', help='144 valid history samples then simulated transitions; requires >=164 frames')
   parser.add_argument('--max-frames', type=int, default=8)
   parser.add_argument('--width', type=int, default=1344)
   parser.add_argument('--height', type=int, default=760)
@@ -372,7 +422,8 @@ def main():
           parser.error('Diagnostic fallback must share the primary desire input contract')
   desire_key = 'desire' if 'desire' in specs else 'desire_pulse'
   frames = load_recording(args.recording, desire_key)[:args.max_frames]
-  contexts, scenarios = prepare_contexts(args.recording, frames, synthetic_suite=args.synthetic_suite)
+  contexts, scenarios = prepare_contexts(args.recording, frames, synthetic_suite=args.synthetic_suite,
+                                         synthetic_long_sequence=args.synthetic_long_sequence)
   from openpilot.common.params import Params
   from openpilot.common.prefix import OpenpilotPrefix
   from openpilot.sunnypilot.modeld_v2.modeld import ModelState
@@ -385,9 +436,12 @@ def main():
         with patch.dict(os.environ, {'COMBINED_MODEL_PKL': str(fallback_path)}):
           return ModelState(args.width, args.height, chestnut=False, warp_path=str(warp), diagnostic=True)
       summary = run_diagnostic(factory, frames, contexts, scenarios, args.output,
-                               fallback_factory=fallback_factory if fallback_path is not None else None)
+                               fallback_factory=fallback_factory if fallback_path is not None else None,
+                               capture_states=args.capture_recurrent_state)
   provenance = {'recording_sha256': digest(args.recording), 'artifact_sha256': digest(artifact), 'warp_sha256': digest(warp),
-                'tinygrad_ref': TINYGRAD_REF, 'backend': args.backend, 'navigation_context': 'synthetic' if args.synthetic_suite else 'prepared',
+                'tinygrad_ref': TINYGRAD_REF, 'backend': args.backend,
+                'navigation_context': 'synthetic-long' if args.synthetic_long_sequence else 'synthetic' if args.synthetic_suite else 'prepared',
+                'recurrent_states_captured': args.capture_recurrent_state,
                 'normal_prediction_publishing': False, 'vehicle_io': False, 'firmware_operations': False}
   (args.output / 'provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')
   if summary['failures'] or not summary['completed_predictions']:

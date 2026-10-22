@@ -165,7 +165,7 @@ class TestNavigationModelInputs(OpenpilotTestCase):
     modeld_module._reject_navigation_publication(standard, None)
     for models in ((navigation, standard), (standard, navigation)):
       with self.subTest(nav_model=models[0] is navigation):
-        with self.assertRaisesRegex(modeld_module.NavigationModelDisabled, 'isolated offline'):
+        with self.assertRaisesRegex(modeld_module.NavigationModelDisabled, 'branch-reviewed runtime permit'):
           modeld_module._reject_navigation_publication(*models)
     # This safety boundary must remain ahead of any production publisher, including demo mode.
     tree = ast.parse(inspect.getsource(modeld_module.main))

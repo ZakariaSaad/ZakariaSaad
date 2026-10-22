@@ -33,6 +33,7 @@ class NavigationContext:
   map_age: float = 0.0
   instruction_age: float = 0.0
   metadata_age: float = 0.0
+  permission_valid: bool = True
 
   @property
   def identity(self):
@@ -40,6 +41,8 @@ class NavigationContext:
 
 
 def context_reason(context: NavigationContext) -> str:
+  if not context.permission_valid:
+    return 'permission_revoked'
   if not context.gps_valid:
     return 'missing_gps'
   if not context.instruction_valid or not context.map_valid:

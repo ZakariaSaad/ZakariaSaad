@@ -71,8 +71,10 @@ class TestManeuverContract(unittest.TestCase):
     self.assertEqual(navigation_input(instruction(engine, pm).allManeuvers, 0)[15], 1)
     # Respect the tracker's 100 m search window: left is now passed but right remains ahead.
     engine.last_position = (0, 95 * METER)
+    engine.sm['gpsLocation'].longitude, engine.sm['gpsLocation'].latitude = engine.last_position
     instruction(engine, pm)
     engine.last_position = (5 * METER, 100 * METER)
+    engine.sm['gpsLocation'].longitude, engine.sm['gpsLocation'].latitude = engine.last_position
     msg = instruction(engine, pm)
     self.assertEqual([(m.type, m.modifier) for m in msg.allManeuvers], [('turn', 'right'), ('arrive', '')])
     vector = navigation_input(msg.allManeuvers, 0)

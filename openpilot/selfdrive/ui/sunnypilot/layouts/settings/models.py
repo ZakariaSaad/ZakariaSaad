@@ -10,6 +10,9 @@ import pyray as rl
 
 from openpilot.cereal import custom
 from openpilot.sunnypilot.models.helpers import ACTIVE_BUNDLE_KEYS, get_selected_bundle, resolve_bundle_by_ref
+from openpilot.selfdrive.navigation.activation import candidate_status
+from openpilot.selfdrive.navigation.model_inputs import NavigationModelDisabled
+from openpilot.selfdrive.navigation.selection import selection_description, set_driving_enabled
 from openpilot.common.constants import CV
 from openpilot.selfdrive.ui.ui_state import device, ui_state
 from openpilot.selfdrive.ui.sunnypilot.model_info import (big_model_state, bundles_for_source, carrying_model, default_model_name,
@@ -107,8 +110,27 @@ class ModelsLayout(Widget):
                                         1, None, True, "", style.BUTTON_ACTION_WIDTH, None, True,
                                         lambda v: f"{v / 100:.2f} m")
 
+    self.navigation_status = button_item(tr("Navigation Model"), tr("DETAILS"),
+                                          lambda: selection_description(ui_state.params),
+                                          lambda: gui_app.push_widget(alert_dialog(selection_description(ui_state.params))))
+    self.navigation_driving = toggle_item_sp(tr("Navigation Model Driving"),
+                                               lambda: selection_description(ui_state.params),
+                                               initial_state=ui_state.params.get_bool('NavigationModelDrivingEnabled'),
+                                               callback=self._set_navigation_driving,
+                                               enabled=lambda: ui_state.is_offroad() and
+                                               (candidate_status(ui_state.params)['eligible'] or
+                                                ui_state.params.get_bool('NavigationModelDrivingEnabled')))
+
     self.items = [self.small_model_item, self.big_model_item, self.cancel_download_item, self.download_item, self.refresh_item, self.clear_cache_item,
-                  self.lane_turn_desire_toggle, self.lane_turn_value_control, self.lagd_toggle, self.delay_control, self.camera_offset]
+                  self.navigation_status, self.navigation_driving, self.lane_turn_desire_toggle, self.lane_turn_value_control,
+                  self.lagd_toggle, self.delay_control, self.camera_offset]
+
+  def _set_navigation_driving(self, enabled):
+    try:
+      set_driving_enabled(ui_state.params, enabled, offroad=ui_state.is_offroad())
+    except NavigationModelDisabled as error:
+      gui_app.push_widget(alert_dialog(str(error)))
+    self.navigation_driving.action_item.set_state(ui_state.params.get_bool('NavigationModelDrivingEnabled'))
 
   def _update_lagd_description(self, lagd_toggle: bool):
     desc = tr("Enable this for the car to learn and adapt its steering response time. Disable to use a fixed steering response time. " +
@@ -310,6 +332,7 @@ class ModelsLayout(Widget):
     return bundle.ref if bundle else "Default"
 
   def _update_state(self):
+    self.navigation_driving.action_item.set_state(ui_state.params.get_bool('NavigationModelDrivingEnabled'))
     advanced_controls: bool = ui_state.params.get_bool("ShowAdvancedControls")
     turn_desire: bool = ui_state.params.get_bool("LaneTurnDesire")
     live_delay: bool = ui_state.params.get_bool("LagdToggle")

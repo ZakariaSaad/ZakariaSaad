@@ -22,6 +22,7 @@ class TestTemporal(unittest.TestCase):
     context = valid_context()
     self.assertEqual(context_reason(context), 'valid')  # 1Hz GPS is valid despite old physical sample.
     cases = [
+      ({'permission_valid': False}, 'permission_revoked'),
       ({'gps_valid': False}, 'missing_gps'),
       ({'instruction_valid': False}, 'invalid_producer'),
       ({'map_valid': False}, 'invalid_producer'),

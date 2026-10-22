@@ -1,10 +1,8 @@
 """Independent checks of the offline gate and unchanged non-navigation model admission."""
 import ast
-import copy
 import os
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -124,15 +122,16 @@ class TestExperimentalBoundaries(unittest.TestCase):
         model_inputs.validate_model_inputs(self.nav_specs(), params)
 
   def test_production_entrypoints_reject_before_constructing_publishers(self):
-    # Execute the actual main guard statement followed by the actual PubMaster
-    # assignment, with only publisher construction replaced. This does not load
-    # a model, start a process, or open any messaging socket.
+    # Call the actual guards. AST checks establish their unconditional placement;
+    # no extracted copy of the guard implementation is executed.
     from openpilot.common.basedir import BASEDIR
+    from openpilot.selfdrive.modeld import modeld as stock
+    from openpilot.sunnypilot.modeld_v2 import modeld as native
     cases = (
-      ('openpilot/selfdrive/modeld/modeld.py', '_require_non_navigation_publication'),
-      ('openpilot/sunnypilot/modeld_v2/modeld.py', '_reject_navigation_publication'),
+      ('openpilot/selfdrive/modeld/modeld.py', stock, '_require_non_navigation_publication'),
+      ('openpilot/sunnypilot/modeld_v2/modeld.py', native, '_reject_navigation_publication'),
     )
-    for path, guard_name in cases:
+    for path, runtime, guard_name in cases:
       with self.subTest(path=path):
         module = ast.parse((Path(BASEDIR) / path).read_text())
         main = next(node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == 'main')
@@ -145,23 +144,12 @@ class TestExperimentalBoundaries(unittest.TestCase):
         self.assertEqual(len(guards), 1, 'all main/demo paths must pass an unconditional publication guard')
         self.assertEqual(len(pubs), 1)
         self.assertLess(guards[0][0], pubs[0][0])
-        definitions = [copy.deepcopy(node) for node in module.body if isinstance(node, ast.FunctionDef) and
-                       node.name in ('takes_nav', guard_name)]
-        for definition in definitions:
-          definition.returns = None
-          for argument in (*definition.args.args, *definition.args.kwonlyargs):
-            argument.annotation = None
-          if definition.args.vararg is not None:
-            definition.args.vararg.annotation = None
-        probe = ast.FunctionDef(name='probe', args=ast.arguments(posonlyargs=[], args=[ast.arg(arg='model'), ast.arg(arg='small_model')],
-                                                               kwonlyargs=[], kw_defaults=[], defaults=[]),
-                                body=[copy.deepcopy(guards[0][1]), copy.deepcopy(pubs[0][1])], decorator_list=[], type_params=[])
-        executable = ast.fix_missing_locations(ast.Module(body=[*definitions, probe], type_ignores=[]))
         publisher = MagicMock()
-        namespace: dict[str, Any] = {'NAV_INPUT_NAMES': model_inputs.NAV_INPUT_NAMES,
-                     'NavigationModelDisabled': model_inputs.NavigationModelDisabled,
-                     'PubMaster': publisher, 'pub_socks': ['modelV2']}
-        exec(compile(executable, path, 'exec'), namespace)
+        guard = getattr(runtime, guard_name)
+
+        def probe(active, fallback, guard=guard, publisher=publisher):
+          guard(active, fallback)
+          publisher(['modelV2'])
         ordinary = SimpleNamespace(numpy_inputs={}, _navigation_input_names=())
         nav_map = SimpleNamespace(numpy_inputs={'nav_map': None}, _navigation_input_names=('nav_map',))
         maneuvers = SimpleNamespace(numpy_inputs={'navigation': None}, _navigation_input_names=('navigation',))
@@ -171,7 +159,7 @@ class TestExperimentalBoundaries(unittest.TestCase):
             with self.subTest(active=active, fallback=fallback, pc=pc), patch.object(model_inputs, 'PC', pc):
               os.environ['NAV_MODEL_OFFLINE'] = '1'
               with self.assertRaises(model_inputs.NavigationModelDisabled):
-                namespace['probe'](active, fallback)
+                probe(active, fallback)
               publisher.assert_not_called()
-        namespace['probe'](ordinary, None)
+        probe(ordinary, None)
         publisher.assert_called_once_with(['modelV2'])

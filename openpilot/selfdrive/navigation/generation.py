@@ -36,14 +36,20 @@ def next_generation(previous: int = 0, clock=time.monotonic_ns) -> int:
   return value
 
 
-def gps_source(sm, now: float | None = None) -> str | None:
+def gps_source(sm, now: float | None = None, *, check_source_time: bool = True) -> str | None:
   """A fresh fix with valid coordinates and a physical source timestamp, never only a live subscription."""
   now = time.monotonic() if now is None else now
   candidates = []
   for source in ('gpsLocation', 'gpsLocationExternal'):
     gps = sm[source]
+    source_ns = int(sm.logMonoTime[source])
+    # A freshly delivered old fix is still old. Do not bridge foreign clock
+    # domains (including a post-suspend BOOTTIME/MONOTONIC offset) by extending
+    # the existing model admission tolerances.
+    source_age = now - source_ns / 1e9
     if (sm.valid[source] and gps.hasFix and 0 <= now - sm.recv_time[source] < 2
         and math.isfinite(gps.longitude) and math.isfinite(gps.latitude)
-        and -180 <= gps.longitude <= 180 and -90 <= gps.latitude <= 90 and int(sm.logMonoTime[source]) > 0):
+        and -180 <= gps.longitude <= 180 and -90 <= gps.latitude <= 90 and source_ns > 0
+        and (not check_source_time or -0.2 <= source_age < 2)):
       candidates.append(source)
   return max(candidates, key=lambda source: sm.logMonoTime[source]) if candidates else None

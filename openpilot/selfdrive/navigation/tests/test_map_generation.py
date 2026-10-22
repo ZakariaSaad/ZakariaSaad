@@ -29,7 +29,7 @@ class TestMapGeneration(unittest.TestCase):
     self.sm.updated = {'navRoute': True}
     self.sm.valid = {'navRoute': True, 'gpsLocation': False, 'gpsLocationExternal': True}
     self.sm.recv_time = {'gpsLocation': 99.5, 'gpsLocationExternal': 99.5}
-    self.sm.logMonoTime = {'gpsLocation': 99_500_000_000, 'gpsLocationExternal': 99_500_000_000}
+    self.sm.logMonoTime = {'gpsLocation': 99_500_000_000, 'gpsLocationExternal': 99_500_000_000, 'navRoute': 99_000_000_000}
     self.sm.__getitem__.side_effect = lambda service: self.route if service == 'navRoute' else self.gps
     self.enterContext(patch('openpilot.selfdrive.navigation.mapsd.time.monotonic', return_value=100.))
 
@@ -108,6 +108,59 @@ class TestMapGeneration(unittest.TestCase):
     self.assertFalse(self.mapd.state_message(1, source - 1, 100_000_000_000).valid)
     self.assertFalse(self.mapd.state_message(1, source, 0).valid)
     self.assertFalse(self.mapd.state_message(1, source, source - 1).valid)
+
+  def test_reordered_route_cannot_roll_back_same_destination_generation(self):
+    self.mapd.update(self.sm)
+    self.route.routeGeneration = 102
+    self.sm.logMonoTime['navRoute'] += 1
+    self.mapd.update(self.sm)
+    current = self.mapd.tracker
+    self.route.routeGeneration = 101
+    self.sm.logMonoTime['navRoute'] += 1  # even a fresh replay of an old identity is rejected
+    self.mapd.update(self.sm)
+    self.assertEqual(self.mapd.route_generation, 102)
+    self.assertIs(self.mapd.tracker, current)
+
+  def test_same_generation_geometry_is_immutable(self):
+    self.mapd.update(self.sm)
+    current = self.mapd.tracker
+    self.route.coordinates[1].longitude = .001
+    self.sm.logMonoTime['navRoute'] += 1
+    self.mapd.update(self.sm)
+    self.assertIs(self.mapd.tracker, current)
+    self.assertEqual(self.mapd.route[-1, 0], 0.)
+
+  def test_clear_tombstone_blocks_delayed_old_route_until_new_generation(self):
+    self.mapd.update(self.sm)
+    self.sm.valid['navRoute'] = False
+    self.sm.logMonoTime['navRoute'] += 1
+    self.mapd.update(self.sm)
+    self.sm.valid['navRoute'] = True
+    self.sm.logMonoTime['navRoute'] += 1
+    self.assertEqual(self.mapd.update(self.sm)[1], 0)
+    self.assertIsNone(self.mapd.tracker)
+    self.route.routeGeneration = 102  # a restarted navd allocates a new route identity
+    self.sm.logMonoTime['navRoute'] += 1
+    self.assertGreater(self.mapd.update(self.sm)[1], 0)
+
+  def test_older_clear_does_not_remove_a_newer_route(self):
+    self.mapd.update(self.sm)
+    current = self.mapd.tracker
+    self.sm.valid['navRoute'] = False
+    self.sm.logMonoTime['navRoute'] -= 1
+    self.assertGreater(self.mapd.update(self.sm)[1], 0)
+    self.assertIs(self.mapd.tracker, current)
+
+  def test_live_destination_rechecked_between_render_and_metadata_send(self):
+    _, source = self.mapd.update(self.sm)
+    self.params.get.return_value = {'longitude': 1, 'latitude': 1}
+    self.assertFalse(self.mapd.state_message(1, source, 100_000_000_000).valid)
+
+  def test_fresh_receipt_does_not_revalidate_old_or_foreign_clock_gps(self):
+    for source in (97_000_000_000, 110_000_000_000):
+      with self.subTest(source=source):
+        self.sm.logMonoTime['gpsLocationExternal'] = source
+        self.assertEqual(self.mapd.update(self.sm)[1], 0)
 
   def test_reserved_custom_struct_id_and_wire_roundtrip(self):
     self.assertEqual(custom.NavModelStateSP.schema.node.id, 0xcb9fd56c7057593a)

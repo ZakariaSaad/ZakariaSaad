@@ -148,6 +148,11 @@ def _header(path: Path, target: dict[str, str]) -> dict[str, Any]:
   _range(parts[0].get('blob'), blob_size)
   header = parts[0].get('header')
   _require(isinstance(header, dict), 'Missing native SPTG header')
+  for field in ('buffers', 'inputs'):
+    buffers = header.get(field, [])
+    _require(isinstance(buffers, list) and all(isinstance(buffer, dict) and buffer.get('device') in ('AMD', 'NPY')
+                                             for buffer in buffers),
+             'SPTG internal buffers must use only the approved AMD or NPY devices')
   part_size = parts[0]['blob'][1] - parts[0]['blob'][0]
 
   def ranges(value: Any) -> None:

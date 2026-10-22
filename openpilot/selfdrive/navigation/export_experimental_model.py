@@ -67,7 +67,12 @@ def _output_comparison(values: Any, contract: dict, *, exact: bool = False) -> N
     before, after = value.get('source_sha256'), value.get('reloaded_sha256')
     _require(all(isinstance(digest, str) and re.fullmatch('[0-9a-f]{64}', digest) for digest in (before, after)),
              'Verification requires output byte digests')
-    _require((before == after) == (delta == 0), 'Verification byte hashes and numerical differences disagree')
+    # Finite float32 +0/-0 compare numerically equal but have different bytes.
+    # Reload tolerances permit that distinction; exact source repeatability and
+    # integer state buffers still require matching bytes when the error is zero.
+    signed_zero_possible = not exact and _dtype(tensor['dtype']) == 'float32' and delta == 0
+    _require((before == after) == (delta == 0) or signed_zero_possible,
+             'Verification byte hashes and numerical differences disagree')
 
 
 def _verification_report(report: dict, artifact_sha256: str, compiler_sha256: str, contract: dict, header: dict) -> None:

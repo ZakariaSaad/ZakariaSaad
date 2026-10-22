@@ -13,6 +13,8 @@ from typing import Any
 import unittest
 from unittest.mock import patch
 
+import numpy as np
+
 from openpilot.selfdrive.navigation import export_experimental_model as exporter
 from openpilot.selfdrive.navigation.experimental_catalog import (
   DEFAULT_CATALOG, SOURCE_ONNX_SHA256, TINYGRAD_REF, ExperimentalCatalogError, load_experimental_model,
@@ -90,6 +92,17 @@ class TestExperimentalExport(unittest.TestCase):
       self.export()
     self.assertFalse(self.output.exists())
     self.assertFalse(self.output.with_name(self.output.name + '.metadata.json').exists())
+
+  def test_signed_zero_reload_matches_the_actual_compiler_comparison(self):
+    from openpilot.sunnypilot.modeld_v2.compile_modeld_v2 import compare_outputs
+    before, after = np.array([-0.0], np.float32), np.array([0.0], np.float32)
+    comparison = compare_outputs({'outputs': before}, {'outputs': after})
+    contract = {'outputs': [{'name': 'outputs', 'shape': [1], 'dtype': 'FLOAT'}]}
+    self.assertNotEqual(comparison['outputs']['source_sha256'], comparison['outputs']['reloaded_sha256'])
+    self.assertEqual(comparison['outputs']['max_abs_difference'], 0)
+    exporter._output_comparison(comparison, contract)
+    with self.assertRaises(ExperimentalCatalogError):
+      exporter._output_comparison(comparison, contract, exact=True)
 
   def test_failed_emulated_loose_incomplete_and_inconsistent_reports_fail_closed(self):
     cases = [

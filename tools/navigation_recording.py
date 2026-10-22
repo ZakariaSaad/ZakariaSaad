@@ -93,8 +93,8 @@ def prepare(rlog: Path, narrow_camera: Path, wide_camera: Path, *, segment: int,
   """Bounded local-recording adapter. No network, model execution or messaging."""
   from openpilot.tools.lib.logreader import LogReader
 
-  if count < 1 or count > 128 or start_index < 0:
-    raise ValueError('Choose 1..128 frames and a nonnegative encoded start index')
+  if count < 1 or count > 512 or start_index < 0:
+    raise ValueError('Choose 1..512 frames and a nonnegative encoded start index')
   histories = {name: [] for name in ('carState', 'extrinsicsCalibration', 'driverMonitoringState', 'deviceState', 'narrowRoadCameraState',
                                     'gpsLocation', 'gpsLocationExternal')}
   indices = {'narrowRoadEncodeIdx': [], 'wideRoadEncodeIdx': []}

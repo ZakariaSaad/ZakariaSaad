@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "candidates": [
+    {
+      "id": "big-nav-v2",
+      "display_name": "Nav Model Integration Bigv2",
+      "source_onnx_sha256": "1d18c42ea4cd95c8bffab4635844b78b8e2d4e25b9de44a9c5ac2e0961371a2e",
+      "software_contract_reviewed": true,
+      "hardware_reviewed": false,
+      "activation_approved": false,
+      "action_contract": "comma-nav-v2-20hz-lateral-acceleration-longitudinal-acceleration",
+      "action_contract_source": "a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9",
+      "sunnypilot_generation": null,
+      "artifact_sha256": null,
+      "warp_sha256": null,
+      "metadata_sha256": null,
+      "hardware_gate_reason": "Physical Chestnut compiler, repeated inference, timing, transition and reference-parity results have not been reviewed.",
+      "minimum_valid_frames": 132
+    }
+  ]
+}

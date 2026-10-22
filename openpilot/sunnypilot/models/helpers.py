@@ -167,6 +167,12 @@ def validate_active_bundles(params: Params, source_bundles: dict[str, list[custo
 
 def get_active_model_runner(params: Params | None = None, force_check: bool = False) -> int:
   params = params or Params()
+  if params.get_bool('NavigationModelDrivingEnabled') is True:
+    # This separate opt-in never overwrites the user's ordinary runner cache or
+    # either active bundle slot. The native runner performs full artifact admission.
+    from openpilot.selfdrive.navigation.activation import candidate_status
+    if candidate_status(params)['eligible']:
+      return int(custom.ModelManagerSP.Runner.tinygrad)
   cached_runner_type = params.get("ModelRunnerTypeCache")
   if cached_runner_type is not None and not force_check:
     return cached_runner_type

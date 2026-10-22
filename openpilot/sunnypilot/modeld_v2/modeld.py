@@ -36,6 +36,8 @@ from openpilot.common.transformations.model import get_warp_matrix
 from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
 from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan, smooth_value
 from openpilot.selfdrive.modeld.modeld import ChestnutGpuState
+from openpilot.selfdrive.navigation.activation import authorize_runtime, validate_runtime_metadata, validate_runtime_permit
+from openpilot.selfdrive.navigation.driving import NavigationDrivingSession
 from openpilot.selfdrive.navigation.model_inputs import (NAV_INPUT_NAMES, NavigationInputs, NavigationModelDisabled,
                                                         diagnostic_session_active, diagnostic_session_backend,
                                                         diagnostic_session_token, validate_model_inputs)
@@ -94,8 +96,13 @@ def takes_nav(*models) -> bool:
 
 
 def _reject_navigation_publication(*models) -> None:
-  if takes_nav(*models) or any(getattr(model, 'diagnostic', False) for model in models if model is not None):
-    raise NavigationModelDisabled('Use the isolated offline ModelState harness; production modeld may not publish navigation-conditioned outputs')
+  for model in models:
+    if model is None:
+      continue
+    if getattr(model, 'diagnostic', False):
+      raise NavigationModelDisabled('Diagnostic model predictions cannot be published')
+    if takes_nav(model):
+      validate_runtime_permit(getattr(model, '_driving_permit', None), getattr(model, 'navigation_input_specs', {}))
 
 
 class FrameMeta:
@@ -112,8 +119,19 @@ class ModelState(ModelStateBase):
   inputs: dict[str, np.ndarray]
   prev_desire: np.ndarray
 
-  def __init__(self, cam_w: int, cam_h: int, chestnut: bool = False, *, warp_path: str | None = None, diagnostic: bool = False):
+  def __init__(self, cam_w: int, cam_h: int, chestnut: bool = False, *, warp_path: str | None = None,
+               diagnostic: bool = False, driving_permit=None):
     self.diagnostic = diagnostic
+    self._driving_permit = driving_permit
+    if driving_permit is not None:
+      if diagnostic or not chestnut:
+        raise NavigationModelDisabled('Driving navigation requires the separately approved Chestnut candidate')
+      validate_runtime_permit(driving_permit)
+      from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
+      stride, y_height, uv_height, _ = get_nv12_info(cam_w, cam_h)
+      if driving_permit.warp_frame_size != stride * (y_height + uv_height):
+        raise NavigationModelDisabled('Approved navigation warp does not match the actual camera copied extent')
+      warp_path = str(driving_permit.warp_path)
     self._diagnostic_token = diagnostic_session_token() if diagnostic else None
     self._diagnostic_backend = diagnostic_session_backend() if diagnostic else None
     self._check_diagnostic_session()
@@ -122,7 +140,7 @@ class ModelState(ModelStateBase):
     ModelStateBase.__init__(self)
 
     env_pkl = os.environ.get('COMBINED_MODEL_PKL')
-    if env_pkl and os.path.exists(env_pkl):
+    if driving_permit is not None or (env_pkl and os.path.exists(env_pkl)):
       model_bundle = None
     else:
       model_bundle = get_active_bundle(chestnut=chestnut)
@@ -135,7 +153,7 @@ class ModelState(ModelStateBase):
     self.PLANPLUS_CONTROL: float = 1.0
     self.chestnut = chestnut
 
-    pkl_path = _find_driving_pkl(model_bundle)
+    pkl_path = str(driving_permit.artifact_path) if driving_permit is not None else _find_driving_pkl(model_bundle)
     assert pkl_path is not None, f"No driving pkl found for {'chestnut' if chestnut else 'small model'} — all models must be compiled with compile_modeld.py"
     if warp_path is None:
       self._init_combined(pkl_path, cam_w, cam_h, model_bundle)
@@ -150,20 +168,26 @@ class ModelState(ModelStateBase):
     def checked_fusion(parts, extras):
       # load_model calls this before allocating PlainJit/GPU buffers or replaying any kernels.
       self._validate_navigation_inputs(_navigation_input_specs(extras))
+      if getattr(self, '_driving_permit', None) is not None:
+        validate_runtime_metadata(self._driving_permit, extras)
       return fuse(parts, extras)
 
     jits = load_model(pkl_path, extend=checked_fusion)
     self.navigation_input_specs = _navigation_input_specs(jits)
     self._validate_navigation_inputs(self.navigation_input_specs)
+    if getattr(self, '_driving_permit', None) is not None:
+      validate_runtime_metadata(self._driving_permit, jits)
 
     metadata = jits['metadata']
     self.WARP_DEV = metadata.get('warp_dev', 'QCOM') if COMMA_HARDWARE else 'CPU'
     self.DEV = ('AMD' if self.chestnut else 'QCOM') if COMMA_HARDWARE else 'CPU'
     self.QUEUE_DEV = self.DEV
-    if getattr(self, 'diagnostic', False):
+    if getattr(self, '_driving_permit', None) is not None:
+      self.DEV = self.QUEUE_DEV = self.WARP_DEV = 'AMD'
+    elif getattr(self, 'diagnostic', False):
       assert self._diagnostic_backend is not None
       self.DEV = self.QUEUE_DEV = self.WARP_DEV = self._diagnostic_backend
-    adapter_options = {'diagnostic': True} if getattr(self, 'diagnostic', False) else {}
+    adapter_options = {'diagnostic': True} if getattr(self, 'diagnostic', False) or getattr(self, '_driving_permit', None) is not None else {}
     self.adapter = get_model_adapter(jits, cam_w, cam_h, self.DEV, self.QUEUE_DEV, self.WARP_DEV, self.chestnut, **adapter_options)
     self.vision_output_slices = self.adapter.vision_output_slices
     self.policy_output_slices = self.adapter.policy_output_slices
@@ -200,6 +224,8 @@ class ModelState(ModelStateBase):
     self._check_diagnostic_session()
     if getattr(self, 'diagnostic', False):
       return validate_model_inputs(specs, diagnostic=True)
+    if getattr(self, '_driving_permit', None) is not None:
+      return validate_model_inputs(specs, driving_permit=self._driving_permit)
     return validate_model_inputs(specs)
 
   def warmup(self) -> None:
@@ -238,7 +264,8 @@ class ModelState(ModelStateBase):
       try:
         self._validate_navigation_inputs(self.navigation_input_specs)
       except NavigationModelDisabled:
-        self.reset_state('diagnostic permission revoked')
+        self.reset_state('navigation driving permission revoked' if getattr(self, '_driving_permit', None) is not None else
+                         'diagnostic permission revoked')
         raise
     self.adapter.copy_frames(bufs)
 
@@ -337,6 +364,62 @@ class ModelState(ModelStateBase):
     return log.ModelDataV2.Action(desiredCurvature=float(desired_curvature), desiredAcceleration=float(desired_accel), shouldStop=bool(stop))
 
 
+class NavigationModelState(ModelState):
+  """The reviewed a03 native action head, without inventing a SunnyPilot generation."""
+  def __init__(self, *args, **kwargs):
+    if kwargs.get('driving_permit') is None:
+      raise NavigationModelDisabled('NavigationModelState requires a branch-reviewed driving permit')
+    super().__init__(*args, **kwargs)
+    self.LAT_SMOOTH_SECONDS = 0.0
+    self.LONG_SMOOTH_SECONDS = 0.3
+
+  def get_action_from_model(self, model_output, prev_action, lat_action_t, long_action_t, v_ego):
+    from openpilot.selfdrive.modeld.modeld import get_action_from_model
+    if 'action' not in model_output:
+      raise NavigationModelDisabled('The reviewed navigation checkpoint requires its native action head')
+    return get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
+
+
+def load_navigation_session(params, cam_w, cam_h, ordinary, small_model):
+  """Keep ordinary configured models available if opt-in admission/load fails."""
+  try:
+    permit = authorize_runtime(params)
+    if permit is None:
+      return None
+    if small_model is None or takes_nav(ordinary, small_model) or not chestnut_present():
+      raise NavigationModelDisabled('Navigation driving requires Chestnut and a loaded ordinary small-model fallback')
+    from tinygrad.runtime.ops_amd import AMDDevice
+    AMDDevice.wait_timeout_ms = 3000
+    device = Device['AMD']
+    target = device.renderer.target
+    if (device.arch != 'gfx1200' or device.is_usb is not True or type(device.iface).__name__ != 'USBIface' or
+        (target.device, target.renderer, target.arch, target.interface) != ('AMD', 'LLVM', 'gfx1200', 'USB')):
+      raise NavigationModelDisabled('Actual GPU does not match the reviewed AMD LLVM gfx1200 USB target')
+    candidate = NavigationModelState(cam_w, cam_h, chestnut=True, driving_permit=permit)
+    candidate.warmup()
+    _reject_navigation_publication(candidate)
+    return NavigationDrivingSession(permit, candidate, small_model, params)
+  except Exception as error:
+    cloudlog.exception('navigation_candidate_not_admitted; ordinary models retained')
+    if params.get_bool('NavigationModelDrivingEnabled'):
+      params.put('NavigationModelRuntimeState', {'candidate_id': params.get('NavigationModelCandidate', return_default=True),
+                                                'role': 'blocked', 'reason': str(error), 'active_source': None})
+    return None
+
+
+def navigation_handover(model, CP, params, sm, firmware_config, chestnut_state, *, failed=False):
+  """Update candidate-only handover timing/status before model-specific inputs."""
+  if firmware_config is None:
+    model.lat_delay = get_lat_delay(params, sm['lateralDelay'].lateralDelay)
+  if chestnut_state is not None:
+    chestnut_state.big = model.chestnut
+  if model.chestnut or failed:
+    params.put_bool('ChestnutActive', model.chestnut)
+  else:
+    params.remove('ChestnutActive')
+  return CP.longitudinalActuatorDelay + model.LONG_SMOOTH_SECONDS
+
+
 def main(demo=False):
   cloudlog.warning("modeld init")
 
@@ -410,7 +493,14 @@ def main(demo=False):
   params.put_bool("ChestnutLoading", False)
   assert model is not None
   cloudlog.warning(f"models loaded in {time.monotonic() - st:.1f}s, modeld starting")
-  # Even an opted-in PC replay must use the isolated harness, never production pubs.
+  if CHESTNUT and loader.is_alive():
+    navigation_session = None
+    if params.get_bool('NavigationModelDrivingEnabled'):
+      cloudlog.warning('navigation_candidate_not_admitted; ordinary GPU loader is still running')
+  else:
+    navigation_session = load_navigation_session(params, vipc_client_main.width, vipc_client_main.height, model, small_model)
+  if navigation_session is not None:
+    CHESTNUT = True
   _reject_navigation_publication(model, small_model)
 
   config_realtime_process(7, 54)
@@ -418,10 +508,10 @@ def main(demo=False):
   # messaging
   pub_socks = ["modelV2", "drivingModelData", "cameraOdometry", "modelDataV2SP"] + (["chestnutGpuState"] if CHESTNUT else [])
   pm = PubMaster(pub_socks)
-  nav_inputs = NavigationInputs(params) if takes_nav(model, small_model) else None
+  nav_inputs = navigation_session.reader if navigation_session is not None else NavigationInputs(params) if takes_nav(model, small_model) else None
   sm = SubMaster(["deviceState", "carState", "narrowRoadCameraState", "extrinsicsCalibration", "driverMonitoringState",
                   "carControl", "controlsState", "lateralDelay"] +
-                 (["navInstruction", "gpsLocation", "gpsLocationExternal"] if nav_inputs is not None else []))
+                 (["navInstruction", "navModelStateSP", "gpsLocation", "gpsLocationExternal"] if nav_inputs is not None else []))
 
   publish_state = PublishState()
   chestnut_state = ChestnutGpuState(pm, model.chestnut) if CHESTNUT else None
@@ -494,6 +584,11 @@ def main(demo=False):
     is_rhd = sm["driverMonitoringState"].isRHD
     frame_id = sm["narrowRoadCameraState"].frameId
     v_ego = max(sm["carState"].vEgo, 0.)
+    if navigation_session is not None:
+      previous_model = model
+      model = navigation_session.prepare(sm, v_ego, meta_main.timestamp_sof)
+      if model is not previous_model:
+        long_delay = navigation_handover(model, CP, params, sm, firmware_config, chestnut_state)
     if sm.frame % 60 == 0:
       if firmware_config is None:
         model.lat_delay = get_lat_delay(params, sm["lateralDelay"].lateralDelay)
@@ -547,20 +642,46 @@ def main(demo=False):
     if 'action_t' in model.numpy_inputs:
       inputs['action_t'] = np.array([lat_action_t, long_action_t], dtype=np.float32)
 
-    if nav_inputs is not None:
+    if navigation_session is not None and model is navigation_session.candidate:
+      inputs.update(navigation_session.inputs)
+    elif navigation_session is None and nav_inputs is not None:
       inputs.update(nav_inputs.read(sm, v_ego, meta_main.timestamp_sof))
 
     mt1 = time.perf_counter()
     try:
       send_chestnut = (chestnut_state is not None and
                        run_count % round(model.constants.MODEL_FREQ / SERVICE_LIST['chestnutGpuState'].frequency) == 0)
+      if navigation_session is not None and model is navigation_session.candidate:
+        ordinary = navigation_session.ordinary
+        ordinary_bufs = {name: buf_extra if 'big' in name else buf_main for name in ordinary.vision_input_names}
+        ordinary_transforms = {name: model_transform_extra if 'big' in name else model_transform_main for name in ordinary.vision_input_names}
+        navigation_session.run_ordinary(ordinary_bufs, ordinary_transforms, inputs, model.desire_key, v_ego, model.lat_delay,
+                                        CP.longitudinalActuatorDelay, frame_delay, action_delay)
       model_output = model.run(bufs, transforms, inputs, chestnut_state.send if send_chestnut else None)
-    except Exception:
+      if navigation_session is not None and model is not navigation_session.candidate:
+        shadow_bufs = {name: buf_extra if 'big' in name else buf_main for name in navigation_session.candidate.vision_input_names}
+        shadow_transforms = {name: model_transform_extra if 'big' in name else model_transform_main
+                             for name in navigation_session.candidate.vision_input_names}
+        navigation_session.shadow(shadow_bufs, shadow_transforms, inputs, model.desire_key, v_ego, model.lat_delay,
+                                  CP.longitudinalActuatorDelay, frame_delay, action_delay)
+      if navigation_session is not None and model_output is not None:
+        navigation_session.publish_runtime_state(model)
+    except Exception as error:
       if not model.chestnut:
         raise
-      cloudlog.exception("big model failed, fall back to small")
-      params.put_bool("ChestnutActive", False)
+      permission_handover = (navigation_session is not None and model is navigation_session.candidate
+                             and isinstance(error, NavigationModelDisabled))
+      if permission_handover:
+        navigation_session.invalidate('navigation driving permission changed')
+      else:
+        cloudlog.exception("big model failed, fall back to small")
+        params.put_bool("ChestnutActive", False)
       assert small_model is not None
+      if navigation_session is not None:
+        if not permission_handover:
+          navigation_session.fail('primary inference failed; using ordinary small model', small_model)
+        long_delay = navigation_handover(small_model, CP, params, sm, firmware_config, chestnut_state, failed=not permission_handover)
+        navigation_session.publish_runtime_state(small_model)
       model = small_model
       if chestnut_state is not None:
         chestnut_state.big = False

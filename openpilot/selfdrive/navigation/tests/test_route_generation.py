@@ -1,12 +1,14 @@
 """Route identities prevent an old destination or an old daemon session from conditioning a model."""
 import unittest
+import time
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 
 from openpilot.cereal import messaging
 from openpilot.common.parameterized import parameterized
-from openpilot.selfdrive.navigation.generation import UINT64_MAX, destination_key, next_generation
+from openpilot.selfdrive.navigation.generation import UINT64_MAX, destination_key, gps_source, next_generation
 from openpilot.selfdrive.navigation.tests.test_maneuver_contract import engine_for, instruction, step
 
 
@@ -33,6 +35,19 @@ class TestDestinationIdentity(unittest.TestCase):
     self.assertEqual(next_generation(clock=lambda: 0), 1)
     with self.assertRaises(OverflowError):
       next_generation(UINT64_MAX, clock=lambda: 1)
+
+  def test_physical_gps_time_checked_independently_of_delivery(self):
+    sm = MagicMock()
+    sm.valid = {'gpsLocation': True, 'gpsLocationExternal': False}
+    sm.recv_time = dict.fromkeys(sm.valid, 100.)
+    sm.__getitem__.return_value = SimpleNamespace(hasFix=True, latitude=0., longitude=0.)
+    for source_ns, expected in ((99_000_000_000, 'gpsLocation'), (98_000_000_000, None),
+                                (100_300_000_000, None), (110_000_000_000, None), (0, None)):
+      sm.logMonoTime = dict.fromkeys(sm.valid, source_ns)
+      with self.subTest(source_ns=source_ns):
+        self.assertEqual(gps_source(sm, now=100.), expected)
+    sm.logMonoTime = dict.fromkeys(sm.valid, 1)
+    self.assertEqual(gps_source(sm, now=100., check_source_time=False), 'gpsLocation')  # explicit legacy viewer policy
 
 
 class TestRoutePublicationGeneration(unittest.TestCase):
@@ -70,6 +85,25 @@ class TestRoutePublicationGeneration(unittest.TestCase):
     with patch('openpilot.selfdrive.navigation.navd.requests.get', return_value=response):
       self.engine.calculate_route((self.destination['longitude'], self.destination['latitude']))
     self.assertGreater(self.engine.route_generation, first)
+
+  def test_same_destination_request_revokes_old_model_snapshot_before_http(self):
+    old_generation = self.engine.route_generation
+    response = MagicMock()
+    response.json.return_value = {'routes': [{'legs': [{'steps': self.steps}]}]}
+
+    def inspect_pending(*_args, **_kwargs):
+      pending = self.pm.send.call_args.args[1]
+      self.assertEqual(pending.which(), 'navInstruction')
+      self.assertTrue(pending.valid)  # retain UI, revoke only model provenance
+      self.assertEqual(pending.navInstruction.routeGeneration, old_generation)
+      self.assertEqual(pending.navInstruction.gpsSourceMonoTime, 0)
+      self.assertFalse(list(pending.navInstruction.allManeuvers))
+      return response
+
+    with patch('openpilot.selfdrive.navigation.navd.requests.get', side_effect=inspect_pending):
+      self.engine.calculate_route((self.destination['longitude'], self.destination['latitude']))
+    self.assertGreater(self.engine.route_generation, old_generation)
+    self.assertGreater(instruction(self.engine, self.pm).gpsSourceMonoTime, 0)
 
   def test_destination_change_clears_old_route_before_hold_and_without_gps(self):
     self.engine.recompute_hold = 10
@@ -117,6 +151,41 @@ class TestRoutePublicationGeneration(unittest.TestCase):
     self.assertTrue(self.pm.send.call_args.args[1].valid)
     self.assertEqual(msg.gpsSourceMonoTime, 0)
     self.assertFalse(list(msg.allManeuvers))
+
+  def test_model_distance_uses_the_exact_source_named_by_its_timestamp(self):
+    now = time.monotonic()
+    internal_ns = int((now - .1) * 1e9)
+    self.engine.sm.valid = {'gpsLocation': True, 'gpsLocationExternal': True}
+    self.engine.sm.recv_time = dict.fromkeys(self.engine.sm.valid, now)
+    self.engine.sm.logMonoTime = {'gpsLocation': internal_ns, 'gpsLocationExternal': int((now + .3) * 1e9)}
+    internal = SimpleNamespace(hasFix=True, longitude=0., latitude=25 / 111195.0802335329, bearingDeg=0.)
+    external = SimpleNamespace(hasFix=True, longitude=1., latitude=1., bearingDeg=0.)
+    self.engine.sm.__getitem__.side_effect = {'gpsLocation': internal, 'gpsLocationExternal': external}.get
+    self.engine.last_position = (1., 1.)  # legacy display selected the newer, foreign-clock external fix
+    msg = instruction(self.engine, self.pm)
+    self.assertEqual(msg.gpsSourceMonoTime, internal_ns)
+    self.assertAlmostEqual(msg.allManeuvers[0].distance, 75., delta=.01)
+
+  def test_invalid_model_gps_does_not_advance_tracker_from_retained_display_position(self):
+    self.engine.last_position = (1., 1.)
+    self.engine.sm.valid = dict.fromkeys(self.engine.sm.valid, False)
+    instruction(self.engine, self.pm)
+    self.assertEqual(self.engine.route_tracker.progress, -np.inf)
+    self.engine.sm.valid['gpsLocation'] = True
+    self.assertAlmostEqual(instruction(self.engine, self.pm).allManeuvers[0].distance, 75., delta=.01)
+
+  def test_gps_loss_cannot_advance_or_remove_route_from_retained_display_position(self):
+    self.engine.last_position = (1000 / 111195.0802335329, 100 / 111195.0802335329)
+    self.engine.sm.valid = dict.fromkeys(self.engine.sm.valid, False)
+    first_step = self.engine.step_idx
+    instruction(self.engine, self.pm)
+    self.assertEqual(self.engine.step_idx, first_step)
+    self.engine.step_idx = len(self.engine.route) - 1
+    msg = instruction(self.engine, self.pm)
+    self.assertTrue(self.pm.send.call_args.args[1].valid)
+    self.assertEqual(msg.gpsSourceMonoTime, 0)
+    self.engine.params.remove.assert_not_called()
+    self.assertIsNotNone(self.engine.route)
 
   def test_native_cereal_roundtrip_preserves_new_fields(self):
     self.engine.send_instruction()

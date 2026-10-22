@@ -27,6 +27,8 @@ def model_cache_size_mb() -> float:
 
 
 def active_source() -> str:
+  if navigation := _navigation_model_info():
+    return navigation[0]
   return get_active_source(chestnut=ui_state.chestnut_present,
                            chestnut_active=ui_state.chestnut_active, chestnut_loading=ui_state.chestnut_loading,
                            offroad=ui_state.is_offroad())
@@ -53,10 +55,31 @@ def big_model_state() -> str | None:
           ChestnutState.LOADING: 'loading'}.get(ui_state.chestnut_state)
 
 
+def _navigation_model_info() -> tuple[str, str, str] | None:
+  """Display actual opt-in runtime identity without changing ordinary selections."""
+  params = ui_state.params
+  if params.get_bool('NavigationModelDrivingEnabled') is not True:
+    return None
+  state = params.get('NavigationModelRuntimeState')
+  if not isinstance(state, dict) or state.get('candidate_id') != params.get('NavigationModelCandidate', return_default=True):
+    return None
+  if state.get('active_source') == 'chestnut' and state.get('role') == 'candidate':
+    from openpilot.selfdrive.navigation.activation import candidate_status
+    status = candidate_status(params)
+    return 'chestnut', status['id'], status['display_name']
+  if state.get('active_source') == 'qcom' and state.get('role') in ('ordinary_small', 'failed'):
+    bundle = get_selected_bundle(params, 'qcom')
+    name = bundle.displayName if bundle else default_model_name('qcom')
+    return 'qcom', bundle.internalName if bundle else name, name
+  return None
+
+
 def carrying_model() -> tuple[str | None, str | None, str | None]:
   """(source, internal name, display name) of what actually drives. Runner-matched:
   when a Default big cannot carry, stock modeld runs the Default small, never the
   small slot's pick; a custom big has no automatic fallback yet -> (None, None, None)."""
+  if navigation := _navigation_model_info():
+    return navigation
   source = active_source()
   if source == "chestnut":
     bundle = get_selected_bundle(ui_state.params, "chestnut")
@@ -91,6 +114,11 @@ def model_info() -> tuple[str, str, str]:
   Names come from the params slots, never modelManagerSP.activeBundle — the
   manager republishes a tick after a chestnut change, so the stale bundle
   would flash the wrong model."""
+  if navigation := _navigation_model_info():
+    source, _, name = navigation
+    other = 'qcom' if source == 'chestnut' else 'chestnut'
+    bundle = get_selected_bundle(ui_state.params, other)
+    return source, name, bundle.displayName if bundle else default_model_name(other)
   source = active_source()
   other = "qcom" if source == "chestnut" else "chestnut"
   active_bundle = get_selected_bundle(ui_state.params, source)

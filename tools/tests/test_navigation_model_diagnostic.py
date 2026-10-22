@@ -65,6 +65,19 @@ class FakeModel:
 
 
 class TestDiagnosticRuns(unittest.TestCase):
+  def test_snapshot_copies_every_recurrent_buffer_and_rejects_nonfinite_state(self):
+    queue = np.ones((128, 1, 64), np.float32)
+    tensor = SimpleNamespace(numpy=lambda: queue)
+    model = SimpleNamespace(adapter=SimpleNamespace(input_queues={'state_map_features_q': tensor},
+                                                    state_pairs={'state_map_features_q': 'next_state_map_features_q'}))
+    values = diagnostic.prediction_snapshot(model, {'action': np.zeros((1, 2), np.float32)}, capture_states=True)
+    np.testing.assert_array_equal(values['_state.state_map_features_q'], queue)
+    queue[:] = 2
+    self.assertTrue((values['_state.state_map_features_q'] == 1).all())
+    queue[0, 0, 0] = np.nan
+    with self.assertRaisesRegex(ValueError, 'Non-finite'):
+      diagnostic.prediction_snapshot(model, {'action': np.zeros((1, 2), np.float32)}, capture_states=True)
+
   def test_amd_cli_requires_compiler_verified_manifest_before_loading(self):
     arguments = ['diagnostic', '--recording', '/unused.npz', '--output', '/unused-output',
                  '--backend', 'AMD', '--experimental-catalog', '/unused.json']

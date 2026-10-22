@@ -11,7 +11,10 @@ import pyray as rl
 from openpilot.cereal import custom
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationDialog, BigDialog
 from openpilot.sunnypilot.models.helpers import ACTIVE_BUNDLE_KEYS, get_selected_bundle
-from openpilot.selfdrive.ui.mici.widgets.button import BigButton
+from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigToggle
+from openpilot.selfdrive.navigation.activation import candidate_status, list_candidates
+from openpilot.selfdrive.navigation.model_inputs import NavigationModelDisabled
+from openpilot.selfdrive.navigation.selection import select_candidate, selection_description, set_driving_enabled
 from openpilot.selfdrive.ui.ui_state import ui_state, device
 from openpilot.selfdrive.ui.sunnypilot.model_info import (active_source, big_model_state, bundles_for_source, carrying_model,
                                                            default_model_name, model_cache_size_mb, model_info, queued_name,
@@ -95,8 +98,42 @@ class ModelsLayoutMici(NavScroller):
     self.clear_cache_btn.set_click_callback(self._confirm_clear_cache)
     self._cache_size_time = 0.0
 
-    self.main_items = [self.current_model_info, self.select_model_btn, self.cancel_download_btn, self.refresh_btn, self.clear_cache_btn]
+    self.navigation_models_btn = BigButton(tr("navigation models"), value=tr("off by default"))
+    self.navigation_models_btn.set_click_callback(self._show_navigation_models)
+
+    self.main_items = [self.current_model_info, self.select_model_btn, self.navigation_models_btn,
+                       self.cancel_download_btn, self.refresh_btn, self.clear_cache_btn]
     self._scroller.add_widgets(self.main_items)
+
+  def _show_navigation_models(self):
+    status = candidate_status(ui_state.params)
+    details = BigButton(tr("navigation model status"), value=status['display_name'], font_size=36)
+    details.set_click_callback(lambda: gui_app.push_widget(BigDialog(
+      tr("Navigation models"), selection_description(ui_state.params))))
+    enable = BigToggle(tr("navigation driving"), initial_state=ui_state.params.get_bool('NavigationModelDrivingEnabled'))
+    enable.set_enabled(lambda: ui_state.is_offroad() and
+                       (candidate_status(ui_state.params)['eligible'] or ui_state.params.get_bool('NavigationModelDrivingEnabled')))
+
+    def on_enable(checked):
+      try:
+        set_driving_enabled(ui_state.params, checked, offroad=ui_state.is_offroad())
+      except NavigationModelDisabled as error:
+        gui_app.push_widget(BigDialog(tr("Navigation model unavailable"), str(error)))
+      enable.set_checked(ui_state.params.get_bool('NavigationModelDrivingEnabled'))
+    enable._toggle_callback = on_enable
+    items = [details, enable]
+    for candidate in list_candidates():
+      button = BigButton(candidate['display_name'], value=tr("prepare candidate"), font_size=36)
+      button.set_enabled(ui_state.is_offroad)
+      def choose(candidate_id=candidate['id']):
+        try:
+          select_candidate(ui_state.params, candidate_id, offroad=ui_state.is_offroad())
+          self._pop_to_main()
+        except NavigationModelDisabled as error:
+          gui_app.push_widget(BigDialog(tr("Navigation model unavailable"), str(error)))
+      button.set_click_callback(choose)
+      items.append(button)
+    self._push_selection_view(items)
 
   @property
   def model_manager(self):
@@ -208,6 +245,7 @@ class ModelsLayoutMici(NavScroller):
   def _update_state(self):
     super()._update_state()
 
+    self.navigation_models_btn.set_value(tr('requested') if ui_state.params.get_bool('NavigationModelDrivingEnabled') else tr('off'))
     self.select_model_btn.set_enabled(ui_state.is_offroad())
     self.cancel_download_btn.set_visible(False)
     self.current_model_info.current_model_header._shimmer = False

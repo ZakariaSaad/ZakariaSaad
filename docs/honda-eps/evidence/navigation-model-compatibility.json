@@ -1,0 +1,563 @@
+{
+  "schema_version": 1,
+  "audit_start_commit": "036fd8ca9afb5240fa163c377bcfa2b961a38fe0",
+  "source": "https://huggingface.co/commaai/openpilot-lfs.git/info/lfs",
+  "method": "Authoritative pinned git-LFS pointers; LFS batch lookup; bounded HTTP Range; pickletools opcode inspection plus inert primitive-only leading-dictionary decoder. No deserialization or model execution.",
+  "public_pickle_executed": false,
+  "full_pkl_sha256_recomputed": false,
+  "scope_limit": "Only first 4MiB per compiled object retrieved; full compiled weights/kernels not compared.",
+  "compiled_variants": [
+    {
+      "official_commit": "a52113eea9a81c79c9309dbc379f0ce25ffa943d",
+      "official_lfs_oid_sha256": "b964531e23471f2c18f31a5636901e56edebe39d48248a3b7bfda9d58580df70",
+      "declared_full_bytes": 806702824,
+      "retrieved_prefix_bytes": 4194304,
+      "retrieved_prefix_sha256": "e23a5c2a694572c9f743b2a062091bf86facb1fea726b841534fcd150004f86e",
+      "oob_header_bytes": 978908,
+      "model_checkpoint": "cf8f6120-49ee-48f8-b2d7-d663a4708271/56320",
+      "numeric_sunnypilot_generation_present": false,
+      "leading_metadata": {
+        "input_shapes": {
+          "new_img": [
+            2,
+            6,
+            128,
+            256
+          ],
+          "desire": [
+            8
+          ],
+          "traffic_convention": [
+            1,
+            2
+          ],
+          "action_t": [
+            1,
+            2
+          ],
+          "nav_map": [
+            1,
+            1,
+            256,
+            256
+          ],
+          "navigation": [
+            47
+          ],
+          "state_img_q": [
+            2,
+            5,
+            6,
+            128,
+            256
+          ],
+          "state_desire_q": [
+            132,
+            1,
+            8
+          ],
+          "state_feat_q": [
+            128,
+            1,
+            16384
+          ],
+          "state_map_q": [
+            32,
+            1,
+            256,
+            256
+          ],
+          "state_nav_q": [
+            32,
+            47
+          ]
+        },
+        "output_shapes": {
+          "outputs": [
+            1,
+            18452
+          ],
+          "next_state_img_q": [
+            2,
+            5,
+            6,
+            128,
+            256
+          ],
+          "next_state_desire_q": [
+            132,
+            1,
+            8
+          ],
+          "next_state_feat_q": [
+            128,
+            1,
+            16384
+          ],
+          "next_state_map_q": [
+            32,
+            1,
+            256,
+            256
+          ],
+          "next_state_nav_q": [
+            32,
+            47
+          ]
+        }
+      },
+      "nested_metadata_keys": [
+        "model_checkpoint",
+        "output_slices"
+      ],
+      "safe_literal_stop_offset": 1128
+    },
+    {
+      "official_commit": "3ec09aed2ea589cbd3234137ae6fb74aecde3c4c",
+      "official_lfs_oid_sha256": "17c06f9208ab9d1529b52589662af85734425a482e5972d342f676e5d6597f56",
+      "declared_full_bytes": 806704311,
+      "retrieved_prefix_bytes": 4194304,
+      "retrieved_prefix_sha256": "c3db47853a2b0b22aa0000c5cf0f4e111362c8c9fee3fc298c3826e5d7d3e927",
+      "oob_header_bytes": 980395,
+      "model_checkpoint": "cf8f6120-49ee-48f8-b2d7-d663a4708271/56320",
+      "numeric_sunnypilot_generation_present": false,
+      "leading_metadata": {
+        "input_shapes": {
+          "new_img": [
+            2,
+            6,
+            128,
+            256
+          ],
+          "desire": [
+            8
+          ],
+          "traffic_convention": [
+            1,
+            2
+          ],
+          "action_t": [
+            1,
+            2
+          ],
+          "nav_map": [
+            1,
+            1,
+            256,
+            256
+          ],
+          "navigation": [
+            47
+          ],
+          "state_img_q": [
+            2,
+            5,
+            6,
+            128,
+            256
+          ],
+          "state_desire_q": [
+            132,
+            1,
+            8
+          ],
+          "state_feat_q": [
+            128,
+            1,
+            16384
+          ],
+          "state_map_q": [
+            32,
+            1,
+            256,
+            256
+          ],
+          "state_nav_q": [
+            32,
+            47
+          ]
+        },
+        "output_shapes": {
+          "outputs": [
+            1,
+            18452
+          ],
+          "next_state_img_q": [
+            2,
+            5,
+            6,
+            128,
+            256
+          ],
+          "next_state_desire_q": [
+            132,
+            1,
+            8
+          ],
+          "next_state_feat_q": [
+            128,
+            1,
+            16384
+          ],
+          "next_state_map_q": [
+            32,
+            1,
+            256,
+            256
+          ],
+          "next_state_nav_q": [
+            32,
+            47
+          ]
+        }
+      },
+      "nested_metadata_keys": [
+        "model_checkpoint",
+        "output_slices"
+      ],
+      "safe_literal_stop_offset": 1128
+    },
+    {
+      "official_commit": "a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9",
+      "official_lfs_oid_sha256": "20cae5d01d0c59352fa6bf23cb0bf2a9c6c7257f6b9997652f6ef64669e194f8",
+      "declared_full_bytes": 822465506,
+      "retrieved_prefix_bytes": 4194304,
+      "retrieved_prefix_sha256": "11fb704f0d0334bd31d498bbba1da4bbc479866afd047d867aad12f398e6371b",
+      "oob_header_bytes": 1217494,
+      "model_checkpoint": "cf8f6120-49ee-48f8-b2d7-d663a4708271/56320/80eedcdd-f97b-46d0-9b94-780685292acf/12864",
+      "numeric_sunnypilot_generation_present": false,
+      "leading_metadata": {
+        "input_shapes": {
+          "new_img": [
+            2,
+            6,
+            128,
+            256
+          ],
+          "desire": [
+            8
+          ],
+          "traffic_convention": [
+            1,
+            2
+          ],
+          "action_t": [
+            1,
+            2
+          ],
+          "nav_map": [
+            1,
+            1,
+            256,
+            256
+          ],
+          "navigation": [
+            1,
+            47
+          ],
+          "state_img_q": [
+            2,
+            5,
+            6,
+            128,
+            256
+          ],
+          "state_desire_q": [
+            132,
+            1,
+            8
+          ],
+          "state_feat_q": [
+            128,
+            1,
+            16384
+          ],
+          "state_map_features_q": [
+            128,
+            1,
+            64
+          ],
+          "state_navigation_features_q": [
+            128,
+            1,
+            64
+          ]
+        },
+        "output_shapes": {
+          "outputs": [
+            1,
+            18580
+          ],
+          "next_state_img_q": [
+            2,
+            5,
+            6,
+            128,
+            256
+          ],
+          "next_state_desire_q": [
+            132,
+            1,
+            8
+          ],
+          "next_state_feat_q": [
+            128,
+            1,
+            16384
+          ],
+          "next_state_map_features_q": [
+            128,
+            1,
+            64
+          ],
+          "next_state_navigation_features_q": [
+            128,
+            1,
+            64
+          ]
+        }
+      },
+      "nested_metadata_keys": [
+        "model_checkpoint",
+        "output_slices"
+      ],
+      "safe_literal_stop_offset": 1302
+    },
+    {
+      "official_commit": "afbf2e547e9319e2eb9f515e1e4330af63705cec",
+      "official_lfs_oid_sha256": "52205044e136efb64a6a841c9b016cf35b1db81186dd0f941b62eee5ebdcde24",
+      "declared_full_bytes": 822465506,
+      "retrieved_prefix_bytes": 4194304,
+      "retrieved_prefix_sha256": "62d4e084f5de0e09ebf63ecf1a1e1d16937d0d8520697641b0aa8509b80440bf",
+      "oob_header_bytes": 1217494,
+      "model_checkpoint": "2931d3d9-7c90-4988-a6af-654ed71e0af5/56320/96244b1f-6c4e-4adc-848d-eccd0b44b182/12800",
+      "numeric_sunnypilot_generation_present": false,
+      "leading_metadata": {
+        "input_shapes": {
+          "new_img": [
+            2,
+            6,
+            128,
+            256
+          ],
+          "desire": [
+            8
+          ],
+          "traffic_convention": [
+            1,
+            2
+          ],
+          "action_t": [
+            1,
+            2
+          ],
+          "nav_map": [
+            1,
+            1,
+            256,
+            256
+          ],
+          "navigation": [
+            1,
+            47
+          ],
+          "state_img_q": [
+            2,
+            5,
+            6,
+            128,
+            256
+          ],
+          "state_desire_q": [
+            132,
+            1,
+            8
+          ],
+          "state_feat_q": [
+            128,
+            1,
+            16384
+          ],
+          "state_map_features_q": [
+            128,
+            1,
+            64
+          ],
+          "state_navigation_features_q": [
+            128,
+            1,
+            64
+          ]
+        },
+        "output_shapes": {
+          "outputs": [
+            1,
+            18580
+          ],
+          "next_state_img_q": [
+            2,
+            5,
+            6,
+            128,
+            256
+          ],
+          "next_state_desire_q": [
+            132,
+            1,
+            8
+          ],
+          "next_state_feat_q": [
+            128,
+            1,
+            16384
+          ],
+          "next_state_map_features_q": [
+            128,
+            1,
+            64
+          ],
+          "next_state_navigation_features_q": [
+            128,
+            1,
+            64
+          ]
+        }
+      },
+      "nested_metadata_keys": [
+        "model_checkpoint",
+        "output_slices"
+      ],
+      "safe_literal_stop_offset": 1302
+    }
+  ],
+  "comparison": {
+    "v1_and_overflow_fix_metadata_equal": true,
+    "Bigv2_and_n16_metadata_difference_keys": [
+      "model_checkpoint"
+    ],
+    "Bigv2_and_n16_inputs_equal": true,
+    "Bigv2_and_n16_outputs_equal": true,
+    "Bigv2_checkpoint": "cf8f6120-49ee-48f8-b2d7-d663a4708271/56320/80eedcdd-f97b-46d0-9b94-780685292acf/12864",
+    "n16_checkpoint": "2931d3d9-7c90-4988-a6af-654ed71e0af5/56320/96244b1f-6c4e-4adc-848d-eccd0b44b182/12800",
+    "v1_overflow_checkpoint": "cf8f6120-49ee-48f8-b2d7-d663a4708271/56320",
+    "no_numeric_generation_in_any_metadata": true,
+    "public_pickle_executed": false,
+    "scope": "bounded4MiB prefixes from authoritative HF LFS OIDs; fullblob SHA not recomputed"
+  },
+  "candidate": {
+    "source_onnx_sha256": "1d18c42ea4cd95c8bffab4635844b78b8e2d4e25b9de44a9c5ac2e0961371a2e",
+    "source_onnx_full_digest_verified": true,
+    "source_onnx_bytes": 814591106,
+    "action_contract": "comma-nav-v2-20hz-lateral-acceleration-longitudinal-acceleration",
+    "sunnypilot_generation": null,
+    "source_model_run_hz": 20,
+    "metadata_training_fps": null,
+    "current_expected_chestnut_usb_product": "custom 8516b768-CLEAN",
+    "expected_usb_runtime_ids": [
+      [
+        "add1",
+        "0001"
+      ],
+      [
+        "3801",
+        "0001"
+      ]
+    ],
+    "firmware_wrapped_sha256": "6fdb1ffc2ee9206ba2bc95a384d88b3346dac47a0524d54a34a5a14cb50132fb",
+    "tinygrad_actual_pin": "69fd4d34d4430036378aba2b43f9d339cdd6ea73",
+    "tinygrad_official_pin": "d3f09c9bbd542fbfbe68c8569a1173550c408969",
+    "working_warp_target": {
+      "device": "AMD",
+      "renderer": "LLVM",
+      "arch": "gfx1200",
+      "interface": "USB"
+    },
+    "working_warp_sha256": "f1689356ff8e516f87e3d75f6b53e66953a11ee5a97e859b4808c9a16bfe671b",
+    "physical_hardware_tested": false,
+    "model_specific_additional_firmware_requirement_found": false
+  },
+  "recipe_source_hashes": [
+    {
+      "file": "examples/openpilot/compile_onnx.py",
+      "official_tinygrad": "d3f09c9bbd542fbfbe68c8569a1173550c408969",
+      "branch_tinygrad": "69fd4d34d4430036378aba2b43f9d339cdd6ea73",
+      "official_sha256": "512571a84dc7931a07713a81b342e5087c41b173edea2d9a3b209fb83c5ab340",
+      "branch_sha256": "512571a84dc7931a07713a81b342e5087c41b173edea2d9a3b209fb83c5ab340",
+      "byte_identical": true
+    },
+    {
+      "file": "examples/openpilot/helpers.py",
+      "official_tinygrad": "d3f09c9bbd542fbfbe68c8569a1173550c408969",
+      "branch_tinygrad": "69fd4d34d4430036378aba2b43f9d339cdd6ea73",
+      "official_sha256": "65bb91045ce78a29d0e240815629da0f3a04eda03729e8ff2c33b214cf064bd9",
+      "branch_sha256": "65bb91045ce78a29d0e240815629da0f3a04eda03729e8ff2c33b214cf064bd9",
+      "byte_identical": true
+    },
+    {
+      "file": "examples/openpilot/compile_warp.py",
+      "official_tinygrad": "d3f09c9bbd542fbfbe68c8569a1173550c408969",
+      "branch_tinygrad": "69fd4d34d4430036378aba2b43f9d339cdd6ea73",
+      "official_sha256": "97a6814fde7f16e1ce265c6b6388cd5799c8e2f8969ac78cfc4fd5a929b1921d",
+      "branch_sha256": "97a6814fde7f16e1ce265c6b6388cd5799c8e2f8969ac78cfc4fd5a929b1921d",
+      "byte_identical": true
+    }
+  ],
+  "firmware_protocol_source_comparison": [
+    {
+      "path": "tinygrad/runtime/support/usb.py",
+      "status": 200,
+      "bytes": 29028,
+      "official_sha256": "52ffa698c8ec9f8b623ac3e74089eb18fb3ea7b13e9b14d38bbdb2094451c3b6",
+      "pinned_sha256": "52ffa698c8ec9f8b623ac3e74089eb18fb3ea7b13e9b14d38bbdb2094451c3b6",
+      "identical": true
+    },
+    {
+      "path": "tinygrad/runtime/support/system.py",
+      "status": 200,
+      "bytes": 29547,
+      "official_sha256": "ff90a058ac33ed2241aef2aafa6c24db2391eb5853dcd71d3f7a9316fe42ee2c",
+      "pinned_sha256": "ff90a058ac33ed2241aef2aafa6c24db2391eb5853dcd71d3f7a9316fe42ee2c",
+      "identical": true
+    },
+    {
+      "path": "tinygrad/runtime/ops_amd.py",
+      "status": 200,
+      "bytes": 67676,
+      "official_sha256": "88546bb7b26777017250536b5422348ea86f57100a053c3b00facb9646d1bf8f",
+      "pinned_sha256": "6bd85ca388da732a23ce1e645b061607747502eab892b84347e2ad8389c2f071",
+      "identical": false
+    },
+    {
+      "path": "tinygrad/runtime/support/am/amdev.py",
+      "status": 200,
+      "bytes": 25181,
+      "official_sha256": "dae42e13b5dbf01cff0fd29767eec3df2f7d86f0d4d78d89b0aa731a7c88c09c",
+      "pinned_sha256": "dae42e13b5dbf01cff0fd29767eec3df2f7d86f0d4d78d89b0aa731a7c88c09c",
+      "identical": true
+    },
+    {
+      "path": "tinygrad/runtime/autogen/am/fw.py",
+      "status": 200,
+      "bytes": 9514,
+      "official_sha256": "c60f58eb1ee6d61cee3817c5af23ef1fdb8c9ac9d4353d07972114cef09c7c02",
+      "pinned_sha256": "c60f58eb1ee6d61cee3817c5af23ef1fdb8c9ac9d4353d07972114cef09c7c02",
+      "identical": true
+    },
+    {
+      "path": "tinygrad/helpers.py",
+      "status": 200,
+      "bytes": 35137,
+      "official_sha256": "992e0376b277daa475ffc67e4335eaf8d31a99e886ae533ad564f62cbfc0ac78",
+      "pinned_sha256": "e911f89f297cb5410cf09a2f1fb106c0f4d18b79b2101a9a05465c34525bb042",
+      "identical": false
+    },
+    {
+      "path": "tinygrad/runtime/support/am/amd_soc.py",
+      "status": 404,
+      "bytes": 14,
+      "official_sha256": null,
+      "pinned_sha256": null,
+      "identical": false
+    }
+  ]
+}

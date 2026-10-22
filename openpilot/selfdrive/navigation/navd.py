@@ -63,8 +63,11 @@ class RouteEngine:
     self.sm.update(0)
 
     source = gps_source(self.sm)
-    if source is not None:
-      gps = self.sm[source]
+    # Keep legacy log-view/display positioning when no physical sample is
+    # admissible, but never use that exception to request a new model route.
+    display_source = source or gps_source(self.sm, check_source_time=False)
+    if display_source is not None:
+      gps = self.sm[display_source]
       self.last_position, self.last_bearing = (gps.longitude, gps.latitude), gps.bearingDeg
     route = self.route
     try:
@@ -104,6 +107,10 @@ class RouteEngine:
     if not requested_key:
       self.clear_route()
       return
+
+    # Preserve the visible route while the request blocks, but revoke its model
+    # snapshot immediately, including when rerouting to the same destination.
+    self.send_instruction(model_ready=False)
 
     lang = self.params.get('LanguageSetting')
     if lang is not None:
@@ -169,11 +176,11 @@ class RouteEngine:
       cloudlog.exception("failed to get usable route")
       self.clear_route()
 
-  def send_instruction(self):
+  def send_instruction(self, *, model_ready: bool = True):
     msg = messaging.new_message('navInstruction', valid=True)
     msg.navInstruction.routeGeneration = self.route_generation
     msg.navInstruction.destinationKey = self.route_destination_key
-    source = gps_source(self.sm)
+    source = gps_source(self.sm) if model_ready else None
     gps_source_ns = int(self.sm.logMonoTime[source]) if source is not None else 0
     msg.navInstruction.gpsSourceMonoTime = max(gps_source_ns, 0)
 
@@ -198,9 +205,13 @@ class RouteEngine:
     set_banner(msg.navInstruction, banner_step['bannerInstructions'], distance_to_maneuver_along_geometry)
 
     # Maneuvers not yet passed, for the model's navigation input
-    progress = self.route_tracker.project(*self.last_position)
     maneuvers = []
     if gps_source_ns > 0:
+      # The model distance and timestamp must refer to the same physical fix.
+      # Legacy display positioning can select another source or retain an old
+      # position; it must not advance the model tracker's monotonic progress.
+      gps = self.sm[source]
+      progress = self.route_tracker.project(gps.longitude, gps.latitude)
       for route_step, distance in zip(self.route, self.maneuver_distances, strict=True):
         if distance < progress:
           continue
@@ -225,7 +236,7 @@ class RouteEngine:
     self.pm.send('navInstruction', msg)
 
     # Transition to next route segment
-    if distance_to_maneuver_along_geometry < -MANEUVER_TRANSITION_THRESHOLD:
+    if source is not None and distance_to_maneuver_along_geometry < -MANEUVER_TRANSITION_THRESHOLD:
       if self.step_idx + 1 < len(self.route):
         self.step_idx += 1
         self.recompute_hold = 0

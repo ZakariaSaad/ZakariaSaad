@@ -186,6 +186,19 @@ class TestExperimentalCatalog(unittest.TestCase):
     with self.assertRaisesRegex(ExperimentalCatalogError, 'SHA256 mismatch'):
       self.load()
 
+  def test_amd_kernels_cannot_hide_incompatible_internal_buffer_devices(self):
+    for header in (self.model_header, self.warp_header):
+      for device in ('QCOM', 'CPU', 'PYTHON', 'NULL', 'AMD:MOCK', None):
+        with self.subTest(device=device):
+          header['buffers'] = [{'device': device}]
+          self.save()
+          with self.assertRaisesRegex(ExperimentalCatalogError, 'internal buffers'):
+            self.load()
+      header['buffers'] = [{'device': 'AMD'}, {'device': 'NPY'}]
+      self.save()
+      self.load()
+      header['buffers'] = []
+
   def test_remote_paths_wrong_backend_target_or_metadata_provenance_fail_closed(self):
     self.save()
     self.entry['compiled_artifact']['path'] = 'https://example.invalid/model.sptg'
