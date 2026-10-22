@@ -1,5 +1,10 @@
 # Navigation-model research branch
 
+The [Stage 2 report](navigation-model-stage2.md) is the current development guide,
+including route/frame association, recurrent resets, file-only CPU/Chestnut
+diagnostics and updated inference results. The sections below retain the Stage 1
+record at `0556a2ea6`; its outstanding-work list is historical.
+
 This is an experimental PC offline/replay integration, not a driving release.
 Navigation Alpha's map and instructions remain available as before. This work
 does not enable navigation-conditioned driving on a comma device.

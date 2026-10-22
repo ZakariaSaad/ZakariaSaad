@@ -1,0 +1,793 @@
+{
+  "schema_version": 1,
+  "scope": "isolated_non_actuating_navigation_model_inference",
+  "branch": "mvl-honda-eps-nav-model-testing",
+  "starting_commit": "0556a2ea62dbf20de9c5b33cb4082a8c6da5260a",
+  "implementation_commit": "255ea8a94722f37afcb67fa9e7da192de444945a",
+  "reference": {
+    "official_nav_head": "afbf2e547e9319e2eb9f515e1e4330af63705cec",
+    "sunnypilot_pr2057": {
+      "number": 2057,
+      "state": "open",
+      "draft": true,
+      "merged": false,
+      "merged_at": null,
+      "merge_commit_sha": null,
+      "commits": 44,
+      "changed_files": 6,
+      "updated_at": "2026-10-19T21:11:16Z",
+      "head_sha": "f7f9a3efae3a6552068201bd9e4e4dbe66aae577",
+      "base_sha": "922513f3128b00611d695ce465989a9bc8af9d59"
+    },
+    "source_onnx_sha256": "1d18c42ea4cd95c8bffab4635844b78b8e2d4e25b9de44a9c5ac2e0961371a2e",
+    "tinygrad_ref": "69fd4d34d4430036378aba2b43f9d339cdd6ea73"
+  },
+  "automated_tests": {
+    "targeted": {
+      "head": "0556a2ea62dbf20de9c5b33cb4082a8c6da5260a",
+      "exit_code": 0,
+      "pytest_summary": "640 passed, 7 warnings, 270 subtests passed in 21.23s",
+      "junit_counts": {
+        "tests": 910,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "junit_testcases_by_module_prefix": {
+        "openpilot.selfdrive.navigation": 143,
+        "openpilot.selfdrive.modeld": 7,
+        "openpilot.sunnypilot.modeld_v2": 57,
+        "tools": 34,
+        "openpilot.system.athena": 31,
+        "openpilot.sunnypilot.system.updated": 25,
+        "openpilot.cereal.messaging": 343
+      },
+      "source_files_changed_during_run": [],
+      "source_files_fingerprinted": 67,
+      "warnings": "7 Python multiprocessing fork() deprecation warnings; no failures, errors or skipped tests",
+      "environment": {
+        "image": "mvl-nav-alpha-test",
+        "xvfb": true,
+        "memory": "4 GiB",
+        "cpus": 2,
+        "bytecode_writes": false,
+        "pytest_cache": false
+      },
+      "late_changes_included": [
+        "navigation UI loop regression",
+        "source/render ordering and clock-domain fail-closed guards",
+        "camera gap reset",
+        "catalog exporter tests",
+        "prepare_contexts provenance tests",
+        "diagnostic restricted output-slice decoder",
+        "AMD CLI compiler-verified manifest requirement"
+      ],
+      "command_file": "/workspace/work/nav-model-stage2/targeted-tests-final2.command.sh",
+      "log_file": "/workspace/work/nav-model-stage2/targeted-tests-final2.log"
+    },
+    "preservation": {
+      "started_utc": "2026-10-22T00:06:40.189036+00:00",
+      "duration_seconds": 52.120043646998965,
+      "exit_code": 0,
+      "command_file": "preservation-tests.command.sh",
+      "log_file": "preservation-tests.log",
+      "suites": [
+        "openpilot/sunnypilot/selfdrive/controls/lib/honda_eps/tests",
+        "openpilot/selfdrive/controls/tests",
+        "openpilot/sunnypilot/models/tests",
+        "openpilot/sunnypilot/modeld_v2/tests/test_combined_pkl_loader.py",
+        "openpilot/sunnypilot/modeld_v2/tests/test_parse_model_outputs.py",
+        "openpilot/sunnypilot/modeld_v2/tests/test_fallback.py",
+        "openpilot/sunnypilot/modeld_v2/tests/test_recovery_power.py",
+        "openpilot/sunnypilot/modeld_v2/tests/test_camera_offset_helper.py",
+        "openpilot/system/hardware/tests/test_chestnut_integration.py",
+        "openpilot/common/tests/test_params.py"
+      ],
+      "head_at_test": "0556a2ea62dbf20de9c5b33cb4082a8c6da5260a",
+      "image_id": "sha256:8e42c51eb92abb277ef5e9365e287e0adcc87d4b01b7df48e46409c1effc8e70",
+      "limits": {
+        "memory_bytes": 4294967296,
+        "cpus": 2
+      },
+      "junit": [
+        {
+          "name": "pytest",
+          "errors": "0",
+          "failures": "0",
+          "skipped": "2",
+          "tests": "591",
+          "time": "47.975",
+          "timestamp": "2026-10-22T00:06:43.436335+00:00",
+          "hostname": "45a21fcfd3f2"
+        }
+      ],
+      "failures": [],
+      "pytest_summary": [
+        "581 passed, 2 skipped, 1 warning, 8 subtests passed in 47.98s"
+      ],
+      "passed": 581,
+      "skipped": 2,
+      "subtests_passed": 8,
+      "failures_count": 0,
+      "errors_count": 0,
+      "warnings": 1,
+      "warning_description": "Existing multiprocessing fork DeprecationWarning in TestLeads.test_radar_fault; same warning as Stage1.",
+      "source_review_file": "preservation-source-review.json",
+      "source_review_result": "15 protected paths, seven index and actual submodule revisions, action functions and firmware timing unchanged versus0556a2ea6."
+    },
+    "linux_build": {
+      "passed": true,
+      "command": "scons -j4",
+      "hardware_target": "Linux development; no vehicle build/run"
+    },
+    "ruff": "28 changed/new Python files pass",
+    "python_syntax": "28 files pass",
+    "ty": {
+      "new_diagnostics": 0,
+      "inherited_diagnostics": 4,
+      "baseline_reproduced": true,
+      "resolution": "pinned tinygrad extra-search-path"
+    }
+  },
+  "preservation": {
+    "protected_paths_unchanged": [
+      "openpilot/selfdrive/controls",
+      "openpilot/sunnypilot/selfdrive/controls",
+      "openpilot/system/hardware",
+      "openpilot/common/hardware",
+      "openpilot/system/updated",
+      "openpilot/sunnypilot/system/updated",
+      "openpilot/sunnypilot/models",
+      "openpilot/sunnypilot/mapd",
+      "openpilot/sunnypilot/navd",
+      "uv.lock",
+      "pyproject.toml",
+      "launch_env.sh",
+      "launch_openpilot.sh",
+      "openpilot/selfdrive/modeld/models",
+      "openpilot/sunnypilot/modeld_v2/models"
+    ],
+    "pins": {
+      "msgq_repo": "e7396e76dadbb49e374d4b664ff6bbb43a39bcb0",
+      "opendbc_repo": "cf46117420f283b3e38241c00d728a191aa9fccc",
+      "openpilot/sunnypilot/neural_network_data": "03cac2d30e111e0689c0429cb8c1fe6cb5a905af",
+      "panda": "74a0adced421e8b7acd728d0f9988ce225423f13",
+      "rednose_repo": "28d4a7f69e80e1c3e0d24ca0733d7daeaeade3d0",
+      "teleoprtc_repo": "1aa8fc433bef1519a95c0700c96258c3be6dfb34",
+      "tinygrad_repo": "69fd4d34d4430036378aba2b43f9d339cdd6ea73"
+    },
+    "all_seven_pins_unchanged": true,
+    "action_timing_asts_unchanged": true
+  },
+  "cpu_compiler_verification": {
+    "status": "passed_source_reload_consistency",
+    "source_onnx": "/workspace/work/nav-model-research/artifacts/big-nav-model-integration-1d18c42e.onnx",
+    "source_onnx_sha256": "1d18c42ea4cd95c8bffab4635844b78b8e2d4e25b9de44a9c5ac2e0961371a2e",
+    "tinygrad": {
+      "root": "/workspace/work/mvl-nav-model-testing/tinygrad_repo",
+      "revision": "69fd4d34d4430036378aba2b43f9d339cdd6ea73",
+      "dirty": false,
+      "git_status": ""
+    },
+    "backend": {
+      "kind": "host_cpu",
+      "emulated": false,
+      "targets": [
+        {
+          "device": "CPU",
+          "renderer": "LLVM",
+          "arch": "x86_64,native",
+          "interface": "",
+          "indices": ""
+        }
+      ],
+      "hardware_validation": false,
+      "scope": "Source/reloaded artifact consistency only; no independent hardware, driving or model-quality certification"
+    },
+    "artifact_promoted": true,
+    "verification": {
+      "seeds": [
+        42,
+        43
+      ],
+      "rtol": 0.001,
+      "atol": 0.001,
+      "equal_nan": false,
+      "independent_buffers": true,
+      "primary_output_changes_with_seed": true,
+      "runs": [
+        {
+          "seed": 42,
+          "source_repeatability": {
+            "outputs": {
+              "shape": [
+                1,
+                18580
+              ],
+              "dtype": "float32",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "91b66d2abd37da8b82d15d39b286bf8a4f40e08ceabf67b4da8e1a34b01d0633",
+              "reloaded_sha256": "91b66d2abd37da8b82d15d39b286bf8a4f40e08ceabf67b4da8e1a34b01d0633"
+            },
+            "next_state_img_q": {
+              "shape": [
+                2,
+                5,
+                6,
+                128,
+                256
+              ],
+              "dtype": "uint8",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "fe295ae03d04abcfe8d47fa8f554db200c5a8b54bd2416ca10a03dfc9283ce36",
+              "reloaded_sha256": "fe295ae03d04abcfe8d47fa8f554db200c5a8b54bd2416ca10a03dfc9283ce36"
+            },
+            "next_state_desire_q": {
+              "shape": [
+                132,
+                1,
+                8
+              ],
+              "dtype": "float32",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "98f413321a49831ae9c10f978ef77c0a933d09ab6d45759a911c83f1a1b577bc",
+              "reloaded_sha256": "98f413321a49831ae9c10f978ef77c0a933d09ab6d45759a911c83f1a1b577bc"
+            },
+            "next_state_feat_q": {
+              "shape": [
+                128,
+                1,
+                16384
+              ],
+              "dtype": "float32",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "7fdfdd786128004e7a3c8311c27d5e72d3c72a7ad41e2433bb35c768213debd6",
+              "reloaded_sha256": "7fdfdd786128004e7a3c8311c27d5e72d3c72a7ad41e2433bb35c768213debd6"
+            },
+            "next_state_map_features_q": {
+              "shape": [
+                128,
+                1,
+                64
+              ],
+              "dtype": "float32",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "446eb9e52b3c03c6ddde69d260b7e06e269dc2c756cc4e4504f8b46e6383e344",
+              "reloaded_sha256": "446eb9e52b3c03c6ddde69d260b7e06e269dc2c756cc4e4504f8b46e6383e344"
+            },
+            "next_state_navigation_features_q": {
+              "shape": [
+                128,
+                1,
+                64
+              ],
+              "dtype": "float32",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "958826466f0dc1e1be1ab0da43eb72fd6db5a8d98feb44cdfd091ad1cb08676d",
+              "reloaded_sha256": "958826466f0dc1e1be1ab0da43eb72fd6db5a8d98feb44cdfd091ad1cb08676d"
+            }
+          },
+          "outputs": {
+            "outputs": {
+              "shape": [
+                1,
+                18580
+              ],
+              "dtype": "float32",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "91b66d2abd37da8b82d15d39b286bf8a4f40e08ceabf67b4da8e1a34b01d0633",
+              "reloaded_sha256": "91b66d2abd37da8b82d15d39b286bf8a4f40e08ceabf67b4da8e1a34b01d0633"
+            },
+            "next_state_img_q": {
+              "shape": [
+                2,
+                5,
+                6,
+                128,
+                256
+              ],
+              "dtype": "uint8",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "fe295ae03d04abcfe8d47fa8f554db200c5a8b54bd2416ca10a03dfc9283ce36",
+              "reloaded_sha256": "fe295ae03d04abcfe8d47fa8f554db200c5a8b54bd2416ca10a03dfc9283ce36"
+            },
+            "next_state_desire_q": {
+              "shape": [
+                132,
+                1,
+                8
+              ],
+              "dtype": "float32",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "98f413321a49831ae9c10f978ef77c0a933d09ab6d45759a911c83f1a1b577bc",
+              "reloaded_sha256": "98f413321a49831ae9c10f978ef77c0a933d09ab6d45759a911c83f1a1b577bc"
+            },
+            "next_state_feat_q": {
+              "shape": [
+                128,
+                1,
+                16384
+              ],
+              "dtype": "float32",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "7fdfdd786128004e7a3c8311c27d5e72d3c72a7ad41e2433bb35c768213debd6",
+              "reloaded_sha256": "7fdfdd786128004e7a3c8311c27d5e72d3c72a7ad41e2433bb35c768213debd6"
+            },
+            "next_state_map_features_q": {
+              "shape": [
+                128,
+                1,
+                64
+              ],
+              "dtype": "float32",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "446eb9e52b3c03c6ddde69d260b7e06e269dc2c756cc4e4504f8b46e6383e344",
+              "reloaded_sha256": "446eb9e52b3c03c6ddde69d260b7e06e269dc2c756cc4e4504f8b46e6383e344"
+            },
+            "next_state_navigation_features_q": {
+              "shape": [
+                128,
+                1,
+                64
+              ],
+              "dtype": "float32",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "958826466f0dc1e1be1ab0da43eb72fd6db5a8d98feb44cdfd091ad1cb08676d",
+              "reloaded_sha256": "958826466f0dc1e1be1ab0da43eb72fd6db5a8d98feb44cdfd091ad1cb08676d"
+            }
+          }
+        },
+        {
+          "seed": 43,
+          "source_repeatability": null,
+          "outputs": {
+            "outputs": {
+              "shape": [
+                1,
+                18580
+              ],
+              "dtype": "float32",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "88ea9298f7b78008a51448eb4b15bbb0da0355d9e7bb6a7aaf74b8da68d962b4",
+              "reloaded_sha256": "88ea9298f7b78008a51448eb4b15bbb0da0355d9e7bb6a7aaf74b8da68d962b4"
+            },
+            "next_state_img_q": {
+              "shape": [
+                2,
+                5,
+                6,
+                128,
+                256
+              ],
+              "dtype": "uint8",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "0739bab8e206597e69104ce5696362e8213318b976cb800b00d1a115b7ab22bd",
+              "reloaded_sha256": "0739bab8e206597e69104ce5696362e8213318b976cb800b00d1a115b7ab22bd"
+            },
+            "next_state_desire_q": {
+              "shape": [
+                132,
+                1,
+                8
+              ],
+              "dtype": "float32",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "2d98b5d3c875f4a4d37a2f531c07ce3717e1a4623714f08cc67a686b9d82b2d2",
+              "reloaded_sha256": "2d98b5d3c875f4a4d37a2f531c07ce3717e1a4623714f08cc67a686b9d82b2d2"
+            },
+            "next_state_feat_q": {
+              "shape": [
+                128,
+                1,
+                16384
+              ],
+              "dtype": "float32",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "4eab0e282971ddec1dcf4a76a2dc2dcce570d1bc9d6c82d3f67b394cda3a6a74",
+              "reloaded_sha256": "4eab0e282971ddec1dcf4a76a2dc2dcce570d1bc9d6c82d3f67b394cda3a6a74"
+            },
+            "next_state_map_features_q": {
+              "shape": [
+                128,
+                1,
+                64
+              ],
+              "dtype": "float32",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "15df7b69af185f21fa9989d7c416f616f64eb4cecc13e7a225cd71e83998d971",
+              "reloaded_sha256": "15df7b69af185f21fa9989d7c416f616f64eb4cecc13e7a225cd71e83998d971"
+            },
+            "next_state_navigation_features_q": {
+              "shape": [
+                128,
+                1,
+                64
+              ],
+              "dtype": "float32",
+              "source_finite": true,
+              "reloaded_finite": true,
+              "max_abs_difference": 0.0,
+              "passed": true,
+              "source_sha256": "b5e09213aa82e8be51562699c185d6c4c8fb394d3812a33273d1778f1f855505",
+              "reloaded_sha256": "b5e09213aa82e8be51562699c185d6c4c8fb394d3812a33273d1778f1f855505"
+            }
+          }
+        }
+      ]
+    },
+    "artifact_sha256": "df458e202b29deede75c3cc4be8aa9b4907a592b95b7cebd25d1714364a539aa"
+  },
+  "cpu_compiler_source_snapshot": {
+    "initialize_check_inputs": true,
+    "compare_outputs": true,
+    "verify_reloaded": true,
+    "backend_provenance": true
+  },
+  "safe_metadata_derivative": {
+    "source": "/workspace/work/nav-model-stage2/compiler/bigv2-cpu-verified.sptg",
+    "source_sha256": "df458e202b29deede75c3cc4be8aa9b4907a592b95b7cebd25d1714364a539aa",
+    "sanitized": "/workspace/work/nav-model-stage2/compiler/bigv2-cpu-verified-safe.sptg",
+    "sanitized_sha256": "a280f8873a0391685bf4ea115504203b7448ce5a034b401788cc1e2921384790",
+    "flow_sha256": "64982547468354e456cf54a4186beb5aa025e24eba831b9767ee5e3af74bd062",
+    "public_metadata_pickle_executed": false,
+    "replacement": "locally generated pickle from verified JSON primitive slices only",
+    "old_embedded_metadata_string_sha256": "060a0c68bdd35864a174d04f8d2205895e6a815603b9066e29338fe0399e212c",
+    "new_embedded_metadata_string_sha256": "9e2d899df9ca6d9a999857d17cf92cf27bee4695ebf297ecb9caf8ff7b1e680c",
+    "input_specs_preserved": true,
+    "output_specs_preserved": true,
+    "all_kernels_constants_checks_and_headers_preserved": true,
+    "part_fingerprints": {
+      "run": {
+        "normalized_header_and_all_referenced_blob_sha256": "e410c524259f02305b89f30522aec4e9a44c27e5031ad0392ff0866872f77b95",
+        "calls": 671
+      }
+    }
+  },
+  "recorded_camera_synthetic_navigation": {
+    "summary": {
+      "frames_per_arm": 8,
+      "arms": [
+        "neutral",
+        "map_only",
+        "maneuver_only",
+        "both"
+      ],
+      "comparisons": {
+        "map_only": {
+          "paired_primary_frames": 5,
+          "max_abs_difference": {
+            "lane_lines": 0.0,
+            "lane_lines_prob": 0.0,
+            "road_edges": 0.0,
+            "meta": 0.0,
+            "desire_pred": 0.0,
+            "pose": 0.0,
+            "wide_from_device_euler": 0.0,
+            "road_transform": 0.0,
+            "plan": 5.7130126953125,
+            "lead": 8.246673583984375,
+            "lead_prob": 0.021593809127807617,
+            "desire_state": 0.015797317028045654,
+            "action": 0.04397773742675781,
+            "hidden_state": 0.0,
+            "map_features": 0.403564453125,
+            "navigation_features": 0.0,
+            "pad": 0.0,
+            "plan_stds": 0.7859344482421875,
+            "lane_lines_stds": 0.0,
+            "road_edges_stds": 0.0,
+            "pose_stds": 0.0,
+            "road_transform_stds": 0.0,
+            "wide_from_device_euler_stds": 0.0,
+            "lead_hypotheses": 8.246673583984375,
+            "lead_stds_hypotheses": 24632.96875,
+            "lead_stds": 24632.96875,
+            "action_stds": 0.01725587248802185
+          }
+        },
+        "maneuver_only": {
+          "paired_primary_frames": 5,
+          "max_abs_difference": {
+            "lane_lines": 0.0,
+            "lane_lines_prob": 0.0,
+            "road_edges": 0.0,
+            "meta": 0.0,
+            "desire_pred": 0.0,
+            "pose": 0.0,
+            "wide_from_device_euler": 0.0,
+            "road_transform": 0.0,
+            "plan": 8.171043395996094,
+            "lead": 14.516571044921875,
+            "lead_prob": 0.19230404496192932,
+            "desire_state": 0.21187356114387512,
+            "action": 0.08873295783996582,
+            "hidden_state": 0.0,
+            "map_features": 0.0,
+            "navigation_features": 0.5020980834960938,
+            "pad": 0.0,
+            "plan_stds": 2.232541084289551,
+            "lane_lines_stds": 0.0,
+            "road_edges_stds": 0.0,
+            "pose_stds": 0.0,
+            "road_transform_stds": 0.0,
+            "wide_from_device_euler_stds": 0.0,
+            "lead_hypotheses": 14.516571044921875,
+            "lead_stds_hypotheses": 30753.17578125,
+            "lead_stds": 30753.17578125,
+            "action_stds": 0.03991967439651489
+          }
+        },
+        "both": {
+          "paired_primary_frames": 5,
+          "max_abs_difference": {
+            "lane_lines": 0.0,
+            "lane_lines_prob": 0.0,
+            "road_edges": 0.0,
+            "meta": 0.0,
+            "desire_pred": 0.0,
+            "pose": 0.0,
+            "wide_from_device_euler": 0.0,
+            "road_transform": 0.0,
+            "plan": 10.979156494140625,
+            "lead": 18.550369262695312,
+            "lead_prob": 0.1379128396511078,
+            "desire_state": 0.1957329958677292,
+            "action": 0.09372150897979736,
+            "hidden_state": 0.0,
+            "map_features": 0.403564453125,
+            "navigation_features": 0.5020980834960938,
+            "pad": 0.0,
+            "plan_stds": 2.7038097381591797,
+            "lane_lines_stds": 0.0,
+            "road_edges_stds": 0.0,
+            "pose_stds": 0.0,
+            "road_transform_stds": 0.0,
+            "wide_from_device_euler_stds": 0.0,
+            "lead_hypotheses": 18.550369262695312,
+            "lead_stds_hypotheses": 40085.859375,
+            "lead_stds": 40085.859375,
+            "action_stds": 0.03991967439651489
+          }
+        }
+      },
+      "failures": 0,
+      "skipped": 12,
+      "completed_predictions": 20,
+      "scope": "non-actuating file-only sensitivity; no vehicle or driving-quality conclusion"
+    },
+    "provenance": {
+      "recording_sha256": "3f6b94432daf888ee349a5bcaa0a5810ea5e3c3d1b62d089aeb5aa7386823716",
+      "artifact_sha256": "ce90e3de271c94289933c44c05a29f4606ce6ec1e827748c804464c1130c9bcf",
+      "warp_sha256": "556cdca4c1740434000e52a0c57f9d0027359d62502deb0c539735af82dc0337",
+      "tinygrad_ref": "69fd4d34d4430036378aba2b43f9d339cdd6ea73",
+      "backend": "CPU",
+      "navigation_context": "synthetic",
+      "normal_prediction_publishing": false,
+      "vehicle_io": false,
+      "firmware_operations": false
+    },
+    "performance": {
+      "completed": {
+        "neutral": {
+          "frames": 5,
+          "min_seconds": 25.65038339899911,
+          "median_seconds": 26.171774824999375,
+          "max_seconds": 34.49789955800043,
+          "peak_rss_bytes": 1721151488,
+          "peak_tinygrad_logical_allocated_bytes": 815689204
+        },
+        "map_only": {
+          "frames": 5,
+          "min_seconds": 26.910626094999316,
+          "median_seconds": 37.100980582001284,
+          "max_seconds": 38.54207297999892,
+          "peak_rss_bytes": 2614034432,
+          "peak_tinygrad_logical_allocated_bytes": 1617372648
+        },
+        "maneuver_only": {
+          "frames": 5,
+          "min_seconds": 25.653801907001252,
+          "median_seconds": 26.01129625700014,
+          "max_seconds": 34.918729462000556,
+          "peak_rss_bytes": 2642395136,
+          "peak_tinygrad_logical_allocated_bytes": 815689204
+        },
+        "both": {
+          "frames": 5,
+          "min_seconds": 25.868970042,
+          "median_seconds": 25.94527445300082,
+          "max_seconds": 25.96434524200049,
+          "peak_rss_bytes": 2651779072,
+          "peak_tinygrad_logical_allocated_bytes": 1617372648
+        }
+      },
+      "tool_at_run_start_sha256": "68d82f7b639e94ef2a503237d256c95dd0d4567ae38284091766938794dfe1b6",
+      "timing_scope": "old inference_seconds includes prediction-copy/NPZ persistence; not GPU or real-time latency",
+      "all_predictions_finite": true
+    },
+    "recorded_navigation_messages": 0,
+    "camera_pairs": 8,
+    "max_pair_skew_ns": 44010,
+    "camera_duration_seconds": 0.35,
+    "original_model_process_replay": false,
+    "route_scenarios_are_synthetic": true
+  },
+  "actual_cpu_fallback": {
+    "summary": {
+      "frames_per_arm": 4,
+      "arms": [
+        "both"
+      ],
+      "comparisons": {
+        "both": {
+          "paired_primary_frames": 0,
+          "max_abs_difference": {}
+        }
+      },
+      "failures": 0,
+      "skipped": 0,
+      "completed_predictions": 4,
+      "scope": "non-actuating file-only sensitivity; no vehicle or driving-quality conclusion"
+    },
+    "events": [
+      {
+        "event": "frame",
+        "arm": "both",
+        "frame": 0,
+        "scenario": "consecutive_left",
+        "generation": 1,
+        "reason": "valid",
+        "reset": true,
+        "reset_reason": "initial_state",
+        "model_role": "primary",
+        "inference_seconds": 25.847610482000164,
+        "frame_total_seconds": 25.860588801999256,
+        "state_reset_count": 1,
+        "prediction_file": "both/000000.npz",
+        "prediction_sha256": "c75fd7299e380b9493f635811c24053a08ddaa9f92bb19753ef12c605c17809b",
+        "process_peak_rss_bytes": 1720508416,
+        "tinygrad_logical_allocated_bytes": 815689204
+      },
+      {
+        "event": "frame",
+        "arm": "both",
+        "frame": 1,
+        "scenario": "reroute_old_map",
+        "generation": 2,
+        "reason": "map_route_mismatch",
+        "reset": true,
+        "reset_reason": "route_changed",
+        "model_role": "non_navigation_fallback",
+        "inference_seconds": 0.42204140100147924,
+        "frame_total_seconds": 0.4243307970009482,
+        "state_reset_count": 1,
+        "prediction_file": "both/000001.npz",
+        "prediction_sha256": "0f0ec5dafaffddc1d787dc68f46c3984566104a04d6e23dcc1d4d60f619b3296",
+        "process_peak_rss_bytes": 1720508416,
+        "tinygrad_logical_allocated_bytes": 882924141
+      },
+      {
+        "event": "frame",
+        "arm": "both",
+        "frame": 2,
+        "scenario": "missing_gps",
+        "generation": 2,
+        "reason": "missing_gps",
+        "reset": false,
+        "reset_reason": null,
+        "model_role": "non_navigation_fallback",
+        "inference_seconds": 0.4198450990006677,
+        "frame_total_seconds": 0.42193503199996485,
+        "state_reset_count": 1,
+        "prediction_file": "both/000002.npz",
+        "prediction_sha256": "d1003415ac709aec1bf9391134986b29a9315568deede794a0477d7d21979a91",
+        "process_peak_rss_bytes": 1720508416,
+        "tinygrad_logical_allocated_bytes": 882924141
+      },
+      {
+        "event": "frame",
+        "arm": "both",
+        "frame": 3,
+        "scenario": "stale_map",
+        "generation": 2,
+        "reason": "source_time_out_of_range",
+        "reset": false,
+        "reset_reason": null,
+        "model_role": "non_navigation_fallback",
+        "inference_seconds": 0.422696043000542,
+        "frame_total_seconds": 0.42497271499996714,
+        "state_reset_count": 1,
+        "prediction_file": "both/000003.npz",
+        "prediction_sha256": "4de2fc47d1c583144636f1756e4dc2b844d95abc49386c9b89ae08471e5b2038",
+        "process_peak_rss_bytes": 1720508416,
+        "tinygrad_logical_allocated_bytes": 882924141
+      }
+    ],
+    "source_difference": {
+      "run_source_sha256": "775f001781812c764301896c852fc8ac6d3838516d891d8675c7afb60542890f",
+      "final_source_sha256": "e2b5266f9c4b4d016d70b0e1a2cdb1931ab6652787e622dc3ea9b94c05a8b4dd",
+      "only_difference": "Additional AMD-only CLI manifest-proof rejection. CPU execution and run_diagnostic functions unchanged."
+    }
+  },
+  "actual_raw_metadata_admission": {
+    "literal_decoder_accepts_actual_unmodified_compiler_metadata": true,
+    "slice_count": 17,
+    "public_payload_arbitrary_execution": false
+  },
+  "amd": {
+    "artifact_produced": false,
+    "physical_device_available": false,
+    "target": "AMD/LLVM/gfx1200/USB",
+    "emulator_failure": "CPU-lift __builtin_bit_cast source2bytes/destination4bytes; exception crossed ctypes callback",
+    "attempt_stopped_seconds": 210.03,
+    "physical_hardware_defect_proven": false,
+    "gpu_numeric_or_performance_validation": false
+  },
+  "safeguards": {
+    "production_navigation_prediction_publication": false,
+    "vehicle_actuation": false,
+    "deployed": false,
+    "firmware_flashing_performed": false,
+    "production_catalog_changed": false,
+    "default_models_changed": false
+  },
+  "limitations": [
+    "No physical Chestnut validation or complete AMD artifact",
+    "No independently recorded navigation route/map input data",
+    "Only5 valid cold-start samples per arm; not6.4second steady-state history",
+    "Post-suspend common clock domains unverified",
+    "Source/reload consistency is not independent ONNX numeric validation or driving safety",
+    "No live integration authorization"
+  ]
+}

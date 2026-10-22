@@ -1,5 +1,9 @@
 # Navigation-aware model integration: technical investigation and offline testing boundary
 
+This document records the Stage 1 investigation. See the [Stage 2 technical
+report](navigation-model-stage2.md) for implemented follow-up work and current
+limitations. Original evidence and earlier limitations are retained below.
+
 Inspected October 21, 2026 (America/New_York). Source and PR states below are pinned snapshots, not promises about future upstream revisions.
 
 **Navigation Alpha is a working display/routing stack, but it is not navigation-conditioned driving on the current working branch.** PR #2057 adds much of the model-input plumbing; it still omits the maneuver publisher and has confirmed freshness, admission and robustness gaps. A more complete official comma.ai experimental branch exists. Both requested public big models are real navigation-input models, byte-identical to artifacts on that official branch. None of these facts establishes learned driving quality, AMD/QCOM execution parity, or vehicle readiness.
