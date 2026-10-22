@@ -1,12 +1,13 @@
 from dataclasses import replace
 import os
 import unittest
+import time
 from unittest.mock import patch
 
 from openpilot.common.params import Params
 from openpilot.common.test import OpenpilotTestCase
 from openpilot.selfdrive.navigation import model_inputs
-from openpilot.selfdrive.navigation.temporal import NavigationContext, NavigationTransitions, context_reason
+from openpilot.selfdrive.navigation.temporal import CameraClock, ClockAlignmentError, NavigationContext, NavigationTransitions, context_reason
 
 
 def valid_context():
@@ -76,6 +77,55 @@ class TestTemporal(unittest.TestCase):
   def test_unaligned_camera_and_python_clock_domains_fail_closed(self):
     context = valid_context()
     self.assertEqual(context_reason(replace(context, camera_ns=context.camera_ns + 10_000_000_000)), 'source_time_out_of_range')
+
+
+class TestCameraClock(unittest.TestCase):
+  def test_measured_offset_and_suspend_epoch_do_not_relax_source_age(self):
+    monotonic = [100_000_000_000]
+    offset = [30_000_000_000]
+    clock = CameraClock(lambda: monotonic[0], lambda: monotonic[0] + offset[0])
+    first = clock.sample(130_000_000_000)
+    self.assertEqual(first.camera_ns, 100_000_000_000)
+    self.assertEqual(first.offset_ns, 30_000_000_000)
+    self.assertTrue(first.new_epoch)
+    monotonic[0] += 50_000_000
+    second = clock.sample(monotonic[0] + offset[0])
+    self.assertFalse(second.new_epoch)
+    self.assertEqual(second.epoch_ns, first.epoch_ns)
+    offset[0] += 45_000_000_000
+    resumed = clock.sample(monotonic[0] + offset[0])
+    self.assertTrue(resumed.new_epoch)
+    self.assertEqual(resumed.epoch_ns, monotonic[0])
+    self.assertEqual(resumed.camera_ns, monotonic[0])
+    # A real stale GPS source remains stale after an exactly measured conversion.
+    context = valid_context()
+    self.assertEqual(context_reason(replace(context, gps_ns=context.gps_ns - 3_000_000_000)), 'source_time_out_of_range')
+
+  def test_unreliable_bracket_and_stale_or_future_camera_are_rejected(self):
+    for readings in ((100, 99), (1_000_000_000, 1_002_000_000), (0, 0)):
+      samples = iter(readings)
+      clock = CameraClock(lambda samples=samples: next(samples), lambda: 1_000_000_000)
+      with self.subTest(readings=readings), self.assertRaisesRegex(ClockAlignmentError, 'unreliable_clock_sample'):
+        clock.sample(1_000_000_000)
+    for camera in (0, 99_499_999_999, 100_200_000_001):
+      clock = CameraClock(lambda: 100_000_000_000, lambda: 100_000_000_000)
+      with self.subTest(camera=camera), self.assertRaisesRegex(ClockAlignmentError, 'stale_or_future_camera'):
+        clock.sample(camera)
+
+  def test_native_linux_clocks_measure_a_bounded_relationship(self):
+    clock = CameraClock()
+    for _ in range(3):
+      try:
+        result = clock.sample(time.clock_gettime_ns(time.CLOCK_BOOTTIME))
+        break
+      except ClockAlignmentError as error:
+        if str(error) != 'unreliable_clock_sample':
+          raise
+    else:
+      self.fail('Could not obtain a reliable local clock bracket in three attempts')
+    self.assertTrue(result.new_epoch)
+    self.assertLess(abs(time.monotonic_ns() - result.camera_ns), 200_000_000)
+    self.assertLessEqual(result.sample_span_ns, 1_000_000)
 
 
 class TestScopedDiagnosticPermit(OpenpilotTestCase):

@@ -54,8 +54,9 @@ def usb_profile(identity):
   devices = usb_devices()
   if len(devices) != 1 or devices[0]['rom_mode'] or devices[0]['product'] != identity['expected_usb_product'] \
      or not devices[0]['device_node'] or float(devices[0]['speed'] or '0') < 5000:
+    observed = [{key: device.get(key) for key in ('product', 'vendor_id', 'product_id', 'speed', 'rom_mode')} for device in devices]
     raise HardwareAdmissionError('Need one SuperSpeed Chestnut with expected firmware product ' + identity['expected_usb_product'] +
-                               '. Check USB/power; no firmware change or recovery is performed')
+                                 '. Observed: ' + json.dumps(observed) + '. Check USB/power; no firmware change or recovery is performed')
   return devices[0]
 
 
@@ -110,8 +111,10 @@ class MaintenanceGuard:
     self.handle = None
 
   def __enter__(self):
+    from openpilot.common.params import Params
+    self.params = Params()
     self.sample_processes()
-    self.panda = checks.IgnitionReader()
+    self.panda = checks.PandaSafetyReader()
     try:
       import usb1
       self.context = usb1.USBContext()
@@ -140,11 +143,15 @@ class MaintenanceGuard:
         continue
 
   def sample(self, allowed=()):
+    # Publishers are stopped during exclusive maintenance. Do not pretend the
+    # admission deviceState is refreshed: monitor Params, process ownership and
+    # read-only physical control enforcement throughout this bounded window.
+    settings = checks.offroad_params(self.params)
     self.sample_processes(allowed)
     current = usb_profile(self.identity)
     if current['device_node'] != self.device['device_node'] or current['serial_sha256'] != self.device['serial_sha256']:
       raise HardwareAdmissionError('Chestnut lost power or re-enumerated; diagnostic stopped')
-    return {'panda': self.panda.sample(), 'chestnut_power': checks.bridge_power(self.handle),
+    return {'software_settings': settings, 'panda': self.panda.sample(), 'chestnut_power': checks.bridge_power(self.handle),
             'temperatures_c': checks.thermal_guard(), 'mem_available_bytes': checks.memory_available(), 'monotonic': time.monotonic()}
 
   def __exit__(self, *_):
@@ -161,8 +168,10 @@ def run_worker(action, workspace, cache, guard, *, artifact=None, onnx=None, all
   budget = checks.resources(shutil.disk_usage(cache).free, checks.memory_available(), model=action != 'probe', preparing=preparing)
   command = [sys.executable, '-m', 'tools.navigation_hardware.smoke_worker', action, '--output', str(workspace / (action + '.json'))]
   if artifact is not None:
-    command += ['--artifact', str(artifact), '--onnx', str(onnx)]
-  seconds = 1800 if preparing else 180
+    command += ['--artifact', str(artifact)]
+  if onnx is not None:
+    command += ['--onnx', str(onnx)]
+  seconds = 1800 if preparing else 60 if action == 'probe' else 90
   started, peak = time.monotonic(), 0
   with (workspace / (action + '.log')).open('w') as log, (workspace / (action + '-telemetry.jsonl')).open('w') as telemetry:
     environment = worker_environment(cache)
@@ -235,14 +244,15 @@ def readiness(result):
   return {'normal_activation_allowed': False, 'smoke_sufficient_for_approval': False,
           'observed': {'gpu_probe_passed': result.get('probe', {}).get('passed') is True,
                        'bigv2_smoke_passed': result.get('infer', {}).get('passed') is True},
-          'remaining_before_activation': ['Independent equivalent-input CPU/GPU output and recurrent-state parity',
-            'Matching camera warp/upload and actual frame/timestamp association',
-            'More than132 learned history frames and route/GPS/map/permission/restart transitions',
-            'Actual clock domains and suspend/resume behavior; real map/maneuver provenance',
-            'Sustained20Hz timing, memory, power and thermal stability',
-            'Concurrent AMD candidate plus warm QCOM fallback capacity and genuine failure handover',
-            'Selected fallback identity, EPS/MVL timing and mode-dependent prediction consumption review',
-            'Exact model/warp/metadata hashes, automatic UI preparation, explicit user activation authorization']}
+          'remaining_before_activation': [
+            'Verified native Bigv2 AMD model, matching camera warp and exact package hashes',
+            'Native inference/recurrent outputs and equivalent-input CPU/GPU comparison',
+            'Camera upload, timestamp association, route/GPS validity and recurrent reset integration',
+            'Candidate plus warm QCOM fallback loading, timing and failure handover',
+            'Automatic settings-based package preparation and explicit user activation authorization'],
+          'optional_development_checks': ['Long synthetic sequences, endurance, thermal and power characterization',
+                                         'Extended recorded-route and model-quality comparisons'],
+          'scope': 'Software deployment requirements; this smoke is not driving approval or hardware certification'}
 
 
 def job(workspace, mode):
@@ -276,15 +286,19 @@ def job(workspace, mode):
         for public_file in (artifact, Path(str(artifact) + '.verification.json')):
           if not public_file.is_symlink():
             public_file.chmod(0o644)  # Public model data can later be reused by an approved UI preparer.
-      if artifact.is_file() and onnx.is_file():
+      if artifact.is_file():
         result['stage'] = 'running_synthetic_bigv2'
         write_json(workspace / 'report.json', result)
-        result['infer'] = run_worker('infer', workspace, cache, guard, artifact=artifact, onnx=onnx)
+        result['infer'] = run_worker('infer', workspace, cache, guard, artifact=artifact, onnx=onnx if onnx.is_file() else None)
         result['status'] = 'bigv2_smoke_passed_not_activation_approval'
       else:
         result['status'] = 'gpu_probe_passed_bigv2_not_tested'
-        result['next_command'] = 'sudo .venv/bin/python -m tools.navigation_hardware.smoke prepare'
-        result['blocker'] = 'No verified local Bigv2 AMD artifact. Preparing it once requires the814.6MB source and bounded native GPU compilation'
+        result['blocker'] = ('Software preparation required: no verified native Bigv2 AMD artifact is installed in the diagnostic cache. ' +
+                             'No model download or model compilation was started. Send this archive for compatible package preparation')
+        result['artifact_requirement'] = {'format': 'SPTGPLN1', 'device': 'AMD', 'renderer': 'LLVM', 'arch': 'gfx1200', 'interface': 'USB',
+                                          'tinygrad_ref': result['source'].get('tinygrad_ref'),
+                                          'compiler_verification_required': True,
+                                          'official_tinyjit_pkl_compatible': False}
     if source_identity(CHECKOUT) != result['source']:
       raise HardwareAdmissionError('Installed source/runtime changed during maintenance')
   except BaseException as error:
@@ -343,7 +357,7 @@ def finalize(workspace):
 def unit_command(workspace, mode):
   finish = f'{sys.executable} -m tools.navigation_hardware.smoke --finalize {workspace}'
   memory_cap = '5G' if mode == 'prepare' or (ROOT / 'cache/bigv2-amd.sptg').exists() else '1G'
-  return ['systemd-run', '--unit=' + UNIT, '--collect', '--property=Type=exec', '--property=RuntimeMaxSec=' + ('3300' if mode == 'prepare' else '600'),
+  return ['systemd-run', '--unit=' + UNIT, '--collect', '--property=Type=exec', '--property=RuntimeMaxSec=' + ('3300' if mode == 'prepare' else '240'),
           '--property=TimeoutStopSec=90', '--property=KillMode=control-group', '--property=MemoryMax=' + memory_cap, '--property=MemorySwapMax=0',
           '--property=CPUQuota=200%', '--property=OOMPolicy=stop',
           '--property=LimitCORE=0', '--property=WorkingDirectory=' + str(CHECKOUT), '--property=Environment=PYTHONDONTWRITEBYTECODE=1',
@@ -353,6 +367,8 @@ def unit_command(workspace, mode):
 
 def main():
   parser = argparse.ArgumentParser(description=__doc__)
+  parser.epilog = ('Default smoke never downloads models or compiles Bigv2. prepare is an optional, potentially long developer step; ' +
+                   'it is not required for the short GPU check and is not recommended for a battery-powered vehicle session.')
   parser.add_argument('action', nargs='?', choices=('check', 'smoke', 'prepare', 'status', 'cancel'), default='smoke')
   parser.add_argument('--job', type=Path, help=argparse.SUPPRESS)
   parser.add_argument('--finalize', type=Path, help=argparse.SUPPRESS)
@@ -417,7 +433,7 @@ def main():
   print('Maintenance running independently of SSH. Original comma service will be restored automatically.', flush=True)
   print('Cancel safely: sudo .venv/bin/python -m tools.navigation_hardware.smoke cancel', flush=True)
   try:
-    deadline = time.monotonic() + (3420 if args.action == 'prepare' else 720)
+    deadline = time.monotonic() + (3420 if args.action == 'prepare' else 360)
     previous_stage = None
     while time.monotonic() < deadline:
       current = json.loads((workspace / 'report.json').read_text())

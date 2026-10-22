@@ -6,19 +6,37 @@ from pathlib import Path
 from tools.navigation_hardware.safety import HardwareAdmissionError, read
 
 GIB = 1 << 30
+CONTROL_PROCESSES = frozenset(('controlsd', 'selfdrived', 'card'))
+
+
+def offroad_params(params):
+  """Read real settings; never set off-road, engagement or model selection."""
+  result = {'is_offroad': params.get_bool('IsOffroad'), 'is_engaged': params.get_bool('IsEngaged'),
+            'navigation_driving_requested': params.get_bool('NavigationModelDrivingEnabled')}
+  if result['is_offroad'] is not True or result['is_engaged'] is not False or result['navigation_driving_requested']:
+    raise HardwareAdmissionError('Software off-road/engagement settings changed; diagnostic refused without changing any Params')
+  return result
 
 
 def require_offroad(snapshot):
   if not snapshot.get('fresh') or snapshot.get('device_type') != 'mici':
-    raise HardwareAdmissionError('Need fresh deviceState and pandaStates from the running comma4; no status is spoofed')
+    raise HardwareAdmissionError('Need fresh deviceState, pandaStates and managerState from the running comma4; no status is spoofed')
   if snapshot.get('started') is not False or snapshot.get('is_offroad') is not True or snapshot.get('is_engaged') is not False:
-    raise HardwareAdmissionError('comma4 is not genuinely off-road. Park and turn ignition OFF; do not change Params')
+    raise HardwareAdmissionError('comma4 is not genuinely off-road/disengaged. Park and wait for the off-road screen; do not spoof Params')
+  processes = snapshot.get('control_processes', {})
+  if set(processes) != CONTROL_PROCESSES or any(processes.values()):
+    raise HardwareAdmissionError('Fresh managerState must confirm all vehicle-control processes are stopped')
+  for name, state in snapshot.get('control_states', {}).items():
+    if state.get('fresh') and (not state.get('valid') or state.get('active')):
+      raise HardwareAdmissionError('Fresh ' + name + ' is active or invalid; diagnostic refused')
   pandas = snapshot.get('pandas', [])
   if len(pandas) != 1 or pandas[0].get('type') != 'cuatro':
     raise HardwareAdmissionError('This smoke profile requires the single internal comma4 panda')
   for panda in pandas:
-    if panda['ignition_line'] or panda['ignition_can'] or panda['controls_allowed']:
-      raise HardwareAdmissionError('Physical ignition/controls are active. ACC power may keep this Honda on-road; no workaround is applied')
+    if panda['controls_allowed']:
+      raise HardwareAdmissionError('Panda controls are allowed; diagnostic refused')
+  # Ignition is recorded, not treated as an off-road definition. Genuine
+  # software off-road state and stopped controls are required even when it is ON.
 
 
 def live_offroad_snapshot(timeout=8):
@@ -26,31 +44,42 @@ def live_offroad_snapshot(timeout=8):
   from openpilot.common.hardware import HARDWARE
   from openpilot.common.params import Params
 
-  sm = messaging.SubMaster(['deviceState', 'pandaStates'])
+  required = ('deviceState', 'pandaStates', 'managerState')
+  optional = ('selfdriveState', 'carControl')
+  sm = messaging.SubMaster([*required, *optional])
   deadline = time.monotonic() + timeout
   while time.monotonic() < deadline:
     sm.update(100)
     now = time.monotonic()
-    if all(sm.seen[name] and sm.valid[name] and 0 <= now - sm.recv_time[name] < 1.5 for name in ('deviceState', 'pandaStates')):
+    if all(sm.seen[name] and sm.valid[name] and 0 <= now - sm.recv_time[name] < 1.5 for name in required):
       params = Params()
       result = {'fresh': True, 'device_type': HARDWARE.get_device_type(), 'started': bool(sm['deviceState'].started),
                 'is_offroad': params.get_bool('IsOffroad'), 'is_engaged': params.get_bool('IsEngaged'),
                 'navigation_driving_requested': params.get_bool('NavigationModelDrivingEnabled'),
                 'comma_power_draw_w': float(sm['deviceState'].powerDrawW),
-                'source_event_ns': {name: sm.logMonoTime[name] for name in ('deviceState', 'pandaStates')},
+                'source_event_ns': {name: sm.logMonoTime[name] for name in required},
+                'control_processes': {p.name: bool(p.running) for p in sm['managerState'].processes if p.name in CONTROL_PROCESSES},
+                'control_states': {},
                 'pandas': [{'type': str(p.pandaType), 'ignition_line': bool(p.ignitionLine), 'ignition_can': bool(p.ignitionCan),
                             'controls_allowed': bool(p.controlsAllowed)} for p in sm['pandaStates']]}
-      source_clocks = {'deviceState': time.monotonic_ns(), 'pandaStates': time.clock_gettime_ns(time.CLOCK_BOOTTIME)}
+      source_clocks = {'deviceState': time.monotonic_ns(), 'managerState': time.monotonic_ns(),
+                       'pandaStates': time.clock_gettime_ns(time.CLOCK_BOOTTIME)}
       if any(not 0 <= source_clocks[name] - result['source_event_ns'][name] < 2_000_000_000 for name in source_clocks):
         raise HardwareAdmissionError('Off-road telemetry source timestamps are stale or in an unexpected clock domain')
+      for name in optional:
+        seen = bool(sm.seen[name])
+        fresh = seen and 0 <= now - sm.recv_time[name] < 1.5 and 0 <= time.monotonic_ns() - sm.logMonoTime[name] < 2_000_000_000
+        message = sm[name]
+        active = (message.enabled or message.active or str(message.state) != 'disabled') if name == 'selfdriveState' \
+                 else (message.enabled or message.latActive or message.longActive)
+        result['control_states'][name] = {'seen': seen, 'fresh': fresh, 'valid': bool(sm.valid[name]), 'active': bool(active)}
+      offroad_params(params)
       require_offroad(result)
-      if result['navigation_driving_requested']:
-        raise HardwareAdmissionError('Turn Navigation Model Driving OFF in Settings before diagnostics; this tool will not edit it')
       return result
   raise HardwareAdmissionError('Fresh off-road telemetry unavailable. Keep the original comma service running for admission')
 
 
-class IgnitionReader:
+class PandaSafetyReader:
   """SPI health reads only. Never construct Panda(), which changes CAN settings."""
   def __init__(self):
     from panda import Panda
@@ -77,8 +106,8 @@ class IgnitionReader:
               'controls_allowed': bool(flags & p.HEALTH_FLAG_CONTROLS_ALLOWED) or bool(values[21] & 3),
               'safety_mode': values[10], 'harness_status': values[9], 'voltage_mv': values[1], 'faults': values[7]}
     # silent=0, noOutput=19. No safety mode or heartbeat writes are performed.
-    if result['ignition_line'] or result['ignition_can'] or result['controls_allowed'] or result['safety_mode'] not in (0, 19):
-      raise HardwareAdmissionError('Physical ignition/controls/safety state is not off-road; stopping diagnostic immediately')
+    if result['controls_allowed'] or result['safety_mode'] not in (0, 19):
+      raise HardwareAdmissionError('Panda allows controls or an active safety mode; stopping diagnostic immediately')
     if result['harness_status'] not in (1, 2) or result['faults'] or result['voltage_mv'] < 11000:
       raise HardwareAdmissionError('Internal panda/harness power or fault check failed; inspect report')
     return result

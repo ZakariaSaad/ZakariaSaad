@@ -380,12 +380,13 @@ class NavigationModelState(ModelState):
     return get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
 
 
-def load_navigation_session(params, cam_w, cam_h, ordinary, small_model):
+def load_navigation_session(params, cam_w, cam_h, ordinary, small_model, *, permit=None):
   """Keep ordinary configured models available if opt-in admission/load fails."""
   try:
-    permit = authorize_runtime(params)
+    permit = authorize_runtime(params) if permit is None else permit
     if permit is None:
       return None
+    validate_runtime_permit(permit, params=params)
     if small_model is None or takes_nav(ordinary, small_model) or not chestnut_present():
       raise NavigationModelDisabled('Navigation driving requires Chestnut and a loaded ordinary small-model fallback')
     from tinygrad.runtime.ops_amd import AMDDevice
@@ -401,6 +402,27 @@ def load_navigation_session(params, cam_w, cam_h, ordinary, small_model):
     return NavigationDrivingSession(permit, candidate, small_model, params)
   except Exception as error:
     cloudlog.exception('navigation_candidate_not_admitted; ordinary models retained')
+    if params.get_bool('NavigationModelDrivingEnabled'):
+      params.put('NavigationModelRuntimeState', {'candidate_id': params.get('NavigationModelCandidate', return_default=True),
+                                                'role': 'blocked', 'reason': str(error), 'active_source': None})
+    return None
+
+
+def load_navigation_first(params, cam_w, cam_h):
+  """Admit the candidate before allocating an unrelated selected big model.
+
+  The ordinary small model is the reviewed navigation session's warm fallback.
+  A rejected or unavailable candidate leaves normal selected-model startup to
+  the caller; an unrequested candidate never opens its registry or model files.
+  """
+  try:
+    permit = authorize_runtime(params)
+    if permit is None:
+      return None
+    small_model = ModelState(cam_w=cam_w, cam_h=cam_h, chestnut=False)
+    return load_navigation_session(params, cam_w, cam_h, small_model, small_model, permit=permit)
+  except Exception as error:
+    cloudlog.exception('navigation_candidate_not_admitted; ordinary model startup retained')
     if params.get_bool('NavigationModelDrivingEnabled'):
       params.put('NavigationModelRuntimeState', {'candidate_id': params.get('NavigationModelCandidate', return_default=True),
                                                 'role': 'blocked', 'reason': str(error), 'active_source': None})
@@ -463,8 +485,11 @@ def main(demo=False):
   cloudlog.warning("loading model")
   st = time.monotonic()
 
-  model = None
-  if CHESTNUT:
+  navigation_session = load_navigation_first(params, vipc_client_main.width, vipc_client_main.height)
+  model = navigation_session.ordinary if navigation_session is not None else None
+  if navigation_session is not None:
+    CHESTNUT = True
+  if CHESTNUT and navigation_session is None:
     big_model = None
     def load_big():
       nonlocal big_model
@@ -487,20 +512,13 @@ def main(demo=False):
     else:
       params.put_bool("ChestnutActive", model is not None)
 
-  small_model = ModelState(cam_w=vipc_client_main.width, cam_h=vipc_client_main.height, chestnut=False) if model is None or CHESTNUT else None
+  small_model = (navigation_session.ordinary if navigation_session is not None else
+                 ModelState(cam_w=vipc_client_main.width, cam_h=vipc_client_main.height, chestnut=False) if model is None or CHESTNUT else None)
   if model is None:
     model = small_model
   params.put_bool("ChestnutLoading", False)
   assert model is not None
   cloudlog.warning(f"models loaded in {time.monotonic() - st:.1f}s, modeld starting")
-  if CHESTNUT and loader.is_alive():
-    navigation_session = None
-    if params.get_bool('NavigationModelDrivingEnabled'):
-      cloudlog.warning('navigation_candidate_not_admitted; ordinary GPU loader is still running')
-  else:
-    navigation_session = load_navigation_session(params, vipc_client_main.width, vipc_client_main.height, model, small_model)
-  if navigation_session is not None:
-    CHESTNUT = True
   _reject_navigation_publication(model, small_model)
 
   config_realtime_process(7, 54)

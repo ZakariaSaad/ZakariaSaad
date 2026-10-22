@@ -1,5 +1,7 @@
 # Navigation-model integration: software completion and hardware gates
 
+Current changes and remaining software requirements are in the [software compatibility correction](navigation-model-software-status.md). It supersedes this snapshot's clock limitation, extra big-model allocation and mandatory extended hardware procedure. Start with the short SSH probe; extended sequences remain optional.
+
 The subsequent [parked-car SSH smoke workflow](navigation-model-ssh-smoke.md) simplifies initial hardware checks. The [activation workflow](navigation-model-activation-workflow.md) defines result review and the later explicitly authorized delivery; candidate activation remains disabled.
 
 This review continues the existing implementation; no upstream driving-system merge,

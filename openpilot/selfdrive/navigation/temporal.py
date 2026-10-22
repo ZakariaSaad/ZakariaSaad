@@ -5,11 +5,60 @@ An invalid sample is skipped; it is never silently promoted to a valid zero rout
 """
 from dataclasses import dataclass
 import math
+import time
 
 SOURCE_TIMEOUT = 2.0  # A physical GPS sample can be 1 Hz.
 MAP_RECEIPT_TIMEOUT = 0.5
 SOURCE_FUTURE_TOLERANCE = 0.2
 MAX_CAMERA_STEP_NS = 75_000_000  # 20Hz checkpoints: a missing sample requires a cold start.
+CLOCK_SAMPLE_MAX_SPAN_NS = 1_000_000
+CLOCK_OFFSET_CHANGE_NS = 1_000_000
+
+
+class ClockAlignmentError(ValueError):
+  pass
+
+
+@dataclass(frozen=True)
+class CameraClockSample:
+  camera_ns: int  # Camera BOOTTIME converted to the navigation producers' MONOTONIC domain.
+  epoch_ns: int  # New producer data must be newer than this MONOTONIC boundary.
+  new_epoch: bool
+  offset_ns: int
+  sample_span_ns: int
+
+
+class CameraClock:
+  """Measure the local BOOTTIME/MONOTONIC relationship; never infer it from GPS.
+
+  Python GPS/navigation producers use MONOTONIC. The native camera uses the
+  kernel's BOOTTIME SOF timestamps. Suspend changes the relationship, so both
+  startup and a changed offset start a new epoch with fresh producer data.
+  A delayed/preempted sample or an old camera frame is rejected, not repaired
+  by increasing any navigation age tolerance.
+  """
+  def __init__(self, monotonic_ns=None, boottime_ns=None):
+    self.monotonic_ns = monotonic_ns if monotonic_ns is not None else time.monotonic_ns
+    self.boottime_ns = boottime_ns if boottime_ns is not None else lambda: time.clock_gettime_ns(time.CLOCK_BOOTTIME)
+    self.offset_ns = None
+    self.epoch_ns = 0
+
+  def sample(self, camera_ns: int) -> CameraClockSample:
+    before = self.monotonic_ns()
+    boot = self.boottime_ns()
+    after = self.monotonic_ns()
+    span = after - before
+    if before <= 0 or boot <= 0 or not 0 <= span <= CLOCK_SAMPLE_MAX_SPAN_NS:
+      raise ClockAlignmentError('unreliable_clock_sample')
+    age = (boot - camera_ns) / 1e9
+    if camera_ns <= 0 or not -SOURCE_FUTURE_TOLERANCE <= age < MAP_RECEIPT_TIMEOUT:
+      raise ClockAlignmentError('stale_or_future_camera')
+    offset = boot - (before + after) // 2
+    new_epoch = self.offset_ns is None or abs(offset - self.offset_ns) > CLOCK_OFFSET_CHANGE_NS
+    if new_epoch:
+      self.epoch_ns = after
+    self.offset_ns = offset
+    return CameraClockSample(camera_ns - offset, self.epoch_ns, new_epoch, offset, span)
 
 
 @dataclass(frozen=True)

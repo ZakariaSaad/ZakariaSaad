@@ -1,5 +1,7 @@
 # Navigation-model final audit and MVL consumption boundaries
 
+The [subsequent software correction](navigation-model-software-status.md) fixes the clock-domain and extra big-model allocation limitations documented in this historical audit. Its short SSH workflow and software-focused approval requirements supersede the extended hardware procedure below.
+
 Coordinated committed-source results and the authorized target integration are recorded in the [software integration report](navigation-model-integration.md). Focused working-tree results below retain their original scope.
 
 This audit continues the existing implementation. Its initial inspected

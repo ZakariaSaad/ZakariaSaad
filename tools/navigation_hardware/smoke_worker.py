@@ -45,7 +45,7 @@ def isolated_io(*, allow_downloads=True):
         def uncached(url, *args, **kwargs):
           from urllib.parse import urlsplit
           address = urlsplit(getattr(url, 'full_url', str(url)))._replace(query='', fragment='').geturl()
-          raise RuntimeError('Runtime dependency is not cached; no download in smoke mode. Run prepare once: ' + address)
+          raise RuntimeError('Software preparation required: runtime dependency is not cached; smoke will not download it: ' + address)
         stack.enter_context(patch.object(urllib.request, 'urlopen', uncached))
       yield
   finally:
@@ -61,7 +61,7 @@ def verified_artifact(artifact, onnx, compiler):
   report = json.loads(Path(str(artifact) + '.verification.json').read_text())
   header = _header(artifact, entry['target'])
   _verification_report(report, sha256(artifact), sha256(compiler), entry['contract'], header)
-  if sha256(onnx) != entry['source_onnx']['sha256']:
+  if onnx is not None and sha256(onnx) != entry['source_onnx']['sha256']:
     raise ValueError('Source ONNX hash mismatch')
   named = {row['name']: row for row in header['inputs'] if row['name'] is not None}
   metadata = {'output_slices': entry['contract']['output_slices']}
@@ -69,7 +69,11 @@ def verified_artifact(artifact, onnx, compiler):
     metadata[kind + '_specs'] = {row['name']: {'shape': row['shape'], 'dtype': row['dtype'],
       'device': named[row['name']]['device'] if kind == 'input' else 'AMD'} for row in entry['contract'][kind + 's']}
   _model_contract(header, metadata, entry['contract'])
-  return {'artifact_sha256': sha256(artifact), 'source_onnx_sha256': sha256(onnx), 'compiler_sha256': sha256(compiler),
+  # A compiler report already binds this artifact to the pinned source digest.
+  # Rechecking optional local source bytes is useful but must not force an814MB
+  # source download merely to load an existing verified artifact for a smoke.
+  return {'artifact_sha256': sha256(artifact), 'source_onnx_sha256': entry['source_onnx']['sha256'],
+          'source_onnx_bytes_rechecked': onnx is not None, 'compiler_sha256': sha256(compiler),
           'verification_report_sha256': sha256(Path(str(artifact) + '.verification.json')), 'contract': entry['contract']}
 
 
@@ -149,6 +153,8 @@ def main():
   parser.add_argument('--artifact', type=Path)
   parser.add_argument('--onnx', type=Path)
   args = parser.parse_args()
+  if args.action != 'probe' and args.artifact is None or args.action == 'compile' and args.onnx is None:
+    parser.error('Model execution requires --artifact; compilation additionally requires --onnx')
   if os.environ.get('NAV_SMOKE_WORKER') != '1' or os.environ.get('DEV') != 'USB+AMD:LLVM':
     parser.error('Launch only through the supervised off-road smoke command')
   if any(os.environ.get(key, '0') not in ('', '0') for key in ('MOCKGPU', 'MOCKUSB', 'MOCKKFD', 'ASM_CALL', 'NO_HIPCC')):

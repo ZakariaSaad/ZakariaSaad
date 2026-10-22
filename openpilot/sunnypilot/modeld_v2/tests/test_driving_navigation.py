@@ -1,5 +1,6 @@
 """Actual ModelState/adapter paths with synthetic trusted JITs, never a GPU or CAN."""
 import codecs
+from contextlib import ExitStack
 import json
 import pickle
 from types import SimpleNamespace
@@ -26,6 +27,62 @@ def fixture_data():
 
 
 class TestDrivingNavigation(unittest.TestCase):
+  def test_startup_admits_candidate_before_ordinary_big_allocation_and_preserves_off_or_failed_startup(self):
+    """Exercise main initialization only; no publishers, controllers or GPU are started."""
+    class InitializationFinished(Exception):
+      pass
+
+    for mode, expected_loads in (('approved', [False]), ('off', [True, False]), ('blocked', [True, False]),
+                                 ('candidate_failed', [False, True, False]), ('small_failed', [False, True, False])):
+      with self.subTest(mode=mode), ExitStack() as stack:
+        params = ParamsStub(NavigationModelDrivingEnabled=mode != 'off', NavigationModelCandidate='big-nav-v2', ChestnutActive=True)
+        permit = SimpleNamespace(model_id='big-nav-v2')
+        small = SimpleNamespace(numpy_inputs={}, chestnut=False)
+        big = SimpleNamespace(numpy_inputs={}, chestnut=True, warmup=Mock())
+        candidate = SimpleNamespace(numpy_inputs={'navigation': np.zeros(47)}, warmup=Mock())
+        if mode == 'candidate_failed':
+          candidate.warmup.side_effect = RuntimeError('candidate initialization failed')
+        small_loads = 0
+
+        def construct_model(*args, big=big, small=small, mode=mode, **kwargs):
+          nonlocal small_loads
+          if kwargs['chestnut']:
+            return big
+          small_loads += 1
+          if mode == 'small_failed' and small_loads == 1:
+            raise RuntimeError('small initialization failed')
+          return small
+
+        models = stack.enter_context(patch.object(modeld, 'ModelState', side_effect=construct_model))
+        candidate_loader = stack.enter_context(patch.object(modeld, 'NavigationModelState', return_value=candidate))
+        approval = stack.enter_context(patch.object(modeld, 'authorize_runtime', return_value=None if mode == 'off' else permit))
+        if mode == 'blocked':
+          approval.side_effect = model_inputs.NavigationModelDisabled('branch has not approved activation')
+        camera = SimpleNamespace(width=1344, height=760, buffer_len=1622016, connect=lambda _: True)
+        clients = Mock(return_value=camera)
+        clients.available_streams.return_value = [modeld.VisionStreamType.VISION_STREAM_NARROW_ROAD]
+        device = SimpleNamespace(arch='gfx1200', is_usb=True, iface=type('USBIface', (), {})(),
+                                 renderer=SimpleNamespace(target=SimpleNamespace(device='AMD', renderer='LLVM', arch='gfx1200', interface='USB')))
+        for name, value in {'Params': Mock(return_value=params), 'setproctitle': Mock(), 'get_active_bundle': Mock(),
+                            '_find_driving_pkl': Mock(return_value='selected-ordinary-big.sptg'), 'chestnut_present': Mock(return_value=True),
+                            'wait_for_chestnut': Mock(), 'VisionIpcClient': clients, 'Device': {'AMD': device},
+                            'validate_runtime_permit': Mock(), '_reject_navigation_publication': Mock(),
+                            'config_realtime_process': Mock(side_effect=InitializationFinished), 'PubMaster': Mock()}.items():
+          stack.enter_context(patch.object(modeld, name, value))
+        stack.enter_context(patch.object(modeld.gc, 'disable'))
+        with self.assertRaises(InitializationFinished):
+          modeld.main()
+        self.assertEqual([call.kwargs['chestnut'] for call in models.call_args_list], expected_loads)
+        self.assertEqual(candidate_loader.call_count, int(mode in ('approved', 'candidate_failed')))
+        if mode == 'approved':
+          candidate.warmup.assert_called_once()
+          big.warmup.assert_not_called()
+          self.assertIsNone(params.get('ChestnutActive'), 'initial small-model priming is intentional fallback, not active/failed Chestnut')
+        else:
+          big.warmup.assert_called_once()
+          self.assertIs(params.get('ChestnutActive'), True)
+        modeld.PubMaster.assert_not_called()
+
   def test_driving_reader_rejects_missing_unknown_or_malformed_upcoming_guidance(self):
     with reviewed_fixture() as (params, permit, _), patch.object(model_inputs, 'PC', False):
       params.values.update(NavigationEnabled=True, NavDestination={'latitude': 1., 'longitude': 2.})

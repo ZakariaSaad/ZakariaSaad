@@ -1,17 +1,23 @@
-# Parked-car Chestnut smoke test from Windows
+# Short Chestnut compatibility check from Windows
 
-Use your existing2022 Insight, installed comma4, USB-connected Chestnut and180W
-accessory outlet. No bench, external supply, AMD workstation, source checkout,
-camera recordings or hand-edited configuration is required. Normal navigation-model
-driving remainsOFF. A smoke pass is not approval for navigation-conditioned driving.
+Use your existing 2022 Insight, installed comma 4, USB-connected Chestnut and 180 W
+accessory outlet. No bench, external supply, AMD workstation, camera recordings,
+manifests or hand-edited settings are needed. Navigation Model Driving stays OFF.
+This checks software/device compatibility; a smoke pass does not approve driving.
 
-First update the already-installed `mvl-honda-eps-selector21-chestnut-v28` normally
-through Software settings and restart. These new commands arrive through that update;
-no reinstall or installation-URL change is needed. Enable SSH using your existing
-setup and use the IP shown in Network settings. Keep the car parked and ignitionOFF
-throughout maintenance. Do not drive while the normal comma screen/service is stopped.
+First update the already-installed `mvl-honda-eps-selector21-chestnut-v28` through
+Software settings and restart. There is no reinstall, installation-URL change or
+branch switch. Use the IP in Network settings and your existing SSH setup.
 
-## First run: one short command
+Keep the car parked. The comma must genuinely report **off-road**, with controls
+inactive. Physical ignition ON is not by itself a rejection: the test records Panda
+ignition flags but uses software off-road/control state for admission. Do not spoof
+Params or defeat normal on-road operation to make the test run. Use your existing
+power arrangement; do not leave the car in ACCESSORY to drain its 12 V battery for a
+long compilation. If normal operation makes the comma on-road, the command refuses
+and reports that state. Do not drive while the normal comma service is stopped.
+
+## Run the short check
 
 In Windows PowerShell:
 
@@ -27,134 +33,138 @@ cd /data/openpilot
 sudo .venv/bin/python -m tools.navigation_hardware.smoke
 ```
 
-The default run downloads **no model or runtime dependency**. It verifies fresh
-real off-road telemetry, physical ignition flags, installed branch/runtime and the
-expected Chestnut USB product. It then uses a supervised maintenance job to stop the
-original `comma.service`, obtain exclusive device access, read supply voltage/current
-and physical ignition, discover the actual AMD architecture and check GPU arithmetic.
-If a verified Bigv2 artifact already exists in the separate diagnostic cache, it also
-runs eight built-in synthetic predictions across neutral/map/maneuver/combined inputs.
-They are prewarped artificial pixels, not real cameras or navigation replay. No warp,
-CPU reference model,164-frame preparation or manifests are needed for this smoke test.
+The default command **does not download models or runtime dependencies, or compile
+Bigv2**. It:
 
-The first GPU initialization can take time; the probe/inference stages each have a
-three-minute limit, and the entire short maintenance unit has a ten-minute limit.
-A missing cached LLVM/volatile-microcode dependency is an explicit failure rather than
-an unexpected download. The existing installed runtime download cache is reused
-through individual read links; its compiler database and selected models are untouched.
+1. Checks the installed branch, pinned tinygrad/runtime and Chestnut USB identity.
+2. Requires fresh `deviceState`, `pandaStates` and `managerState`, `IsOffroad=true`,
+   `deviceState.started=false`, `IsEngaged=false`, and stopped vehicle-control
+   processes. Fresh engagement/control messages must be valid and inactive;
+   absent or stale messages are recorded as unavailable, never treated as current
+   evidence. The fresh manager report independently establishes that all three
+   control daemons are stopped. Admission repeats immediately before maintenance.
+3. Temporarily stops the normal `comma.service` in a supervised maintenance job,
+   checks exclusive device access, reads basic power/memory/storage information,
+   discovers the actual GPU architecture and runs a small GPU arithmetic probe.
+4. If a verified compatible Bigv2 AMD artifact and its compiler proof are already
+   cached, runs eight built-in synthetic predictions: two each for neutral,
+   map-only, maneuver-only and combined inputs. Otherwise reports **Bigv2 not
+   tested: compatible AMD artifact missing**. It does not start preparing one.
+5. Restores the original service and saves a results archive.
 
-The normal comma service is restored before the final result is printed. The
-supervised job continues after an SSH disconnect or Ctrl-C, with an independent
-`ExecStopPost` cleanup registered before normal processes are stopped. The job has
-memory/time limits and restores after success, worker failure, cancellation or OOM.
-A lingering device owner blocks restoration instead of starting inference over it.
-A service-restoration failure is explicitly reported; do not drive until resolved.
+These are artificial, prewarped images and map/maneuver arrays. No cameras, rlogs,
+CPU reference compilation, warp compilation, 164-frame sequence or user-prepared
+fixtures are required. The existing runtime download cache is reused read-only;
+its compiler database and selected driving models are untouched. A missing runtime
+dependency is reported rather than downloaded unexpectedly.
 
-**Power/off-road compatibility comes first.** The socket's180W rating does not prove
-available power when the car is genuinely off-road. If the outlet loses power with
-ignitionOFF, or ACC mode makes the real panda report ignitionON, the command refuses.
-It does not fake Params, suppress ignition or suggest an ignition workaround. Send
-the report; that is a real power/state blocker with the present setup.
+GPU initialization can take time. The probe has a 60-second limit, optional model
+loading/inference a 90-second limit, and the maintenance job a four-minute limit,
+followed by supervised cleanup. These are upper bounds, not requested test durations.
+There is no 30-minute compiler stage in this command.
 
-## If Bigv2 is not prepared yet
+## What remains protected during maintenance
 
-A successful small GPU probe is reported as **Bigv2 not tested** when its artifact is
-missing. Once ready to allow the required download/compilation, run this single command:
+Fresh software telemetry is checked **before** stopping its publishers; the tool
+does not pretend those messages continue updating afterward. During maintenance it
+rereads off-road/engagement Params, checks that vehicle-control processes remain
+stopped, rejects competing GPU/SPI owners and reads internal Panda health. Panda
+must remain in silent/noOutput safety with controls disallowed. Ignition flags are
+recorded without being substituted for software off-road state. No off-road status
+is written or spoofed.
 
-```sh
-sudo .venv/bin/python -m tools.navigation_hardware.smoke prepare
-```
+The GPU worker cannot publish normal model predictions or access vehicle streams.
+It sends no CAN, runs no controllers, changes no selected model, and performs no
+persistent firmware flashing. GPU initialization uses the existing runtime's normal
+USB/PCIe setup and volatile GPU microcode loading. The internal Panda is inspected
+through read-only SPI health requests, without a `Panda()` constructor, heartbeat or
+safety-mode writes.
 
-This first repeats admission/probe checks. It reuses a matching cached source when
-available; otherwise it downloads only the official-matching Bigv2 ONNX,814,591,106
-bytes, SHA256
-`1d18c42ea4cd95c8bffab4635844b78b8e2d4e25b9de44a9c5ac2e0961371a2e`.
-There is currently no verified downloadable AMD artifact for this checkpoint.
-The source and native compiled artifact themselves are each roughly0.8GB; temporary
-compiler verification and caches make the minimum **4GiB free storage and5GiB
-MemAvailable** intentional. No CPU reference artifact is compiled. Installed production
-model binaries/cache and selections are not replaced.
+The source profile expects `custom 8516b768-CLEAN` and discovered AMD LLVM `gfx1200`
+over USB. A mismatch is reported rather than flashed. USB loss/re-enumeration,
+power faults, insufficient resources, competing owners or active controls abort
+the test. Existing conservative memory/power/temperature watchdogs bound this
+maintenance command; they are not thermal certification or changed driving tuning.
 
-The unchanged supported native compiler runs on the actual Chestnut with independent
-verification seeds42/43 and source-to-reloaded checks for every output/state. Only a
-successful verified artifact is used for the eight synthetic predictions. Compilation
-has a30-minute limit, download a15-minute limit, and the full prepare unit a55-minute
-limit. Package RSS is watched against4GiB, with an additional systemd5GiB ceiling;
-insufficient available RAM, disk, cooling or power stops the job. Physical sufficiency
-has not been established here. A failed artifact is never approved or silently used;
-keep the returned report for review instead of increasing limits or editing files.
+The service is supervised independently of SSH. Its `ExecStopPost` cleanup runs
+after success, worker failure, cancellation, timeout or OOM. An SSH disconnect or
+Ctrl-C stops the viewer, not the cleanup. A lingering owner blocks service restart;
+a restoration failure is explicitly reported. Do not drive until the original
+service is restored.
 
-The ordinary smoke needs256MiB disk/1GiB available RAM for a probe; model inference
-requires512MiB disk/5GiB available RAM. Small-probe RSS is bounded to512MiB with a1GiB
-unit ceiling. The service uses at most two CPU cores and disables swap for its
-maintenance cgroup. The monitor refuses low internal-panda voltage, supply faults/loss,
-re-enumeration, competing owners and unavailable monitoring. It uses the branch's
-existing5V powered threshold, and aborts at162W measured bridge power (a conservative
-90% of your stated180W outlet rating). It does not change GPU power limits. Sampling
-cannot certify transient headroom or the outlet's rating. Device thermal sensors
-reaching85°C abort maintenance; these are diagnostic limits, not changed driving tuning.
+## If the compatible AMD model artifact is missing
 
-The source profile expects `custom 8516b768-CLEAN`; the actual GPU must discover as
-AMD LLVM `gfx1200` over USB. A mismatch is reported, never flashed or hidden. GPU
-initialization normally configures USB/PCIe and loads volatile GPU microcode. This
-is distinct from persistent Chestnut/EPS firmware flashing, which the tool forbids.
-The internal panda is read through SPI health requests only: no `Panda()` constructor,
-CAN transmission, safety-mode/heartbeat changes, firmware operations or controllers.
+There is currently no verified downloadable native SunnyPilot AMD artifact for the
+selected Bigv2 checkpoint. Official comma PKLs are a different runtime format;
+renaming them does not make them compatible. Existing ordinary Chestnut big models
+do not substitute for this checkpoint.
 
-## Collect the report
+The missing software preparation is a native `SPTGPLN1` Bigv2 artifact for pinned
+tinygrad `69fd4d34d4430036378aba2b43f9d339cdd6ea73`, with complete compiler/output/state
+verification for real AMD LLVM `gfx1200`. Its source is the 814,591,106-byte ONNX,
+SHA256 `1d18c42ea4cd95c8bffab4635844b78b8e2d4e25b9de44a9c5ac2e0961371a2e`.
+The source checkpoint alone is not a runnable native AMD artifact. Loading a verified
+artifact does not require keeping that 814 MB source file on the comma: its proof
+must match the expected source, artifact, compiler and runtime identities. If the
+ONNX is present, its bytes are also rehashed. The report distinguishes that local
+source-byte check from retained compiler proof; neither is a signed attestation.
 
-After the SSH command finishes, type `exit` to return to the same PowerShell window:
+Send the probe report first. Do not run a long preparation job in ACCESSORY simply
+to pass this check. The existing `prepare` action and
+[comprehensive development tools](navigation-model-hardware.md) remain optional
+for deliberate artifact development with a suitable power/resource budget. They
+are not part of this beginner workflow. The short command will reuse a correctly
+verified artifact when available; it never fabricates compiler success or accepts
+an incompatible public PKL.
+
+## Send the report
+
+After the command finishes, type `exit` to return to the same PowerShell window:
 
 ```powershell
 scp "comma@${CommaIP}:/data/navigation-smoke/latest-results.tar.gz" .
 ```
 
-Send `latest-results.tar.gz` here. It contains a concise `report.json`, device/runtime
-and artifact hashes, inference timings, compiler proof when applicable, monitoring
-samples, logs and a list of remaining activation checks. It contains no model weights,
-private route recordings, raw camera pixels or credentials. Cache/artifacts remain
-under `/data/navigation-smoke/cache` for reuse. Nothing is installed into the driving
-model selection. Report statuses distinguish probe-only, Bigv2 smoke success and failure.
+Send `latest-results.tar.gz` here. It contains `report.json`, device/runtime and
+artifact identities, timings, any failure, monitoring samples and logs. Model
+weights, private route recordings, raw camera pixels and credentials are excluded.
+The report distinguishes GPU probe success, actual Bigv2 smoke success and failure;
+neither success status enables navigation driving. Diagnostic caches remain under
+`/data/navigation-smoke/cache`, separate from normal driving selection.
 
-For a read-only check without stopping the service:
+For an admission-only check without stopping the service:
 
 ```sh
 sudo .venv/bin/python -m tools.navigation_hardware.smoke check
 ```
 
-## Reconnect, cancel or recover
+## Reconnect, cancel or restore
 
-After reconnecting, return to `/data/openpilot` and use:
+After reconnecting, return to `/data/openpilot`. Check the job with:
 
 ```sh
 sudo .venv/bin/python -m tools.navigation_hardware.smoke status
 ```
 
-To cancel the supervised job and invoke its normal cleanup:
+To cancel it and invoke its normal cleanup:
 
 ```sh
 sudo .venv/bin/python -m tools.navigation_hardware.smoke cancel
 sudo systemctl status comma.service --no-pager
 ```
 
-If restoration was explicitly reported failed, first confirm the diagnostic unit and
-its GPU workers have stopped. Retain the report. If it reports a changed/ROM firmware
-product, disconnect Chestnut USB before restarting: this avoids triggering the normal
-service's existing automatic firmware handling. Keep it disconnected pending review.
-Then restore the original service:
+If service restoration was explicitly reported failed, retain the report and first
+confirm that the diagnostic unit/workers have stopped. Do not restart over a hung
+device owner. If the report shows a changed/ROM Chestnut product, disconnect Chestnut
+USB before restarting; otherwise normal startup could invoke its existing firmware
+handling. Keep it disconnected pending review. Then restore the original service:
 
 ```sh
 sudo systemctl start comma.service
 sudo systemctl status comma.service --no-pager
 ```
 
-Do not start a competing service over a hung device owner. A device/OS hang or actual
-power loss cannot be repaired by software cleanup; let the report identify that
-failure. The normal service's existing startup behavior is preserved, including its
-existing firmware checks; this tool neither invokes a flasher nor changes those checks.
-No automatic scratch-data deletion is performed.
-
-The [existing comprehensive hardware package](navigation-model-hardware.md) remains
-available as an optional advanced workflow. Initial smoke testing does not require it.
-The [activation workflow](navigation-model-activation-workflow.md) explains what results
-are sufficient and how a future authorized update will avoid manual JSON/Params edits.
+A device/OS hang or actual power loss cannot be repaired by cleanup. The normal
+service's updater, models and firmware behavior remain unchanged. The
+[activation workflow](navigation-model-activation-workflow.md) separates remaining
+software delivery work from optional longer testing and future live authorization.

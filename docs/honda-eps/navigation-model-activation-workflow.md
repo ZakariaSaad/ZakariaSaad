@@ -1,93 +1,104 @@
-# From SSH validation to reviewed navigation-model activation
+# From software compatibility to reviewed navigation-model activation
 
-Navigation Model Driving remainsOFF, and the Bigv2 candidate is not approved. This
-change prepares diagnostics and the review process; it does not grant live activation.
-The user never needs to edit JSON/source, compile by hand or set hidden Params.
+Navigation Model Driving remains OFF. The Bigv2 candidate is not approved, and an
+SSH smoke pass cannot approve it. The goal is a correct SunnyPilot implementation
+of comma's navigation-model software, not certification that Chestnut can execute
+comma models. Existing ordinary big-model operation is preserved.
 
 ## Operator workflow
 
-1. Update the same installed v28 branch normally, run the [simple SSH smoke command](navigation-model-ssh-smoke.md)
-   and return `latest-results.tar.gz`. Run the offered `prepare` command only if a
-   verified Bigv2 artifact is missing and the measured resources allow it.
-2. Codex checks source/runtime/firmware/device identities, actual compiler proof,
-   output/state contracts, timing, power/resource failures and service restoration.
-   Probe-only or smoke-only evidence is labelled accordingly, never treated as full
-   activation approval. Missing evidence is returned as a precise next-test list.
-3. Codex supplies any additional automated validation commands needed for the observed
-   setup, reusing its artifact/cache. It must not require a GPU workstation, external
-   bench, manual model compilation, user-assembled manifests or hand-edited settings.
-   Genuine power/off-road incompatibility, memory shortage or faulty hardware remains
-   a blocker; source changes cannot safely bypass it.
-4. Once sufficient results exist, Codex prepares a concrete review: exact checkpoint,
-   native model/warp/compiler-metadata hashes, firmware/runtime profile, compatible
-   configured small fallback, review evidence and intended activation changes. The
-   review must identify remaining road-quality/behavior limits and proposed operating
-   constraints. No larger generation number or firmware upgrade is inferred from names.
-5. The user explicitly authorizes that reviewed activation change. Only then may Codex
-   implement/test the approval and automatic preparation changes and normally push
-   `mvl-honda-eps-selector21-chestnut-v28`. Other branches remain untouched.
-6. The user performs a normal Software settings update/restart, then prepares/selects
-   the approved candidate and enables **Navigation Model Driving** in Models settings
-   while off-road. Existing ordinary model slots remain available as before. Turning
-   the switchOFF and the normal off-road process cycle restore ordinary selection.
+1. Update the same installed v28 branch normally, run the
+   [short SSH compatibility check](navigation-model-ssh-smoke.md), and send
+   `latest-results.tar.gz`. This step has no automatic model download or Bigv2
+   compilation. A missing compatible AMD artifact is a specific software-preparation
+   blocker, not a request to spend 30 minutes compiling on the car battery.
+2. Codex reviews identities, off-road/control evidence, GPU communication, actual
+   artifact proof if present, predictions/timings and service restoration. A probe
+   result is labelled probe-only; short synthetic inference is labelled as such.
+3. Codex completes the remaining software work and targeted integration checks.
+   Any additional on-device check must be automated and scoped to a real unresolved
+   compatibility issue. No user-assembled manifests, hand compilation, source edits,
+   hidden Params, external bench or separate AMD workstation are required of the
+   operator. Long endurance/reference tools remain available for development.
+4. Once sufficient evidence exists, Codex presents the exact checkpoint and native
+   model/warp/metadata hashes, runtime/firmware profile, fallback identity, intended
+   changes and remaining limitations for explicit activation authorization.
+5. Only after that authorization may Codex implement/test the reviewed approval
+   change and normally push `mvl-honda-eps-selector21-chestnut-v28`. No other branch
+   is changed and no device deployment is performed remotely.
+6. The user performs a normal Software settings update/restart, prepares/selects the
+   approved candidate in Models settings and explicitly enables **Navigation Model
+   Driving** while off-road. Turning it OFF and the normal off-road process cycle
+   restore ordinary selection. Existing ordinary model slots remain available.
 
-A short smoke pass alone cannot advance step4 to approval. The returned report includes
-`activation_readiness.normal_activation_allowed=false` and a machine-readable checklist.
-There is no diagnostic CLI switch that flips this approval.
+The user must not manually edit JSON/source or set hidden Params at any step. There
+is no diagnostic CLI switch that grants approval. The report keeps
+`activation_readiness.normal_activation_allowed=false`.
 
-## Evidence required before approval
+## Remaining software requirements before activation
 
-| Gate | Initial smoke establishes | Additional evidence still required |
+| Requirement | Existing evidence / implementation | What still needs to be delivered or verified |
 | --- | --- | --- |
-| Real off-road state / exclusive access | Fresh normal device/panda messages; continuously read physical ignition, silent/noOutput safety; ownership and restoration | Repeated maintenance/startup/recovery checks on the actual setup |
-| Firmware / actual GPU / runtime | Exact USB product, discovered USB AMD LLVM gfx1200 and pinned runtime import | Compatibility during repeated operation; no speculative firmware change |
-| Exact native artifact | On prepare: pinned public ONNX, native compiler hash, two independent source/reloaded verification seeds, actual AMD target | Retained model/warp/metadata identities and reproducible final artifact chain |
-| Tensor/state execution | Eight artificial prewarped frames; finite typed outputs, five state aliases and image-queue appends | Independent equivalent-input CPU/reference versus GPU comparison of all prediction/state tensors |
-| Camera/navigation integration | Not exercised by this short prewarped smoke | Correct warp/upload extent, real VisionIPC/frame identity, map palette/orientation, maneuver geometry and route-generation association |
-| Full recurrent history / transitions | Two samples per arm, intentionally cold-start diagnostic policy | More than132 learned samples, reroutes, consecutive maneuvers, GPS/map/instruction/permission loss, restarts and reacquisition |
-| Clock handling | Off-road admission source clocks only | Actual camera/GPS clock domains, suspension/resumption, valid age/skew and rejection/recovery |
-| Performance / power / cooling | Short inference times, RAM and sampled power/thermal safeguards | Sustained20Hz, stable USB, memory, thermal/power budget on this180W outlet; transient/dropout behavior |
-| Driving-runtime coexistence | No production inference runs during smoke | Non-actuating measurement of simultaneous AMD navigation plus continuously warm QCOM fallback, resource headroom and genuine failure handover |
-| Controls and fallback | No CAN/vehicle controllers run; ordinary selections preserved | Verified installed fallback identity, EPS/MVL timing, driver override/disengagement/safety preservation and mode-dependent prediction consumption review |
-| User approval / delivery | Remains unapproved | Explicit authorization of the exact reviewed activation commit and artifact set |
+| Exact native AMD Bigv2 artifact | Public Bigv2 ONNX identity and native compiler contract are known; CPU execution has been exercised | A real AMD `SPTGPLN1` artifact, pinned runtime/compiler identity, complete source/reloaded output/state proof, retained artifact hash and reviewed distribution/reuse path. No compatible precompiled native artifact is currently verified |
+| Navigation inputs and model I/O | Raw 0..255 map tensor, 47-value maneuver vector, dtype/shape/state contracts and synthetic independent input arms are implemented | Keep parity with the selected official checkpoint; exercise any corrected contract with targeted regression tests. Do not infer compatibility from a model name or rename a comma PKL |
+| Stateful model/runtime integration | Five recurrent pairs, reset/priming, generation checks, prediction parsing and fallback paths have automated coverage | Verify the exact delivered native artifact's aliases/outputs and short non-actuating execution; resolve any actual software discrepancy. Test route/GPS/map/permission/restart transitions in reproducible fixtures rather than requiring the operator to assemble 164 frames |
+| Camera and timing interfaces | Existing warp/frame association and EPS/MVL timing interfaces are preserved | Pin and admit the correct warp/metadata; confirm camera upload dimensions, navigation/frame timestamp domains and rejection/recovery for the final bundle |
+| Model selection and fallback | Ordinary model slots remain intact; candidate permission is default OFF and a compatible native small fallback is required | Automatic off-road UI preparation/manifest registration; verify failed/partial preparation keeps ordinary selection. Validate exact-bundle candidate/fallback loading, handover and timing/resource coexistence without vehicle actuation |
+| Consumer/safety compatibility | Existing Honda EPS, MVL longitudinal and safeguard paths remain preserved | Final intended-diff and regression review for the approved bundle, including model-specific delays, mode-dependent prediction consumption and driver override/disengagement. No steering/braking tuning change is part of this feature |
+| Explicit authorization | No activation approval exists | Present exact hashes and reviewed changes, obtain separate authorization, then deliver the tested update and an explicit off-road Settings switch |
 
-The existing [advanced package](navigation-model-hardware.md) supplies compiler/warp,
-reference/GPU, recurrent-state and long-sequence tooling. Synthetic repeated inputs
-are useful execution tests but do not substitute for actual route/camera provenance or
-learned driving quality. Where additional capture/testing is needed, Codex must supply
-an automated, non-actuating procedure and describe its scope before any execution.
-No navigation-conditioned driving or remote deployment is authorized by these steps.
+The short SSH check supplies actual USB/GPU/runtime information and, only when a
+verified artifact is already available, a few native predictions. It does not
+exercise the live camera warp, production daemon coexistence or navigation driving.
+If one of those has an actual unresolved software issue, Codex must identify it
+specifically and supply the smallest useful automated check. A short non-actuating
+production-runner/coexistence check may be needed for the final artifact; that is
+distinct from demanding an endurance or thermal-certification session.
+
+## Optional development checks
+
+The [existing comprehensive package](navigation-model-hardware.md) retains
+equivalent-input CPU/GPU comparisons, long recurrent sequences and detailed
+power/thermal measurements. They can help investigate a compiler discrepancy,
+memory leak, timing problem or reset bug. They are **not** the default SSH procedure,
+and a 164-frame run, thermal certification, dedicated test bench or prolonged
+ACCESSORY-mode session is not a blanket prerequisite for software compatibility.
+
+Measured short inference timing still matters to the model's 20 Hz contract; existing
+hardware capability does not excuse a wrong artifact, excessive memory ownership
+or broken fallback. If a concrete runtime budget problem appears, report it and
+fix the responsible software before activation. Synthetic repeated inputs do not
+prove learned driving quality, and no off-road smoke test proves safe navigation
+driving. Any later controlled road validation remains a separate authorized activity.
 
 ## What the future approval update must deliver automatically
 
-The current driving registry deliberately has `hardware_reviewed=false`,
-`activation_approved=false` and null model/warp/metadata hashes. The runtime also
-requires a verified local manifest and a compatible ordinary native small-model fallback.
-The present selection helper does not install/register those artifacts by itself.
-Those are explicit pending delivery work, not something the user should repair through
-hidden parameters.
+The driving registry deliberately retains `hardware_reviewed=false`,
+`activation_approved=false` and null model/warp/metadata hashes. The runtime requires
+a verified local manifest and compatible ordinary native small-model fallback.
+The current selection helper does not install/register those artifacts by itself.
+This is pending software delivery work, not a problem for the user to repair.
 
-The authorized approval change must therefore include all of the following, tested
-with successful/failed/partial downloads, unavailable resources, restarts and OFF mode:
+Before the final enabling update, the implementation must:
 
-- Pin the exact reviewed native artifact/warp/metadata hashes and source evidence in
-  the branch-controlled candidate registry, without altering the public production
-  catalogs or inventing a SunnyPilot generation.
-- Provide an off-road UI preparation action that discovers/reuses the verified local
-  diagnostic artifacts or downloads the exact approved bytes from a reviewed source,
-  checks hashes, prepares/relocates the manifest and registers its path automatically.
-  Hashes alone cannot recreate a lost compiled model: an approved artifact must be
-  retained, or its exact reproducible preparation must be automated and reverified.
-- Preserve compiler-proof paths/runtime identity when relocating; the diagnostic
-  manifest is path-bound. Validate the relocated bundle before making it available.
-- Keep the permission switchOFF through update and preparation. Require the user's
-  explicit off-road Settings action to enable it. Fail closed with a readable reason
-  and retain ordinary model operation if any artifact/profile/fallback check fails.
-- Keep the configured small fallback and model-specific timing correct; verify the
-  normal updater and rollback on the exact final source. Do not change steering,
-  braking, safety, firmware or normal model settings to make admission succeed.
+- Pin the exact reviewed model/warp/metadata hashes and source/compiler evidence in
+  the branch-controlled candidate registry. Preserve production catalogs and do not
+  invent a SunnyPilot generation.
+- Provide an off-road UI preparation action that discovers/reuses verified local
+  artifacts or downloads the exact approved bytes from a reviewed source, validates
+  hashes and registers the manifest automatically. Hashes cannot recreate a lost
+  artifact: retain the reviewed bytes or provide an automated, reverified preparation.
+- Preserve proof/runtime identities when relocating the path-bound manifest and
+  validate the relocated bundle before admitting it. Test successful, failed and
+  interrupted preparation, unavailable resources, restarts and OFF mode.
+- Keep permission OFF through update/preparation; require the user's explicit off-road
+  Settings action to enable it. On any missing artifact/profile/fallback check, show
+  the precise reason and retain ordinary model operation.
+- Preserve model-specific timing, Honda EPS/MVL behavior, Chestnut/Selector 21 and
+  normal same-repository/same-branch updates and rollback. Do not alter firmware or
+  unrelated safety/control settings to make admission succeed.
 
-Codex performs this work only after the evidence and explicit authorization in steps4–5.
-No unsupported artifact, local diagnostic manifest or manually forced checkbox can
-approve operation. Initial road validation, if later authorized, remains a separate
-controlled activity; no short off-road test establishes safe navigation driving.
+Software implementation and verification can proceed while approval remains OFF.
+The approval flags and exact approved artifact set change only after the user has
+reviewed the evidence and explicitly authorized live integration. Nothing in this
+workflow authorizes remote deployment, firmware flashing or navigation actuation.

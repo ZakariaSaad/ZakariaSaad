@@ -20,19 +20,31 @@ from tools.navigation_hardware.safety import HardwareAdmissionError
 class TestSmokeChecks(unittest.TestCase):
   def snapshot(self):
     return {'fresh': True, 'device_type': 'mici', 'started': False, 'is_offroad': True, 'is_engaged': False,
+            'control_processes': dict.fromkeys(checks.CONTROL_PROCESSES, False),
+            'control_states': {},
             'pandas': [{'type': 'cuatro', 'ignition_line': False, 'ignition_can': False, 'controls_allowed': False}]}
 
-  def test_actual_offroad_and_physical_flags_all_required(self):
+  def test_software_offroad_is_required_and_ignition_alone_is_not_a_veto(self):
     value = self.snapshot()
     checks.require_offroad(value)
     for field, invalid in (('fresh', False), ('device_type', 'tici'), ('started', True), ('is_offroad', False), ('is_engaged', True)):
       with self.subTest(field=field), self.assertRaises(HardwareAdmissionError):
         checks.require_offroad(value | {field: invalid})
-    for field in ('ignition_line', 'ignition_can', 'controls_allowed'):
-      with self.subTest(field=field), self.assertRaises(HardwareAdmissionError):
+    for field in ('ignition_line', 'ignition_can'):
+      with self.subTest(field=field):
         changed = copy.deepcopy(value)
         changed['pandas'][0][field] = True
         checks.require_offroad(changed)
+    changed = copy.deepcopy(value)
+    changed['pandas'][0]['controls_allowed'] = True
+    with self.assertRaisesRegex(HardwareAdmissionError, 'controls are allowed'):
+      checks.require_offroad(changed)
+    for state in ({}, dict.fromkeys(checks.CONTROL_PROCESSES, True)):
+      with self.subTest(state=state), self.assertRaisesRegex(HardwareAdmissionError, 'processes'):
+        checks.require_offroad(value | {'control_processes': state})
+    for state in ({'fresh': True, 'valid': True, 'active': True}, {'fresh': True, 'valid': False, 'active': False}):
+      with self.subTest(state=state), self.assertRaisesRegex(HardwareAdmissionError, 'carControl'):
+        checks.require_offroad(value | {'control_states': {'carControl': state}})
     for pandas in ([], value['pandas'] * 2, [value['pandas'][0] | {'type': 'unknown'}]):
       with self.subTest(pandas=pandas), self.assertRaises(HardwareAdmissionError):
         checks.require_offroad(value | {'pandas': pandas})
@@ -60,15 +72,30 @@ class TestSmokeChecks(unittest.TestCase):
         self.closed = True
     handle = ReadHandle()
     with patch('panda.python.spi.PandaSpiHandle', return_value=handle), patch.object(Panda, '__init__', side_effect=AssertionError('No Panda constructor')):
-      reader = checks.IgnitionReader()
+      reader = checks.PandaSafetyReader()
       self.assertEqual(reader.sample()['safety_mode'], 19)
-      for flags, mode, controls in ((1, 19, 0), (2, 19, 0), (4, 19, 0), (0, 20, 0), (0, 19, 1), (0, 19, 2)):
+      for flags in (1, 2, 3):
+        fields[8] = flags  # Physical ignition can be ON while software stays off-road.
+        reader.sample()
+      for flags, mode, controls in ((4, 19, 0), (0, 20, 0), (0, 19, 1), (0, 19, 2)):
         fields[8], fields[10], fields[21] = flags, mode, controls
         with self.subTest(flags=flags, mode=mode, controls=controls), self.assertRaises(HardwareAdmissionError):
           reader.sample()
       reader.close()
     self.assertTrue(handle.closed)
     self.assertEqual(set(handle.calls), {0xdd, 0xd2})
+
+  def test_maintenance_params_are_rechecked_without_writing_them(self):
+    values = {'IsOffroad': True, 'IsEngaged': False, 'NavigationModelDrivingEnabled': False}
+    params = SimpleNamespace(get_bool=values.get)
+    self.assertTrue(checks.offroad_params(params)['is_offroad'])
+    for name, invalid in (('IsOffroad', False), ('IsEngaged', True), ('NavigationModelDrivingEnabled', True)):
+      with self.subTest(name=name):
+        original = values[name]
+        values[name] = invalid
+        with self.assertRaises(HardwareAdmissionError):
+          checks.offroad_params(params)
+        values[name] = original
 
   def test_power_and_resource_limits_are_checked_without_larger_hardware(self):
     handle = SimpleNamespace(controlRead=lambda *args, **kwargs: struct.pack('<Hh?', 12000, 1500, False))
@@ -91,6 +118,9 @@ class TestSmokeChecks(unittest.TestCase):
     for devices in ([], [good, good], [good | {'rom_mode': True}], [good | {'speed': '480'}], [good | {'product': 'custom ed4e39b7-CLEAN'}]):
       with self.subTest(devices=devices), patch.object(smoke, 'usb_devices', return_value=devices), self.assertRaises(HardwareAdmissionError):
         smoke.usb_profile(identity)
+    with patch.object(smoke, 'usb_devices', return_value=[good | {'product': 'custom ed4e39b7-CLEAN'}]), \
+         self.assertRaisesRegex(HardwareAdmissionError, 'Observed:.*custom ed4e39b7-CLEAN'):
+      smoke.usb_profile(identity)
 
 
 class TestMaintenance(unittest.TestCase):
@@ -112,7 +142,7 @@ class TestMaintenance(unittest.TestCase):
     self.assertTrue(any(arg.startswith('--property=ExecStopPost=') and '--finalize' in arg for arg in command))
     self.assertIn('--property=KillMode=control-group', command)
     self.assertIn('--property=OOMPolicy=stop', command)
-    self.assertIn('--property=RuntimeMaxSec=600', command)
+    self.assertIn('--property=RuntimeMaxSec=240', command)
     self.assertIn('--property=MemoryMax=1G', command)
     self.assertIn('--property=MemoryMax=5G', smoke.unit_command(self.workspace, 'prepare'))
     self.assertNotIn('bash', command)
@@ -182,6 +212,24 @@ class TestMaintenance(unittest.TestCase):
     report = json.loads((self.workspace / 'report.json').read_text())
     self.assertEqual(report['status'], 'gpu_probe_passed_bigv2_not_tested')
     self.assertFalse(report['activation_readiness']['normal_activation_allowed'])
+    self.assertNotIn('next_command', report)
+    self.assertIn('Software preparation required', report['blocker'])
+
+  def test_cached_verified_artifact_can_be_tested_without_onnx_download(self):
+    class Guard:
+      def __enter__(self):return self
+      def __exit__(self, *args):return None
+    cache = self.root / 'cache'
+    cache.mkdir()
+    (cache / 'bigv2-amd.sptg').write_bytes(b'inert artifact fixture; verified by real worker in separate tests')
+    with patch.object(smoke, 'initial_checks', return_value=self.receipt), patch.object(smoke, 'systemctl'), \
+         patch.object(smoke, 'service_active', return_value=False), patch.object(smoke, 'stage_download_links', return_value=0), \
+         patch.object(smoke, 'MaintenanceGuard', return_value=Guard()), patch.object(smoke, 'run_worker', return_value={'passed': True}) as worker, \
+         patch.object(smoke, 'obtain_onnx', side_effect=AssertionError('No source download for smoke')), \
+         patch.object(smoke, 'source_identity', return_value=self.identity):
+      self.assertEqual(smoke.job(self.workspace, 'smoke'), 0)
+    self.assertEqual([call.args[0] for call in worker.call_args_list], ['probe', 'infer'])
+    self.assertIsNone(worker.call_args.kwargs['onnx'])
 
   def test_explicit_prepare_uses_only_native_amd_compiler_then_smoke(self):
     class Guard:
@@ -207,7 +255,7 @@ class TestMaintenance(unittest.TestCase):
     report = json.loads((self.workspace / 'report.json').read_text())
     self.assertEqual(report['status'], 'bigv2_smoke_passed_not_activation_approval')
     self.assertFalse(report['activation_readiness']['normal_activation_allowed'])
-    self.assertGreater(len(report['activation_readiness']['remaining_before_activation']), 6)
+    self.assertIn('optional_development_checks', report['activation_readiness'])
 
   def test_worker_failure_retains_cleanup_receipt_and_cannot_approve_activation(self):
     with patch.object(smoke, 'initial_checks', side_effect=HardwareAdmissionError('ignition switched on')), patch.object(smoke, 'systemctl') as ctl:
@@ -221,7 +269,7 @@ class TestMaintenance(unittest.TestCase):
       smoke.finalize(self.workspace)
     self.assertTrue(json.loads((self.workspace / 'report.json').read_text())['service_restored'])
 
-  def test_watchdog_kills_only_its_own_worker_on_ignition_or_power_loss(self):
+  def test_watchdog_kills_only_its_own_worker_on_controls_or_power_loss(self):
     guard = SimpleNamespace(sample=lambda **kwargs: (_ for _ in ()).throw(HardwareAdmissionError('power lost')))
     with patch.object(smoke, 'worker_environment', return_value=os.environ.copy()), \
          patch.object(checks, 'resources', return_value={'worker_rss_limit_bytes': 4 * checks.GIB}), \
@@ -310,6 +358,10 @@ class TestSyntheticInference(unittest.TestCase):
     with patch.object(worker, 'sha256', side_effect=lambda p: SOURCE_ONNX_SHA256 if Path(p) == fixture.source else original_sha(p)):
       proof = worker.verified_artifact(artifact, fixture.source, fixture.compiler)
       self.assertEqual(proof['artifact_sha256'], original_sha(artifact))
+      self.assertTrue(proof['source_onnx_bytes_rechecked'])
+      cached_proof = worker.verified_artifact(artifact, None, fixture.compiler)
+      self.assertFalse(cached_proof['source_onnx_bytes_rechecked'])
+      self.assertEqual(proof['source_onnx_sha256'], cached_proof['source_onnx_sha256'])
       failed = copy.deepcopy(fixture.report)
       failed['backend']['kind'] = 'host_cpu'
       report.write_text(json.dumps(failed))
@@ -342,7 +394,7 @@ class TestSyntheticInference(unittest.TestCase):
 
 
 class TestNativeOffroadAdmission(unittest.TestCase):
-  def exercise(self, *, stale=False):
+  def exercise(self, *, stale=False, running_control=False, active_control=False, ignition=True):
     import threading
     import time
     from openpilot.cereal import messaging
@@ -355,7 +407,7 @@ class TestNativeOffroadAdmission(unittest.TestCase):
       params.put_bool('IsEngaged', False, block=True)
       finished = threading.Event()
       def publish():
-        pm = messaging.PubMaster(['deviceState', 'pandaStates'])
+        pm = messaging.PubMaster(['deviceState', 'pandaStates', 'managerState', 'carControl', 'selfdriveState'])
         while not finished.is_set():
           device = messaging.new_message('deviceState')
           device.valid = True
@@ -365,7 +417,21 @@ class TestNativeOffroadAdmission(unittest.TestCase):
           pandas = messaging.new_message('pandaStates', 1)
           pandas.valid = True
           pandas.pandaStates[0].pandaType = 'cuatro'
+          pandas.pandaStates[0].ignitionLine = ignition
+          pandas.pandaStates[0].ignitionCan = ignition
           pandas.logMonoTime = time.clock_gettime_ns(time.CLOCK_BOOTTIME) - (3_000_000_000 if stale else 0)
+          manager = messaging.new_message('managerState', valid=True)
+          manager.managerState.processes = [{'name': name, 'running': running_control} for name in sorted(checks.CONTROL_PROCESSES)]
+          control = messaging.new_message('carControl', valid=True)
+          control.carControl.enabled = active_control
+          control.carControl.latActive = active_control
+          state = messaging.new_message('selfdriveState', valid=True)
+          state.selfdriveState.enabled = active_control
+          state.selfdriveState.active = active_control
+          state.selfdriveState.state = 'enabled' if active_control else 'disabled'
+          pm.send('managerState', manager)
+          pm.send('carControl', control)
+          pm.send('selfdriveState', state)
           pm.send('deviceState', device)
           pm.send('pandaStates', pandas)
           finished.wait(.05)
@@ -378,10 +444,17 @@ class TestNativeOffroadAdmission(unittest.TestCase):
         finished.set()
         thread.join(3)
 
-  def test_native_msgq_and_params_admit_only_fresh_physical_snapshot(self):
-    self.assertTrue(self.exercise()['is_offroad'])
+  def test_native_msgq_and_params_admit_only_fresh_genuine_offroad_controls(self):
+    result = self.exercise()
+    self.assertTrue(result['is_offroad'])
+    self.assertTrue(result['pandas'][0]['ignition_line'])
+    self.assertFalse(result['control_states']['carControl']['active'])
     with self.assertRaisesRegex(HardwareAdmissionError, 'timestamps'):
       self.exercise(stale=True)
+    with self.assertRaisesRegex(HardwareAdmissionError, 'processes'):
+      self.exercise(running_control=True)
+    with self.assertRaisesRegex(HardwareAdmissionError, 'active'):
+      self.exercise(active_control=True)
 
 
 if __name__ == '__main__':

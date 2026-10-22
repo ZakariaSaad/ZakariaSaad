@@ -18,7 +18,7 @@ from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.navigation.helpers import navigation_input, valhalla_type
 from openpilot.selfdrive.navigation.generation import destination_key, gps_source
-from openpilot.selfdrive.navigation.temporal import NavigationContext, NavigationTransitions, context_reason
+from openpilot.selfdrive.navigation.temporal import CameraClock, ClockAlignmentError, NavigationContext, NavigationTransitions, context_reason
 
 NAV_INPUT_NAMES = ('nav_map', 'navigation')
 MAP_SHAPE = (1, 1, 256, 256)
@@ -154,10 +154,15 @@ class NavigationInputs:
   A caller must honor reset_required before feeding inputs to a recurrent model;
   invalid data is skipped rather than asserted to be a trained zero fallback.
   """
-  def __init__(self, params=None, client=None, clock=time.monotonic, *, diagnostic=False, driving_permit=None):
+  def __init__(self, params=None, client=None, clock=None, *, diagnostic=False, driving_permit=None, camera_clock=None):
     self.params = params if params is not None else Params()
     self._client = client
-    self._clock = clock
+    self._clock = clock if clock is not None else time.monotonic
+    # A caller-supplied clock describes an explicit offline/replay timeline.
+    # Only live, approved driving automatically bridges the native camera.
+    self._camera_clock = camera_clock if camera_clock is not None else CameraClock() if driving_permit is not None and clock is None else None
+    self._clock_source_floor = 0
+    self._clock_reset_reason = None
     self.diagnostic = diagnostic
     self.driving_permit = driving_permit
     self._map = None
@@ -201,6 +206,10 @@ class NavigationInputs:
     self.reset_required = decision.reset
     self.reset_reason = decision.reason if decision.reset else None
     self.reason = decision.reason if not decision.infer else reason
+    if self._clock_reset_reason is not None:
+      self.reset_required = True
+      self.reset_reason = self.reason = self._clock_reset_reason
+      self._clock_reset_reason = None
     if self._producer_restart:
       self.reset_required = True
       self.reason = 'map_producer_restart'
@@ -216,7 +225,18 @@ class NavigationInputs:
     try:
       key = destination_key(self.params.get('NavDestination'))
       identity = (0, key)
-      inputs, reason, identity = self._read(sm, v_ego, camera_timestamp_ns, key)
+      camera_ns = camera_timestamp_ns
+      if self._camera_clock is not None:
+        sample = self._camera_clock.sample(camera_timestamp_ns)
+        camera_ns = sample.camera_ns
+        if sample.new_epoch:
+          self._clear()
+          self._clock_source_floor = sample.epoch_ns
+          self._clock_reset_reason = 'camera_clock_epoch_changed'
+      inputs, reason, identity = self._read(sm, v_ego, camera_ns, key)
+    except ClockAlignmentError as error:
+      self._clear()
+      inputs, reason = {}, str(error)
     except Exception:
       if not self._failed:
         cloudlog.exception('navigation_model_input_preparation_failed')
@@ -259,6 +279,9 @@ class NavigationInputs:
     instruction_event = int(sm.logMonoTime['navInstruction'])
     instruction_source = int(instruction.gpsSourceMonoTime)
     gps_timestamp = int(sm.logMonoTime[source])
+    if min(instruction_event, instruction_source, gps_timestamp) < self._clock_source_floor:
+      self._clear()
+      return {}, 'waiting_for_clock_epoch_sources', identity
     if (instruction_event <= 0 or instruction_event < self._instruction_event_floor or
         instruction_source < self._instruction_source_floor or gps_timestamp < self._gps_source_floor):
       self._clear()
@@ -291,6 +314,9 @@ class NavigationInputs:
       self._clear()
       return {}, 'map_route_mismatch_or_invalid', identity
     signature = (int(metadata.frameId), int(metadata.locationMonoTime), int(metadata.renderMonoTime))
+    if min(signature[1:]) < self._clock_source_floor:
+      self._clear()
+      return {}, 'waiting_for_clock_epoch_map', identity
     if signature in self._pending:
       if signature[2] < self._render_floor or signature[1] < self._map_source_floor:
         self._clear()

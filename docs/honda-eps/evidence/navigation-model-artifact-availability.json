@@ -1,0 +1,38 @@
+{
+  "checked_at_utc": "2026-10-22T03:17:33.976500+00:00",
+  "official_reference": {
+    "url": "https://github.com/commaai/openpilot/tree/nav-model-integration",
+    "sha": "afbf2e547e9319e2eb9f515e1e4330af63705cec"
+  },
+  "sunnypilot_pr2057": {
+    "html_url": "https://github.com/sunnypilot/sunnypilot/pull/2057",
+    "state": "open",
+    "draft": true,
+    "merged": false,
+    "updated_at": "2026-10-19T21:11:16Z",
+    "head_sha": "f7f9a3efae3a6552068201bd9e4e4dbe66aae577"
+  },
+  "bigv2_release": {
+    "url": "https://github.com/happymaj11r/openpilot-models/releases/tag/big-nav-model-integration-1d18c42e",
+    "tag": "big-nav-model-integration-1d18c42e",
+    "assets": [
+      {
+        "name": "big_driving_supercombo.onnx",
+        "size": 814591106,
+        "digest": "sha256:1d18c42ea4cd95c8bffab4635844b78b8e2d4e25b9de44a9c5ac2e0961371a2e",
+        "browser_download_url": "https://github.com/happymaj11r/openpilot-models/releases/download/big-nav-model-integration-1d18c42e/big_driving_supercombo.onnx"
+      }
+    ]
+  },
+  "current_chestnut_catalog": {
+    "url": "https://github.com/sunnypilot/sunnypilot-models/blob/gh-pages/docs/driving_models_chestnut_v28.json",
+    "git_blob": "85154117ab810cbf4c210dacf7868dd94abc61c8",
+    "tinygrad_ref": "5d186bdb43c2bcc6c56b6ececf427c34bada0de9",
+    "bundle_count": 17,
+    "navigation_bundles": []
+  },
+  "compiled_native_amd_artifact_found": false,
+  "bounded_scope": "Checked official reference branch, SP PR2057 files/comments, known Bigv2 release and current SP chestnut catalog plus release list. No claim to exhaust private/unpublished artifacts.",
+  "compilation_requirement": "Existing pinned native compiler executes source and reloaded graph against a real matching AMD target to produce its successful verification report. This CPU-only cloud workspace has no AMD/USB device. Mock execution previously failed its lifted CPU ushort2-to-float4 bitcast kernel; no verified AMD artifact resulted.",
+  "off_vehicle_option": "A maintainer/CI machine with a matching physical AMD LLVM gfx1200 USB/Chestnut target and the pinned runtime can build once using existing compile_modeld_v2.py, publish the SPTG plus complete source/reload provenance and exact hashes, then the installed device only performs a short inference check. An arbitrary AMD PCI target does not meet the current USB-target admission contract. No such public package was found. Hosted CPU-only CI cannot truthfully claim the compiler source/reload physical execution check."
+}

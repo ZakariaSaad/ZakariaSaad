@@ -7,6 +7,8 @@ from openpilot.common.test import OpenpilotTestCase
 from openpilot.common.params import Params
 from openpilot.selfdrive.navigation import model_inputs
 from openpilot.selfdrive.navigation.generation import destination_key
+from openpilot.selfdrive.navigation.temporal import CameraClock
+from openpilot.selfdrive.navigation.tests.test_activation import reviewed_fixture
 
 
 class Messages:
@@ -143,3 +145,93 @@ class TestNavigationAdmission(OpenpilotTestCase):
     self.assertTrue(self.reader.read(self.sm, 10.0, self.camera_ns+50_000_000))
     self.assertEqual(self.reader.context.frame_id, 1)
     self.assertFalse(self.reader.reset_required)
+
+  def test_explicit_live_clock_bridge_reacquires_fresh_sources_after_suspend(self):
+    offset = [30_000_000_000]
+    clock = CameraClock(lambda: int(self.now * 1e9), lambda: int(self.now * 1e9) + offset[0])
+    reader = model_inputs.NavigationInputs(self.params, self.client, clock=lambda: self.now, camera_clock=clock)
+
+    def tick(*, advance=True, fresh_source=True, fresh_map=True):
+      if advance:
+        self.now += .05
+      self.sm = Messages(self.now)
+      source = int((self.now - (.01 if fresh_source else .9)) * 1e9)
+      self.sm.logMonoTime['gpsLocation'] = source
+      self.sm.logMonoTime['navInstruction'] = int(self.now * 1e9)
+      self.sm.data['navInstruction'].gpsSourceMonoTime = source
+      metadata = self.sm.data['navModelStateSP']
+      metadata.frameId = self.client.frame_id = self.client.frame_id + 1
+      metadata.locationMonoTime = self.client.timestamp_sof = source if fresh_map else int((self.now - .9) * 1e9)
+      metadata.renderMonoTime = self.client.timestamp_eof = int(self.now * 1e9)
+      self.client.frame = SimpleNamespace(data=bytes([128]) * 256 * 256, width=256, height=256)
+      return reader.read(self.sm, 10., int(self.now * 1e9) + offset[0])
+
+    self.assertEqual(tick(advance=False), {})
+    self.assertTrue(reader.reset_required)
+    self.assertEqual(reader.reset_reason, 'camera_clock_epoch_changed')
+    self.assertEqual(reader.input_reason, 'waiting_for_clock_epoch_sources')
+    inputs = tick()
+    self.assertTrue(inputs, reader.input_reason)
+    self.assertEqual(reader.context.camera_ns, int(self.now * 1e9))
+    self.assertEqual(reader._map_source_ns, self.client.timestamp_sof)
+    self.assertEqual(reader.context.map_render_ns, self.client.timestamp_eof)
+    self.assertTrue(reader.reset_required)
+    self.assertTrue(tick())
+    self.assertFalse(reader.reset_required)
+    offset[0] += 45_000_000_000
+    self.assertEqual(tick(), {})
+    self.assertTrue(reader.reset_required)
+    self.assertEqual(reader.reset_reason, 'camera_clock_epoch_changed')
+    # Fresh receipt cannot promote a producer sample from before the new epoch.
+    self.assertEqual(tick(fresh_source=False), {})
+    self.assertEqual(reader.input_reason, 'waiting_for_clock_epoch_sources')
+    self.assertEqual(tick(fresh_map=False), {})
+    self.assertEqual(reader.input_reason, 'waiting_for_clock_epoch_map')
+    self.assertTrue(tick(), reader.input_reason)
+    self.assertTrue(reader.reset_required)
+
+  def test_live_driving_uses_clock_bridge_and_explicit_replay_retains_its_clock(self):
+    permit = object()
+    self.assertIsInstance(model_inputs.NavigationInputs(self.params, driving_permit=permit)._camera_clock, CameraClock)
+    reader = model_inputs.NavigationInputs(self.params, clock=lambda: self.now, driving_permit=permit)
+    self.assertIsNone(reader._camera_clock)
+    self.assertIsNone(model_inputs.NavigationInputs(self.params)._camera_clock)
+
+  def test_reviewed_driving_permit_requires_clock_epoch_sources_and_revokes_cached_inputs(self):
+    now_ns = [100_000_000_000]
+    offset = 30_000_000_000
+    bridge = CameraClock(lambda: now_ns[0], lambda: now_ns[0] + offset)
+    client = Client(99_100_000_000)
+    # This fixture simulates reviewed hashes; no artifact is executed or approved.
+    # Disable the offline path so both successful reads and revocation use the
+    # production permit validation, alongside the measured clock conversion.
+    with reviewed_fixture() as (params, permit, _), patch.object(model_inputs, 'PC', False):
+      params.values.update(NavigationEnabled=True, NavDestination={'latitude': 1., 'longitude': 2.})
+      self.assertFalse(params.get_bool('NavigationModelInputsEnabled'))
+      reader = model_inputs.NavigationInputs(params, client, clock=lambda: now_ns[0] / 1e9,
+                                             driving_permit=permit, camera_clock=bridge)
+      self.assertEqual(reader.read(Messages(100.), 10., now_ns[0] + offset), {})
+      self.assertEqual(reader.input_reason, 'waiting_for_clock_epoch_sources')
+      self.assertTrue(reader.reset_required)
+
+      now_ns[0] += 50_000_000
+      sm = Messages(now_ns[0] / 1e9)
+      sm.logMonoTime['navInstruction'] = now_ns[0]
+      sm.logMonoTime['gpsLocation'] = sm.data['navInstruction'].gpsSourceMonoTime = now_ns[0] - 10_000_000
+      metadata = sm.data['navModelStateSP']
+      metadata.locationMonoTime = client.timestamp_sof = now_ns[0] - 10_000_000
+      metadata.renderMonoTime = client.timestamp_eof = now_ns[0]
+      metadata.frameId = client.frame_id = 2
+      client.frame = SimpleNamespace(data=bytes([128]) * 256 * 256, width=256, height=256)
+      inputs = reader.read(sm, 10., now_ns[0] + offset)
+      self.assertTrue(inputs, reader.input_reason)
+      self.assertEqual(reader.context.camera_ns, now_ns[0])
+      self.assertEqual(reader.context.map_source_ns, client.timestamp_sof)
+      self.assertEqual(inputs['navigation'][15], 1.)
+
+      params.values['NavigationModelDrivingEnabled'] = False
+      now_ns[0] += 50_000_000
+      self.assertEqual(reader.read(sm, 10., now_ns[0] + offset), {})
+      self.assertTrue(reader.reset_required)
+      self.assertIsNone(reader._map)
+      self.assertIsNone(reader.context)

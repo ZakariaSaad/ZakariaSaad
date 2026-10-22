@@ -1,5 +1,7 @@
 # Navigation-model compatibility and checkpoint audit
 
+The [latest software status](navigation-model-software-status.md) records the measured camera clock bridge, candidate-first startup, short SSH workflow and a fresh bounded artifact-availability check. Extended physical characterization is optional; exact artifact/runtime integration remains required before activation.
+
 This continues the Stage 2 investigation from experimental commit
 `036fd8ca9afb5240fa163c377bcfa2b961a38fe0`. The working selector/navigation
 baseline is `4851eacac8fce2e875a0ef7703af5f5025fc0c15`. This report identifies
