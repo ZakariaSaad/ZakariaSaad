@@ -170,7 +170,10 @@ class TestNavigationModelInputs(OpenpilotTestCase):
     # This safety boundary must remain ahead of any production publisher, including demo mode.
     tree = ast.parse(inspect.getsource(modeld_module.main))
     calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)]
-    guards = [node.lineno for node in calls if node.func.id == '_reject_navigation_publication']
+    # Check the unconditional main-startup guard, separately from the additional
+    # post-warmup check inside the asynchronous big-model loader.
+    guards = [node.lineno for node in tree.body if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+              and isinstance(node.value.func, ast.Name) and node.value.func.id == '_reject_navigation_publication']
     publishers = [node.lineno for node in calls if node.func.id == 'PubMaster']
     self.assertEqual(len(guards), 1)
     self.assertTrue(publishers)
