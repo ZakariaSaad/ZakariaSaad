@@ -51,6 +51,7 @@ from openpilot.sunnypilot.modeld_v2.modeld_base import ModelStateBase
 from openpilot.sunnypilot.modeld_v2.helpers import load_model
 from openpilot.sunnypilot.modeld_v2.frame_fusion import fused_with_warp
 from openpilot.sunnypilot.modeld_v2.model_adapters import get_model_adapter
+from openpilot.sunnypilot.modeld_v2.numerics import nonfinite_details
 from openpilot.sunnypilot.models.helpers import get_active_bundle
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import drive_config_for_model
@@ -115,6 +116,8 @@ class FrameMeta:
 
 
 class ModelState(ModelStateBase):
+  _inference_context: dict | None = None
+
   inputs: dict[str, np.ndarray]
   prev_desire: np.ndarray
 
@@ -303,6 +306,7 @@ class ModelState(ModelStateBase):
       self.numpy_inputs['tfm'][:, :] = transforms[self._road_key].reshape(3, 3)
       self.numpy_inputs['big_tfm'][:, :] = transforms[self._wide_key].reshape(3, 3)
 
+    inference_start = time.perf_counter() if self.chestnut else 0.0
     raw_outputs = self.adapter.run()
     if self.chestnut and (err := Device[self.DEV].error_state.host.view(fmt='q')[0]):
       raise RuntimeError(f"chestnut failed with {err}")
@@ -313,6 +317,7 @@ class ModelState(ModelStateBase):
     if self._combined_model_type == 'supercombo':
       model_output = raw_outputs.numpy().flatten()
       if self.chestnut and not np.all(np.isfinite(model_output)):
+        self._log_nonfinite_output(model_output, inference_ms=(time.perf_counter() - inference_start) * 1000)
         raise RuntimeError("model output not finite")
       sliced = {k: model_output[np.newaxis, v] for k, v in self.vision_output_slices.items()}
       outputs = self.parser.parse_outputs(sliced)
@@ -348,6 +353,17 @@ class ModelState(ModelStateBase):
       buf[0, -1, :] = outputs['desired_curvature'][0, :] if not self.mlsim else 0
 
     return outputs
+
+  def _log_nonfinite_output(self, output, *, inference_ms):
+    """Never mask rejection or delay fallback with additional GPU readbacks."""
+    try:
+      details = nonfinite_details(output, self.vision_output_slices, self.numpy_inputs,
+                                  context=getattr(self, '_inference_context', None), inference_ms=inference_ms)
+      cloudlog.event('model_output_nonfinite', error=True, details=details)
+    except Exception:
+      # Even a malformed diagnostic or unavailable logger must preserve the
+      # original exception and the ordinary big-to-small recovery path.
+      pass
 
   def get_action_from_model(self, model_output: dict[str, np.ndarray], prev_action: log.ModelDataV2.Action,
                             lat_action_t: float, long_action_t: float, v_ego: float) -> log.ModelDataV2.Action:
@@ -661,6 +677,13 @@ def main(demo=False):
       if nav_inputs is not None and takes_nav(model):
         inputs.update(nav_inputs.read_for_model(sm, v_ego, meta_main.timestamp_sof) if navigation_permit is not None else
                       nav_inputs.read(sm, v_ego, meta_main.timestamp_sof))
+      if navigation_permit is not None and takes_nav(model):
+        model._inference_context = {
+          'frame_id': int(meta_main.frame_id), 'camera_sof_ns': int(meta_main.timestamp_sof),
+          'camera_eof_ns': int(meta_main.timestamp_eof), 'camera_extra_skew_ns': int(meta_extra.timestamp_sof - meta_main.timestamp_sof),
+          'run_count': run_count, 'map_reason': getattr(nav_inputs, 'map_reason', 'unavailable'),
+          'maneuver_reason': getattr(nav_inputs, 'maneuver_reason', 'unavailable'),
+        }
       send_chestnut = (chestnut_state is not None and
                        run_count % round(model.constants.MODEL_FREQ / SERVICE_LIST['chestnutGpuState'].frequency) == 0)
       model_output = model.run(bufs, transforms, inputs, chestnut_state.send if send_chestnut else None)

@@ -26,7 +26,7 @@ class EndOfFrames(Exception):
 class TestNavigationPublication(unittest.TestCase):
   def test_actual_main_runs_one_selected_model_and_uses_small_only_after_failure(self):
     for transition in ('healthy', 'missing_navigation', 'route_change', 'destination_cleared', 'navigation_off',
-                       'permission_revoked', 'candidate_failure', 'feature_disabled'):
+                       'permission_revoked', 'candidate_failure', 'candidate_nonfinite', 'feature_disabled'):
       with self.subTest(transition=transition):
         self._exercise_transition(transition)
 
@@ -54,6 +54,8 @@ class TestNavigationPublication(unittest.TestCase):
         output = np.frombuffer(output_buffers['outputs']._buffer().as_memoryview(allow_zero_copy=True), dtype=np.float32)
         output[:] = 0
         output[2062:2066] = [4., -1., 0., 0.]
+        if transition == 'candidate_nonfinite' and camera.frame_id == 2:
+          output[2062] = np.nan
         for name, state in states.items():
           dtype = np.uint8 if name == 'state_img_q' else np.float32
           data = np.frombuffer(state._buffer().as_memoryview(allow_zero_copy=True), dtype=dtype)
@@ -116,6 +118,7 @@ class TestNavigationPublication(unittest.TestCase):
       load_errors = []
       stack.enter_context(patch.object(modeld.cloudlog, 'exception',
                                        side_effect=lambda *args, **kwargs: load_errors.append((args, traceback.format_exc()))))
+      numerical_events = stack.enter_context(patch.object(modeld.cloudlog, 'event'))
       clients = Mock(return_value=camera)
       clients.available_streams.return_value = [modeld.VisionStreamType.VISION_STREAM_NARROW_ROAD]
 
@@ -169,7 +172,7 @@ class TestNavigationPublication(unittest.TestCase):
       initialization_errors = [error for error in load_errors if 'chestnut load failed' in error[0][0]]
       self.assertEqual(initialization_errors, [], initialization_errors)
       published = [message['modelV2'] for name, message in sent if name == 'modelV2']
-      failure = transition in ('candidate_failure', 'permission_revoked')
+      failure = transition in ('candidate_failure', 'candidate_nonfinite', 'permission_revoked')
       disabled = transition == 'feature_disabled'
       expected_ids = [1, 3] if failure else [1, 2, 3]
       self.assertEqual([message['frameId'] for message in published], expected_ids)
@@ -213,6 +216,16 @@ class TestNavigationPublication(unittest.TestCase):
         self.assertAlmostEqual(published[-1]['action']['desiredCurvature'], .02)
         np.testing.assert_allclose(small_calls[0][1]['action_t'], [modeld.prediction_delay(10.) + .1 + .05 + .025, .2 + .2 + .05 + .025])
         self.assertIs(params.get('ChestnutActive'), False)
+      if transition == 'candidate_nonfinite':
+        numerical_events.assert_called_once()
+        event = numerical_events.call_args
+        self.assertEqual(event.args[0], 'model_output_nonfinite')
+        self.assertEqual(event.kwargs['details']['context']['frame_id'], 2)
+        self.assertEqual(event.kwargs['details']['first_invalid_indices'], [2062])
+        self.assertEqual(event.kwargs['details']['invalid_output_sections']['action']['nan'], 1)
+        self.assertEqual(event.kwargs['details']['host_input_stats']['navigation']['finite'], 47)
+      else:
+        numerical_events.assert_not_called()
       self.assertEqual({name for name, _ in sent}, {'modelV2', 'drivingModelData', 'cameraOdometry', 'modelDataV2SP'})
 
 
