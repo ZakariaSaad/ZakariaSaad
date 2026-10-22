@@ -1,5 +1,7 @@
 # Non-actuating Chestnut hardware checks
 
+For the simpler installed comma4/parked-car procedure, start with the [SSH smoke test](navigation-model-ssh-smoke.md). This comprehensive separate-checkout workflow is retained as an optional advanced mode.
+
 This package runs local file-input diagnostics in a separate checkout. It does not install software, switch a selected model, publish normal model predictions, start manager/CAN/vehicle controllers, alter engagement, or flash Chestnut/EPS firmware. Physical Chestnut results have **not** been obtained in the development environment. A completed numerical check is not a driving-quality or vehicle-safety verdict.
 
 The initial candidate is Bigv2 ONNX SHA256 `1d18c42ea4cd95c8bffab4635844b78b8e2d4e25b9de44a9c5ac2e0961371a2e`. The package uses the branch-pinned tinygrad commit and native `SPTGPLN1` compiler; Selector21 and catalogv28 are separate contracts. It never edits SunnyPilot's public catalogs or normal model cache.

@@ -1,5 +1,7 @@
 # Navigation-model integration: software completion and hardware gates
 
+The subsequent [parked-car SSH smoke workflow](navigation-model-ssh-smoke.md) simplifies initial hardware checks. The [activation workflow](navigation-model-activation-workflow.md) defines result review and the later explicitly authorized delivery; candidate activation remains disabled.
+
 This review continues the existing implementation; no upstream driving-system merge,
 model-runtime upgrade, new Git branch, device installation or firmware operation was
 performed. The source implementation reviewed here is commit
