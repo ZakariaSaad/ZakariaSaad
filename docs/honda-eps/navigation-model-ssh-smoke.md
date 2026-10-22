@@ -138,7 +138,10 @@ sudo systemctl status comma.service --no-pager
 ```
 
 If restoration was explicitly reported failed, first confirm the diagnostic unit and
-its GPU workers have stopped. Retain the report. Then restore the original service:
+its GPU workers have stopped. Retain the report. If it reports a changed/ROM firmware
+product, disconnect Chestnut USB before restarting: this avoids triggering the normal
+service's existing automatic firmware handling. Keep it disconnected pending review.
+Then restore the original service:
 
 ```sh
 sudo systemctl start comma.service

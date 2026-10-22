@@ -148,6 +148,24 @@ class TestMaintenance(unittest.TestCase):
     self.assertEqual(report['status'], 'restoration_failed')
     self.assertIn('owner', report['restoration_error'])
 
+  def test_rom_or_changed_firmware_holds_restoration_without_flashing(self):
+    self.identity['expected_usb_product'] = 'custom 8516b768-CLEAN'
+    smoke.write_json(self.workspace / 'report.json', self.receipt)
+    with patch.object(smoke, 'service_active', return_value=False), patch.object(smoke, 'systemctl') as ctl, \
+         patch.object(smoke, 'process_snapshot', return_value={'conflicts': [], 'inaccessible_pids': []}), \
+         patch.object(smoke, 'usb_devices', return_value=[{'rom_mode': True, 'product': 'AS2462'}]):
+      self.assertEqual(smoke.finalize(self.workspace), 2)
+      ctl.assert_not_called()
+    self.assertIn('firmware product', json.loads((self.workspace / 'report.json').read_text())['restoration_error'])
+
+  def test_disconnected_chestnut_allows_original_service_fallback_restoration(self):
+    with patch.object(smoke, 'service_active', side_effect=[False, True]), patch.object(smoke, 'systemctl') as ctl, \
+         patch.object(smoke, 'process_snapshot', return_value={'conflicts': [], 'inaccessible_pids': []}), \
+         patch.object(smoke, 'usb_devices', return_value=[]):
+      self.assertEqual(smoke.finalize(self.workspace), 0)
+      ctl.assert_called_once_with('start', 'comma.service')
+    self.assertTrue(json.loads((self.workspace / 'report.json').read_text())['service_restored'])
+
   def test_no_download_or_cpu_compilation_when_artifact_is_missing(self):
     guard = SimpleNamespace(__enter__=lambda self: self, __exit__=lambda *args: None)
     class Guard:

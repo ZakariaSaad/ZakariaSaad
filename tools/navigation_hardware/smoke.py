@@ -320,6 +320,10 @@ def finalize(workspace):
         owners = process_snapshot(device_node=result.get('usb', {}).get('device_node'))
         if owners['conflicts'] or owners['inaccessible_pids']:
           raise HardwareAdmissionError('Remaining device/process owner prevents safe service restoration; inspect status before restarting')
+        devices = usb_devices()
+        if any(device['rom_mode'] or device['product'] != result['source']['expected_usb_product'] for device in devices):
+          raise HardwareAdmissionError('Unexpected/ROM Chestnut firmware product: restoration held to avoid normal startup flashing; '
+                                       + 'disconnect Chestnut USB before restoring comma.service and send this report')
       systemctl('start', 'comma.service')
       result['service_restored'] = service_active()
       if not result['service_restored']:
