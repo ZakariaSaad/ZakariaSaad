@@ -4,7 +4,7 @@ This continues the Stage 2 investigation from experimental commit
 `036fd8ca9afb5240fa163c377bcfa2b961a38fe0`. The working selector/navigation
 baseline is `4851eacac8fce2e875a0ef7703af5f5025fc0c15`. This report identifies
 the model contract and hardware requirements; final integration and regression
-results belong in the [final audit](navigation-model-final-audit.md).
+results belong in the [software integration report](navigation-model-integration.md).
 
 **Bigv2's software interpretation is established from its exact public ONNX and
 the official experimental consumer. Its physical Chestnut compatibility remains

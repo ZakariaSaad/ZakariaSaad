@@ -1,5 +1,7 @@
 # Navigation-model final audit and MVL consumption boundaries
 
+Coordinated committed-source results and the authorized target integration are recorded in the [software integration report](navigation-model-integration.md). Focused working-tree results below retain their original scope.
+
 This audit continues the existing implementation. Its initial inspected
 experimental tip is `036fd8ca9afb5240fa163c377bcfa2b961a38fe0`; the fetched working
 selector/navigation target is

@@ -1,5 +1,7 @@
 # Navigation-model inference: Stage 2 technical report
 
+This is the historical Stage2 report. The subsequent [software integration report](navigation-model-integration.md) supersedes its publication scope and blanket runtime restriction; the current candidate has specific physical activation gates. Historical experiment identities and limits below remain unchanged.
+
 This branch implements an isolated, reproducible navigation-model inference
 experiment. **It does not enable navigation-conditioned driving.** No installation,
 vehicle connection, firmware update, or live deployment was performed.

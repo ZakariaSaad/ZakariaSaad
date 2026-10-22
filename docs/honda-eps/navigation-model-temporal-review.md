@@ -1,5 +1,7 @@
 # Navigation temporal review
 
+The coordinated committed-source test result is recorded in the [software integration report](navigation-model-integration.md). Earlier focused results below are historical and are not substituted for that run.
+
 This continues the Stage 2 implementation at experimental starting commit
 `036fd8ca9afb5240fa163c377bcfa2b961a38fe0`. The focused results below tested
 that commit **plus uncommitted changes**, not the commit alone. Exact commands,
