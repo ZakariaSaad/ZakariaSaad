@@ -135,10 +135,13 @@ class TestExperimentalBoundaries(unittest.TestCase):
       with self.subTest(path=path):
         module = ast.parse((Path(BASEDIR) / path).read_text())
         main = next(node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == 'main')
-        guards = [(index, node) for index, node in enumerate(main.body)
+        # A startup try/finally provides cleanup without making its body
+        # conditional. Do not descend into loader functions or if branches.
+        statements = [node for statement in main.body for node in (statement.body if isinstance(statement, ast.Try) else [statement])]
+        guards = [(index, node) for index, node in enumerate(statements)
                   if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and
                   isinstance(node.value.func, ast.Name) and node.value.func.id == guard_name]
-        pubs = [(index, node) for index, node in enumerate(main.body)
+        pubs = [(index, node) for index, node in enumerate(statements)
                 if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) and
                 isinstance(node.value.func, ast.Name) and node.value.func.id == 'PubMaster']
         self.assertEqual(len(guards), 1, 'all main/demo paths must pass an unconditional publication guard')

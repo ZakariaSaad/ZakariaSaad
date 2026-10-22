@@ -7,6 +7,29 @@ installation is needed. Update the installed
 settings, then restart when prompted. The repository and update branch stay the
 same.
 
+## Startup-failure fix after `9a2c757`
+
+If Navigation Model Driving was enabled during the failed startup, run the SSH
+`disable` command below **before updating**. Software updates preserve that
+setting; this fix does not remotely withdraw or enable device permission. Then
+use the normal Software update and restart on the same branch. Leave navigation
+driving off until you explicitly choose to enable it again.
+
+The runtime now distinguishes tinygrad's empty automatic renderer/interface
+configuration hints from actual AMD USB device identity. The physical
+`gfx1200`/USB checks and the pinned artifact's LLVM target checks remain enforced.
+The missing upstream `ChestnutRetry` parameter is registered with its original
+reset flags, preserving the existing one-time retry and ordinary small-model
+fallback. Loading and active flags are cleared synchronously on model-startup
+failure, including failure to initialize the fallback; a late loader cannot
+reactivate Chestnut after fallback selection. No model recompilation, new
+hardware diagnostic or model-selection change is required.
+
+The native Params-library build and focused startup/publication regressions
+passed: **27 tests and 90 subtests**, plus lint and type checks. Tests use real
+registered Params and the pinned tinygrad device/interface types without opening
+a GPU. This is software regression evidence; the physical device was not accessed.
+
 ## SSH commands
 
 From Windows PowerShell, inspect the installed model and its activation blockers:

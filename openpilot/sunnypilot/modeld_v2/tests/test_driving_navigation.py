@@ -8,6 +8,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 import numpy as np
+from tinygrad.helpers import Context, DEV
+from tinygrad.runtime.ops_amd import AMDDevice, USBIface
 
 from openpilot.selfdrive.navigation import activation, model_inputs
 from openpilot.selfdrive.navigation.tests.test_activation import ParamsStub, reviewed_fixture
@@ -23,6 +25,14 @@ def fixture_data():
                                for name, (shape, dtype, device) in jits['output_specs'].items()},
               'output_slices': signature['output_slices']}
   return jits, metadata
+
+
+def physical_amd_fixture(*, arch='gfx1200', is_usb=True, iface=None):
+  """Use pinned device/interface types without invoking hardware constructors."""
+  device = object.__new__(AMDDevice)
+  device.device, device.arch, device.is_usb = 'AMD', arch, is_usb
+  device.iface = object.__new__(USBIface) if iface is None else iface
+  return device
 
 
 class TestDrivingNavigation(unittest.TestCase):
@@ -57,8 +67,7 @@ class TestDrivingNavigation(unittest.TestCase):
         camera = SimpleNamespace(width=1344, height=760, buffer_len=1622016, connect=lambda _: True)
         clients = Mock(return_value=camera)
         clients.available_streams.return_value = [modeld.VisionStreamType.VISION_STREAM_NARROW_ROAD]
-        device = SimpleNamespace(arch='gfx1200', is_usb=True, iface=type('USBIface', (), {})(),
-                                 renderer=SimpleNamespace(target=SimpleNamespace(device='AMD', renderer='LLVM', arch='gfx1200', interface='USB')))
+        device = physical_amd_fixture()
         for name, value in {'Params': Mock(return_value=params), 'setproctitle': Mock(), 'get_active_bundle': Mock(),
                             '_find_driving_pkl': Mock(return_value='selected-ordinary-big.sptg'), 'chestnut_present': Mock(return_value=True),
                             'wait_for_chestnut': Mock(), 'VisionIpcClient': clients, 'Device': {'AMD': device},
@@ -231,9 +240,12 @@ class TestDrivingNavigation(unittest.TestCase):
     with reviewed_fixture(specs) as (params, permit, _):
       candidate = SimpleNamespace(numpy_inputs={'navigation': np.zeros(47)}, navigation_input_specs=specs,
                                    _driving_permit=permit, diagnostic=False, warmup=Mock())
-      good = SimpleNamespace(arch='gfx1200', is_usb=True, iface=type('USBIface', (), {})(),
-                             renderer=SimpleNamespace(target=SimpleNamespace(device='AMD', renderer='LLVM', arch='gfx1200', interface='USB')))
-      for present, device in ((False, good), (True, SimpleNamespace(arch='gfx1100', renderer=good.renderer))):
+      good = physical_amd_fixture()
+      for present, device in ((False, good), (True, physical_amd_fixture(arch='gfx1100')),
+                              (True, physical_amd_fixture(is_usb=False)),
+                              (True, physical_amd_fixture(iface=object.__new__(type('MOCKUSBIface', (USBIface,), {})))),
+                              (True, physical_amd_fixture(iface=type('USBIface', (), {})())),
+                              (True, SimpleNamespace(arch='gfx1200', is_usb=True, iface=good.iface))):
         with patch.object(modeld, 'chestnut_present', return_value=present), patch.object(modeld, 'Device', {'AMD': device}), \
              patch.object(modeld, 'NavigationModelState') as loader:
           with self.assertRaises(model_inputs.NavigationModelDisabled):
@@ -243,6 +255,27 @@ class TestDrivingNavigation(unittest.TestCase):
            patch.object(modeld, 'NavigationModelState', return_value=candidate):
         self.assertIs(modeld.load_navigation_model(params, 1344, 760, permit), candidate)
         candidate.warmup.assert_not_called()
+
+  def test_pinned_automatic_target_hints_are_not_the_compilers_explicit_target(self):
+    with reviewed_fixture() as (params, permit, _), patch.object(modeld, 'chestnut_present', return_value=True), \
+         patch.object(modeld, 'Device', {'AMD': physical_amd_fixture()}), \
+         patch.object(modeld, 'NavigationModelState') as load:
+      # Source renderers need not be initialized to run an admitted precompiled
+      # LLVM artifact. Actual USB/architecture identity is checked separately.
+      with patch.object(AMDDevice, '_select_renderer', side_effect=AssertionError('Do not initialize an unused source renderer')):
+        for configured in ('', 'AMD', 'AMD:LLVM', 'USB+AMD', 'USB+AMD:LLVM', 'USB+AMD:LLVM:gfx1200'):
+          with self.subTest(configured=configured), Context(DEV=configured):
+            target = DEV.target('AMD', arch='gfx1200')
+            if configured in ('', 'AMD'):
+              self.assertEqual((target.renderer, target.interface), ('', ''))
+            modeld.load_navigation_model(params, 1344, 760, permit)
+        self.assertEqual(load.call_count, 6)
+        for configured in ('KFD+AMD:LLVM', 'MOCKUSB+AMD:LLVM', 'USB+AMD:HIP', 'USB+AMD:LLVM:gfx1100'):
+          with self.subTest(configured=configured), Context(DEV=configured):
+            load.reset_mock()
+            with self.assertRaisesRegex(model_inputs.NavigationModelDisabled, 'configured='):
+              modeld.load_navigation_model(params, 1344, 760, permit)
+            load.assert_not_called()
 
 
 if __name__ == '__main__':

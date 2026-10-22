@@ -396,13 +396,19 @@ def load_navigation_model(params, cam_w, cam_h, permit):
   validate_runtime_permit(permit, params=params)
   if not chestnut_present():
     raise NavigationModelDisabled('Navigation driving requires the reviewed Chestnut device')
-  from tinygrad.runtime.ops_amd import AMDDevice
+  from tinygrad.helpers import DEV
+  from tinygrad.runtime.ops_amd import AMDDevice, USBIface
   AMDDevice.wait_timeout_ms = 3000
   device = Device['AMD']
-  target = device.renderer.target
-  if (device.arch != 'gfx1200' or device.is_usb is not True or type(device.iface).__name__ != 'USBIface' or
-      (target.device, target.renderer, target.arch, target.interface) != ('AMD', 'LLVM', 'gfx1200', 'USB')):
-    raise NavigationModelDisabled('Actual GPU does not match the reviewed AMD LLVM gfx1200 USB target')
+  # DEV is configuration, not resolved hardware identity. Automatic selection
+  # leaves renderer/interface empty. The admitted SPTG programs retain their
+  # verified LLVM targets independently of the default source-code renderer.
+  target = DEV.target('AMD', arch=device.arch)
+  if (not isinstance(device, AMDDevice) or device.arch != 'gfx1200' or device.is_usb is not True or type(device.iface) is not USBIface or
+      target.device != 'AMD' or target.arch != 'gfx1200' or target.renderer not in ('', 'LLVM') or target.interface not in ('', 'USB')):
+    observed = (f'device={type(device).__name__}, arch={device.arch}, is_usb={getattr(device, "is_usb", None)}, ' +
+                f'interface={type(getattr(device, "iface", None)).__name__}, configured={target!r}')
+    raise NavigationModelDisabled('Actual GPU does not match the reviewed AMD LLVM gfx1200 USB target: ' + observed)
   return NavigationModelState(cam_w, cam_h, chestnut=True, driving_permit=permit)
 
 
@@ -427,7 +433,7 @@ def main(demo=False):
     AMDDevice.wait_timeout_ms = 3000
 
   params = Params()
-  params.put_bool("ChestnutLoading", CHESTNUT)
+  params.put_bool("ChestnutLoading", CHESTNUT, block=True)
   params.remove("ChestnutActive")
 
   gc.disable()
@@ -466,50 +472,55 @@ def main(demo=False):
     navigation_runtime_state(params, None, None, str(error))
   if navigation_permit is not None:
     CHESTNUT = True
-    params.put_bool("ChestnutLoading", True)
+    params.put_bool("ChestnutLoading", True, block=True)
 
   model = None
   big_load_error = None
-  if CHESTNUT:
-    big_model = None
-    def load_big():
-      nonlocal big_model, big_load_error
-      try:
-        wait_for_chestnut()
-        m = (load_navigation_model(params, vipc_client_main.width, vipc_client_main.height, navigation_permit)
-             if navigation_permit is not None else
-             ModelState(cam_w=vipc_client_main.width, cam_h=vipc_client_main.height, chestnut=True))
-        m.warmup()
-        if navigation_permit is not None:
-          _reject_navigation_publication(m)
-        big_model = m
-      except Exception as error:
-        big_load_error = str(error)
-        cloudlog.exception("chestnut load failed")
-    loader = threading.Thread(target=load_big, daemon=True)
-    loader.start()
-    loader.join(BIG_MODEL_TIMEOUT)
-    model = big_model
-    if model is None and not params.get_bool("ChestnutRetry"):
-      # a crank can cut the chestnut power during the load, retry once with an onroad cycle
-      cloudlog.error("big model load failed, cycling onroad to retry")
-      params.put_bool("ChestnutRetry", True)
-      params.put_bool("OnroadCycleRequested", True)
-    else:
-      params.put_bool("ChestnutActive", model is not None)
+  try:
+    if CHESTNUT:
+      big_model = None
+      def load_big():
+        nonlocal big_model, big_load_error
+        try:
+          wait_for_chestnut()
+          m = (load_navigation_model(params, vipc_client_main.width, vipc_client_main.height, navigation_permit)
+               if navigation_permit is not None else
+               ModelState(cam_w=vipc_client_main.width, cam_h=vipc_client_main.height, chestnut=True))
+          m.warmup()
+          if navigation_permit is not None:
+            _reject_navigation_publication(m)
+          big_model = m
+        except Exception as error:
+          big_load_error = str(error)
+          cloudlog.exception("chestnut load failed")
+      loader = threading.Thread(target=load_big, daemon=True)
+      loader.start()
+      loader.join(BIG_MODEL_TIMEOUT)
+      model = big_model
+      params.put_bool("ChestnutActive", model is not None, block=True)
+      if model is None and not params.get_bool("ChestnutRetry"):
+        # A crank can cut Chestnut power during loading. Preserve the ordinary
+        # one-cycle retry; its registered key survives that off-road transition.
+        cloudlog.error("big model load failed, cycling onroad to retry")
+        params.put_bool("ChestnutRetry", True, block=True)
+        params.put_bool("OnroadCycleRequested", True)
 
-  # Keep the ordinary fallback initialized, as upstream does. It does not run
-  # while the selected big model is active, including during navigation gaps.
-  small_model = ModelState(cam_w=vipc_client_main.width, cam_h=vipc_client_main.height, chestnut=False) if model is None or CHESTNUT else None
-  if model is None:
-    model = small_model
-  if navigation_permit is not None:
-    navigation_runtime_state(params, navigation_permit, model, 'navigation_active' if model.chestnut else
-                             'big model initialization failed: ' + (big_load_error or 'load timed out'))
-  params.put_bool("ChestnutLoading", False)
-  assert model is not None
+    # Keep the ordinary fallback initialized, as upstream does. It does not run
+    # while the selected big model is active, including during navigation gaps.
+    small_model = ModelState(cam_w=vipc_client_main.width, cam_h=vipc_client_main.height, chestnut=False) if model is None or CHESTNUT else None
+    if model is None:
+      model = small_model
+    if navigation_permit is not None:
+      navigation_runtime_state(params, navigation_permit, model, 'navigation_active' if model.chestnut else
+                               'big model initialization failed: ' + (big_load_error or 'load timed out'))
+    assert model is not None
+    _reject_navigation_publication(model, small_model)
+  except BaseException:
+    params.put_bool("ChestnutActive", False, block=True)
+    raise
+  finally:
+    params.put_bool("ChestnutLoading", False, block=True)
   cloudlog.warning(f"models loaded in {time.monotonic() - st:.1f}s, modeld starting")
-  _reject_navigation_publication(model, small_model)
 
   config_realtime_process(7, 54)
 
