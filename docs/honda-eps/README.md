@@ -240,4 +240,4 @@ changed by this port.
 
 ## Navigation-model integration
 
-The current Nav Bigv2 procedure is the [software compatibility workflow](navigation-model-software-compatibility.md). It reuses the already compiled and registered model and leaves Navigation Model Driving disabled pending explicit approval.
+The current Nav Bigv2 procedure is the [selection and activation workflow](navigation-model-activation-workflow.md). It reuses the already compiled and registered model, exposes it under Big Models, and provides one SSH management command. Navigation Model Driving remains disabled pending explicit authorization of the prepared branch approval change.

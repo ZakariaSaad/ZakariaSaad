@@ -5,13 +5,12 @@ Only a branch-reviewed candidate with pinned compiled hashes can issue a permit.
 """
 from dataclasses import dataclass
 from pathlib import Path
+import os
 import re
+import json
 
-import numpy as np
-
-from openpilot.common.params import Params
-from openpilot.selfdrive.navigation.experimental_catalog import SOURCE_ONNX_SHA256, _json_file, load_experimental_model
-from openpilot.selfdrive.navigation.model_inputs import NavigationModelDisabled
+from openpilot.selfdrive.navigation.experimental_catalog import SOURCE_ONNX_SHA256, _json, _json_file, load_experimental_model
+from openpilot.selfdrive.navigation.errors import NavigationModelDisabled
 
 REGISTRY = Path(__file__).with_name('driving_models.json')
 _PERMIT_SEAL = object()
@@ -36,22 +35,53 @@ def list_candidates() -> list[dict]:
   return [{'id': entry['id'], 'display_name': entry['display_name']} for entry in _json_file(REGISTRY).get('candidates', [])]
 
 
-def ordinary_fallback_reason(params) -> str:
-  from openpilot.cereal import custom
-  from openpilot.common.hardware.hw import Paths
-  from openpilot.sunnypilot.models.helpers import get_active_bundle
+def Params():
+  """Load the installed native parameter interface only when a caller needs it."""
+  from openpilot.common.params import Params as NativeParams
+  return NativeParams()
 
-  bundle = get_active_bundle(params, chestnut=False)
-  if bundle is None or bundle.runner.raw != custom.ModelManagerSP.Runner.tinygrad or not bundle.models:
-    return 'A configured ordinary tinygrad small-model fallback is required'
-  path = Path(Paths.model_root()) / bundle.models[0].artifact.fileName
+
+def _ordinary_bundle(params):
+  bundle = params.get('ModelManager_ActiveBundle')
+  if isinstance(bundle, str):
+    bundle = _json(bundle.encode())
+  elif isinstance(bundle, bytes):
+    bundle = _json(bundle)
+  if not isinstance(bundle, dict):
+    raise NavigationModelDisabled('A configured ordinary tinygrad small-model fallback is required')
+  return bundle
+
+
+def _model_root() -> Path:
+  # Match Paths.model_root without importing hardware/cereal into the CLI.
+  if Path('/AGNOS').is_file():
+    return Path('/data/media/0/models')
+  return Path.home() / ('.comma' + os.environ.get('OPENPILOT_PREFIX', '')) / 'media/0/models'
+
+
+def ordinary_fallback_reason(params, *, verify=False) -> str:
+  """Inspect the ordinary small slot; full admission reuses its native verifier."""
   try:
-    with path.open('rb') as stream:
+    bundle = _ordinary_bundle(params)
+    if verify:
+      from openpilot.selfdrive.navigation.software_compatibility import validate_ordinary_fallback_bundle
+      validate_ordinary_fallback_bundle(bundle, _model_root())
+      return ''
+    if bundle.get('minimumSelectorVersion') != 21 or bundle.get('runner') != 'tinygrad':
+      return 'Ordinary small fallback requires Selector21 tinygrad'
+    models = bundle.get('models')
+    if not isinstance(models, list) or not models or not isinstance(models[0], dict):
+      return 'A configured ordinary tinygrad small-model fallback is required'
+    artifact = models[0].get('artifact', {})
+    name = artifact.get('fileName') if isinstance(artifact, dict) else None
+    if not isinstance(name, str) or not name or Path(name).name != name:
+      return 'Invalid ordinary fallback artifact name'
+    with (_model_root() / name).open('rb') as stream:
       if stream.read(8) == b'SPTGPLN1':
         return ''
-  except OSError:
-    pass
-  return 'The configured ordinary fallback compiled artifact is not installed'
+    return 'The configured ordinary fallback compiled artifact is not installed in native SPTG format'
+  except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+    return str(error)
 
 
 def candidate_status(params=None, *, candidate_id=None) -> dict:
@@ -72,13 +102,15 @@ def candidate_status(params=None, *, candidate_id=None) -> dict:
       reasons.append('Navigation model software integration regressions have not been reviewed')
     if entry.get('artifact_evidence_reviewed') is not True:
       reasons.append('Artifact, compiler verification and camera-warp evidence have not been reviewed')
-    if entry.get('activation_approved') is not True:
+    approved = entry.get('activation_approved') is True
+    if not approved:
       reasons.append('Explicit user authorization for Navigation Model Driving is still required')
     if any(not isinstance(entry.get(key), str) or re.fullmatch('[0-9a-f]{64}', entry[key]) is None
            for key in ('artifact_sha256', 'warp_sha256', 'metadata_sha256', 'compiler_sha256', 'compiler_report_sha256')):
       reasons.append('Reviewed model, warp, metadata, compiler and verification-report hashes are not pinned')
     manifest = _text(params.get('NavigationModelManifest'))
-    registered = False
+    registered = installed = False
+    artifact_path = ''
     if manifest and Path(manifest).is_file():
       records = _json_file(Path(manifest)).get('entries', [])
       if not isinstance(records, list) or not all(isinstance(record, dict) for record in records):
@@ -88,6 +120,15 @@ def candidate_status(params=None, *, candidate_id=None) -> dict:
         matches[0][field].get('sha256') == entry.get(key)
         for field, key in (('compiled_artifact', 'artifact_sha256'), ('warp_artifact', 'warp_sha256'),
                            ('compiler_metadata', 'metadata_sha256')))
+      if registered:
+        name = matches[0]['compiled_artifact'].get('path')
+        if isinstance(name, str) and name and '://' not in name:
+          artifact = Path(name)
+          artifact = artifact if artifact.is_absolute() else Path(manifest).parent / artifact
+          artifact_path = str(artifact)
+          installed = artifact.is_file()
+        if not installed:
+          reasons.append('The registered local compiled artifact is not installed')
       if not registered:
         reasons.append('The configured manifest does not declare the reviewed model, warp and metadata identities')
     else:
@@ -98,14 +139,30 @@ def candidate_status(params=None, *, candidate_id=None) -> dict:
     software_reviewed = entry.get('software_contract_reviewed') is True and entry.get('software_integration_reviewed') is True
     return {'id': entry['id'], 'display_name': entry['display_name'], 'eligible': not reasons,
             'reason': '; '.join(reasons), 'enabled': params.get_bool('NavigationModelDrivingEnabled'),
-            'registered': registered, 'software_compatible': software_reviewed,
+            'registered': registered, 'installed': installed, 'artifact_path': artifact_path, 'approved': approved,
+            'selected': _text(params.get('NavigationModelCandidate')) == entry['id'],
+            'blockers': reasons, 'software_compatible': software_reviewed,
             'artifact_evidence_reviewed': entry.get('artifact_evidence_reviewed') is True,
             'runtime_compatibility': entry.get('runtime_compatibility', 'unverified'),
             'local_file_validation': 'Required at runtime admission; registration status checks declared identities only'}
   except (ValueError, OSError, TypeError, KeyError) as error:
     return {'id': '', 'display_name': 'Navigation model', 'eligible': False, 'reason': str(error), 'enabled': False,
-            'registered': False, 'software_compatible': False, 'artifact_evidence_reviewed': False,
+            'registered': False, 'installed': False, 'artifact_path': '', 'approved': False, 'selected': False,
+            'blockers': [str(error)], 'software_compatible': False, 'artifact_evidence_reviewed': False,
             'runtime_compatibility': 'unverified'}
+
+
+def _fallback_identity(params):
+  bundle = _ordinary_bundle(params)
+  models = bundle.get('models')
+  if not isinstance(models, list) or not models or not isinstance(models[0], dict):
+    raise NavigationModelDisabled('Configured ordinary fallback is empty or malformed')
+  artifact = models[0].get('artifact')
+  name = artifact.get('fileName') if isinstance(artifact, dict) else None
+  if not isinstance(name, str) or not name or Path(name).name != name:
+    raise NavigationModelDisabled('Invalid ordinary fallback artifact name')
+  path = (_model_root() / name).resolve(strict=True)
+  return json.dumps(bundle, sort_keys=True, separators=(',', ':'), allow_nan=False), path, _fingerprint(path)
 
 
 def _fingerprint(path):
@@ -126,24 +183,39 @@ class DrivingPermit:
   warp_frame_size: int
   registry_fingerprint: tuple
   file_fingerprints: tuple
+  fallback_identity: tuple
   seal: object
 
 
-def authorize_runtime(params=None) -> DrivingPermit | None:
-  """Hash and verify once at startup. OFF mode never opens any candidate files."""
+def admit_candidate(params=None, *, candidate_id=None) -> DrivingPermit:
+  """Read-only enable/startup admission, shared by Settings, SSH and modeld.
+
+  A selected or enabled flag is not required here. No Params are written and no
+  model is loaded or executed. The returned permit still requires the actual
+  driving flag and selection before runtime use.
+  """
   params = params if params is not None else Params()
-  if not params.get_bool('NavigationModelDrivingEnabled'):
-    return None
-  status = candidate_status(params)
+  registry_fingerprint = _fingerprint(REGISTRY)
+  status = candidate_status(params, candidate_id=candidate_id)
   if not status['eligible']:
     raise NavigationModelDisabled(status['reason'])
-  approved = _candidate(params)
+  approved = _candidate(params, candidate_id)
   if approved.get('source_onnx_sha256') != SOURCE_ONNX_SHA256 or approved.get('action_contract') != \
      'comma-nav-v2-20hz-lateral-acceleration-longitudinal-acceleration':
     raise NavigationModelDisabled('Unapproved navigation checkpoint or action contract')
+  fallback_identity = _fallback_identity(params)
+  fallback_reason = ordinary_fallback_reason(params, verify=True)
+  if fallback_reason:
+    raise NavigationModelDisabled(fallback_reason)
   manifest = Path(_text(params.get('NavigationModelManifest'))).resolve(strict=True)
-  entry = load_experimental_model(manifest, experimental=True, backend='AMD', model_id=approved['id'])
+  manifest_fingerprint = _fingerprint(manifest)
   manifest_entry = next(item for item in _json_file(manifest)['entries'] if item['id'] == approved['id'])
+  artifact_paths = []
+  for key in ('compiled_artifact', 'warp_artifact', 'compiler_metadata'):
+    path = Path(manifest_entry[key]['path'])
+    artifact_paths.append((path if path.is_absolute() else manifest.parent / path).resolve(strict=True))
+  fingerprints = tuple(_fingerprint(path) for path in artifact_paths)
+  entry = load_experimental_model(manifest, experimental=True, backend='AMD', model_id=approved['id'])
   metadata_path = Path(manifest_entry['compiler_metadata']['path'])
   metadata_path = (metadata_path if metadata_path.is_absolute() else manifest.parent / metadata_path).resolve(strict=True)
   if not entry.compiler_verification_validated or any(
@@ -154,26 +226,52 @@ def authorize_runtime(params=None) -> DrivingPermit | None:
   if proof.get('compiler', {}).get('sha256') != approved['compiler_sha256'] or \
      proof.get('report', {}).get('sha256') != approved['compiler_report_sha256']:
     raise NavigationModelDisabled('Local compiler source or verification report differs from the reviewed evidence')
+  if _fingerprint(REGISTRY) != registry_fingerprint or _fingerprint(manifest) != manifest_fingerprint or \
+     tuple(_fingerprint(path) for path in artifact_paths) != fingerprints or _fallback_identity(params) != fallback_identity:
+    raise NavigationModelDisabled('Navigation artifacts or branch approval changed during admission')
   permit = DrivingPermit(entry.model_id, entry.artifact_path, entry.warp_path, manifest, metadata_path, entry.input_specs, entry.metadata,
-                         approved['action_contract'], entry.warp_frame_size, _fingerprint(REGISTRY),
-                         tuple(_fingerprint(path) for path in (entry.artifact_path, entry.warp_path, manifest, metadata_path)), _PERMIT_SEAL)
+                         approved['action_contract'], entry.warp_frame_size, registry_fingerprint,
+                         tuple(_fingerprint(path) for path in (entry.artifact_path, entry.warp_path, manifest, metadata_path)), fallback_identity, _PERMIT_SEAL)
+  return permit
+
+
+def authorize_runtime(params=None) -> DrivingPermit | None:
+  """Hash and verify once at startup. OFF mode never opens candidate files."""
+  params = params if params is not None else Params()
+  if not params.get_bool('NavigationModelDrivingEnabled'):
+    return None
+  permit = admit_candidate(params)
   validate_runtime_permit(permit, params=params)
   return permit
 
 
-def validate_runtime_permit(permit, input_specs=None, params=None) -> None:
-  """Cheap per-frame revocation and native contract check; never rehash weights."""
+def validate_admission(permit, params=None) -> None:
+  """Recheck admitted file/selection identities without requiring activation."""
   params = params if params is not None else Params()
   if not isinstance(permit, DrivingPermit) or permit.seal is not _PERMIT_SEAL:
     raise NavigationModelDisabled('A branch-reviewed runtime permit is required')
-  if not params.get_bool('NavigationModelDrivingEnabled') or _candidate(params)['id'] != permit.model_id:
-    raise NavigationModelDisabled('Navigation model driving permission was withdrawn')
   if Path(_text(params.get('NavigationModelManifest'))).resolve() != permit.manifest_path:
     raise NavigationModelDisabled('Navigation model manifest changed')
   if _fingerprint(REGISTRY) != permit.registry_fingerprint or \
      tuple(_fingerprint(path) for path in (permit.artifact_path, permit.warp_path, permit.manifest_path, permit.metadata_path)) != permit.file_fingerprints:
     raise NavigationModelDisabled('Navigation artifacts or branch eligibility changed after admission')
+  try:
+    fallback_changed = _fallback_identity(params) != permit.fallback_identity
+  except (OSError, ValueError, TypeError, KeyError) as error:
+    raise NavigationModelDisabled('Configured ordinary small-model fallback changed after admission: ' + str(error)) from error
+  if fallback_changed:
+    raise NavigationModelDisabled('Configured ordinary small-model fallback changed after admission')
+
+
+def validate_runtime_permit(permit, input_specs=None, params=None) -> None:
+  """Cheap per-frame revocation and native contract check; never rehash weights."""
+  params = params if params is not None else Params()
+  validate_admission(permit, params)
+  if not params.get_bool('NavigationModelDrivingEnabled') or _candidate(params)['id'] != permit.model_id:
+    raise NavigationModelDisabled('Navigation model driving permission was withdrawn')
   if input_specs is not None:
+    import numpy as np
+
     actual = {key: (tuple(shape), np.dtype(dtype), device) for key, (shape, dtype, device) in input_specs.items()}
     expected = {key: (tuple(shape), np.dtype(dtype), device) for key, (shape, dtype, device) in permit.input_specs.items()}
     if actual != expected:
@@ -181,6 +279,8 @@ def validate_runtime_permit(permit, input_specs=None, params=None) -> None:
 
 
 def validate_runtime_metadata(permit, extras, params=None) -> None:
+  import numpy as np
+
   from openpilot.sunnypilot.modeld_v2.model_adapters import diagnostic_output_slices
 
   validate_runtime_permit(permit, extras.get('input_specs', {}), params)

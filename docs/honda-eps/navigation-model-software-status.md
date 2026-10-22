@@ -1,7 +1,10 @@
 # Navigation-model software status
 
 The current installed-branch workflow is
-[Nav Bigv2 software compatibility](navigation-model-software-compatibility.md).
+[Nav Bigv2 selection and activation](navigation-model-activation-workflow.md).
+The existing [software compatibility report](navigation-model-software-compatibility.md)
+remains available for inspecting files; the seven successful device checks do
+not need to be repeated for model selection.
 The standalone navigation hardware framework and service orchestration have been
 removed. All model compilation and existing-package registration requested from
 the owner are complete; no repeat is required.
@@ -19,8 +22,11 @@ Physical source/reload compiler verification, the supplied registration receipt
 and the owner's seven-check device compatibility report at `f18366ef` are
 completed evidence. They are distinguished from the unmeasured camera-to-Bigv2
 20 Hz prediction path and the normal inference-failure handover. Navigation Model Driving
-remains OFF and branch activation remains unapproved pending the explicit
-[activation decision](navigation-model-activation-workflow.md).
+remains OFF and branch activation remains unapproved pending the owner's explicit
+authorization of the prepared one-line approval change. The evidence supports
+proposing experimental activation without claiming measured live inference
+performance. The Models interface and SSH command share the same admission
+checks; neither can create that approval.
 
 Historical test counts and missing-artifact findings in earlier reports describe
 their recorded revisions. The final source-specific report records the tests for

@@ -4,12 +4,17 @@ This never loads pickle extras, kernels, devices or camera streams. It binds a
 known warp's full bytes to a reviewed camera geometry and checks its saved NV12
 capture against a NumPy implementation of the pinned packing/warp recipe.
 """
+from __future__ import annotations
+
 import hashlib
 import json
 from pathlib import Path
 import struct
+from typing import TYPE_CHECKING
 
-import numpy as np
+if TYPE_CHECKING:
+  import numpy as np
+
 
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.git_inspection import GitInspectionError, read_only_git
@@ -88,6 +93,8 @@ def validate_camera_profile(profile: dict, warp_sha256: str, frame_size: int) ->
 
 def _saved_arrays(path: Path, header: dict, layout: dict) -> dict:
   """Read only the JSON-described captured arrays, never the pickle extras."""
+  import numpy as np
+
   expected = {'input_frame': {'shape': [2, layout['copied_frame_bytes']], 'dtype': 'uint8'},
               'M_inv': {'shape': [2, 3, 3], 'dtype': 'float32'}}
   check = header.get('check')
@@ -125,6 +132,8 @@ def _saved_arrays(path: Path, header: dict, layout: dict) -> dict:
 
 def _reference_nv12(images: np.ndarray, matrices: np.ndarray, layout: dict) -> np.ndarray:
   """Independent NumPy form of the pinned nearest-neighbor NV12/YUV packing."""
+  import numpy as np
+
   width, height, stride = layout['width'], layout['height'], layout['stride']
 
   def perspective(source, matrix, out_width, out_height, source_width, source_height):
@@ -158,6 +167,8 @@ def validate_existing_warp(warp_path: str | Path, *, camera_width: int = 1344, c
   merely from a filename or copied-buffer length. The returned record does not
   approve driving or assert a new physical camera/GPU test.
   """
+  import numpy as np
+
   try:
     width, height = camera_width, camera_height
     layout = camera_layout(width, height)

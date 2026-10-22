@@ -280,13 +280,15 @@ def _fallback_headers(path: Path) -> list[dict]:
   return headers
 
 
-def _fallback(params_dir: Path, model_root: Path) -> dict:
-  bundle = _json_file(params_dir / 'ModelManager_ActiveBundle')
+def validate_ordinary_fallback_bundle(bundle: dict, model_root: Path) -> dict:
+  """Reuse the native small-slot contract for startup and file-only admission."""
+  _require(isinstance(bundle, dict), 'A configured ordinary tinygrad small-model fallback is required')
   _require(bundle.get('minimumSelectorVersion') == 21 and bundle.get('runner') == 'tinygrad', 'Ordinary small fallback requires Selector21 tinygrad')
   models = bundle.get('models')
   _require(isinstance(models, list) and bool(models), 'Configured ordinary fallback is empty')
   assert isinstance(models, list)
-  artifact = models[0].get('artifact', {})
+  _require(isinstance(models[0], dict) and isinstance(models[0].get('artifact'), dict), 'Malformed ordinary fallback artifact')
+  artifact = models[0]['artifact']
   name = artifact.get('fileName')
   _require(isinstance(name, str) and name and Path(name).name == name, 'Invalid ordinary fallback artifact name')
   path = model_root / name
@@ -297,6 +299,10 @@ def _fallback(params_dir: Path, model_root: Path) -> dict:
   headers = _fallback_headers(path)
   return {'artifact_path': str(path), 'artifact_sha256': expected, 'native_format': True, 'qcom_native_parts': len(headers),
           'scope': 'Configured small slot, exact catalog digest, QCOM kernel/buffer layout; inference and pickle metadata not loaded'}
+
+
+def _fallback(params_dir: Path, model_root: Path) -> dict:
+  return validate_ordinary_fallback_bundle(_json_file(params_dir / 'ModelManager_ActiveBundle'), model_root)
 
 
 def validate_software_compatibility(receipt_path: str | Path = DEFAULT_RECEIPT, *, manifest_path: str | Path | None = None,

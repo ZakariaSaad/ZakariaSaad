@@ -17,6 +17,7 @@ import numpy as np
 from openpilot.common.hardware import PC
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
+from openpilot.selfdrive.navigation.errors import NavigationModelDisabled
 from openpilot.selfdrive.navigation.helpers import navigation_input, valhalla_type
 from openpilot.selfdrive.navigation.generation import destination_key, gps_source
 from openpilot.selfdrive.navigation.temporal import CameraClock, ClockAlignmentError, NavigationContext, NavigationTransitions, context_reason
@@ -56,10 +57,6 @@ def driving_maneuver_reason(maneuvers, traveled):
   except (AttributeError, TypeError, ValueError):
     return 'invalid_maneuver_metadata'
   return 'valid' if upcoming else 'no_upcoming_maneuver_metadata'
-
-
-class NavigationModelDisabled(ValueError):
-  pass
 
 
 @dataclass(frozen=True)

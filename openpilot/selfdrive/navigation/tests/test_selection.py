@@ -1,5 +1,6 @@
 """Real Params selection boundaries preserve ordinary models and display settings."""
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from openpilot.common.params import Params
 from openpilot.common.test import OpenpilotTestCase
@@ -17,6 +18,8 @@ class TestNavigationSelection(OpenpilotTestCase):
     self.params.put('ModelManager_ActiveBundle', {'untouched': 'small'}, block=True)
     self.params.put('ModelManager_ActiveBundleChestnut', {'untouched': 'big'}, block=True)
     self.params.put_bool('NavigationEnabled', True, block=True)
+    self.params.put_bool('IsOffroad', True, block=True)
+    self.params.put_bool('IsEngaged', False, block=True)
     self.before = {key: self.params.get(key) for key in ('ModelManager_ActiveBundle', 'ModelManager_ActiveBundleChestnut',
                                                        'ModelRunnerTypeCache', 'NavigationEnabled')}
 
@@ -34,14 +37,79 @@ class TestNavigationSelection(OpenpilotTestCase):
     self.assert_normal_settings_preserved()
 
   def test_explicit_reviewed_opt_in_and_disable_preserve_slots(self):
-    with patch('openpilot.selfdrive.navigation.selection.candidate_status', return_value={'eligible': True}):
+    with patch('openpilot.selfdrive.navigation.selection.candidate_status', return_value={'eligible': True}), \
+         patch('openpilot.selfdrive.navigation.selection.require_offroad') as offroad, \
+         patch('openpilot.selfdrive.navigation.selection.admit_candidate', return_value=SimpleNamespace(model_id='big-nav-v2')) as admit, \
+         patch('openpilot.selfdrive.navigation.selection.validate_admission') as validate:
       with self.assertRaises(NavigationModelDisabled):
         set_driving_enabled(self.params, True, offroad=False)
-      set_driving_enabled(self.params, True, offroad=True)
+      self.assertFalse(admit.called)
+      set_driving_enabled(self.params, True, offroad=True, candidate_id='big-nav-v2')
+      self.assertEqual(offroad.call_count, 2)
+      admit.assert_called_once_with(self.params, candidate_id='big-nav-v2')
+      validate.assert_called_once()
+    self.assertEqual(self.params.get('NavigationModelCandidate'), 'big-nav-v2')
     with patch('openpilot.selfdrive.navigation.activation.candidate_status', return_value={'eligible': True}):
       self.assertNotEqual(get_active_model_runner(self.params), 0)
-    set_driving_enabled(self.params, False, offroad=True)
+    # Withdrawal is always permitted, even if the device transitions on road.
+    set_driving_enabled(self.params, False, offroad=False)
     self.assertEqual(get_active_model_runner(self.params), 0)
+    self.assert_normal_settings_preserved()
+
+  def test_failed_enable_preserves_selection_and_flag_at_every_admission_stage(self):
+    self.params.put('NavigationModelCandidate', 'previous-selection', block=True)
+    for stage in ('first_offroad', 'file_admission', 'second_offroad', 'admission_changed'):
+      with self.subTest(stage=stage), \
+           patch('openpilot.selfdrive.navigation.selection.candidate_status', return_value={'eligible': True}), \
+           patch('openpilot.selfdrive.navigation.selection.require_offroad') as guard, \
+           patch('openpilot.selfdrive.navigation.selection.admit_candidate', return_value=SimpleNamespace(model_id='big-nav-v2')) as admit, \
+           patch('openpilot.selfdrive.navigation.selection.validate_admission') as validate:
+        error = NavigationModelDisabled(stage)
+        if stage == 'first_offroad':
+          guard.side_effect = error
+        elif stage == 'file_admission':
+          admit.side_effect = error
+        elif stage == 'second_offroad':
+          guard.side_effect = [None, error]
+        else:
+          validate.side_effect = error
+        with self.assertRaisesRegex(NavigationModelDisabled, stage):
+          set_driving_enabled(self.params, True, offroad=True, candidate_id='big-nav-v2')
+        self.assertFalse(self.params.get_bool('NavigationModelDrivingEnabled'))
+        self.assertEqual(self.params.get('NavigationModelCandidate'), 'previous-selection')
+        self.assert_normal_settings_preserved()
+
+  def test_ssh_disable_during_ui_admission_cancels_the_pending_enable(self):
+    self.params.put('NavigationModelCandidate', 'previous-selection', block=True)
+    def disable_during_read(*_args, **_kwargs):
+      # Even writing OFF over an existing OFF must cancel the earlier request.
+      set_driving_enabled(self.params, False, offroad=True)
+      return SimpleNamespace(model_id='big-nav-v2')
+    with patch('openpilot.selfdrive.navigation.selection.candidate_status', return_value={'eligible': True}), \
+         patch('openpilot.selfdrive.navigation.selection.require_offroad'), \
+         patch('openpilot.selfdrive.navigation.selection.admit_candidate', side_effect=disable_during_read), \
+         patch('openpilot.selfdrive.navigation.selection.validate_admission'):
+      with self.assertRaisesRegex(NavigationModelDisabled, 'activation cancelled'):
+        set_driving_enabled(self.params, True, offroad=True, candidate_id='big-nav-v2')
+    self.assertFalse(self.params.get_bool('NavigationModelDrivingEnabled'))
+    self.assertEqual(self.params.get('NavigationModelCandidate'), 'previous-selection')
+    self.assert_normal_settings_preserved()
+
+  def test_silent_native_write_failure_does_not_report_success_or_leave_selection_changed(self):
+    self.params.put('NavigationModelCandidate', 'previous-selection', block=True)
+    put_bool = self.params.put_bool
+    def fail_enable(key, value, **kwargs):
+      if key != 'NavigationModelDrivingEnabled' or not value:
+        put_bool(key, value, **kwargs)
+    with patch('openpilot.selfdrive.navigation.selection.candidate_status', return_value={'eligible': True}), \
+         patch('openpilot.selfdrive.navigation.selection.require_offroad'), \
+         patch('openpilot.selfdrive.navigation.selection.admit_candidate', return_value=SimpleNamespace(model_id='big-nav-v2')), \
+         patch('openpilot.selfdrive.navigation.selection.validate_admission'), \
+         patch.object(self.params, 'put_bool', side_effect=fail_enable):
+      with self.assertRaisesRegex(NavigationModelDisabled, 'Could not persist'):
+        set_driving_enabled(self.params, True, offroad=True, candidate_id='big-nav-v2')
+    self.assertFalse(self.params.get_bool('NavigationModelDrivingEnabled'))
+    self.assertEqual(self.params.get('NavigationModelCandidate'), 'previous-selection')
     self.assert_normal_settings_preserved()
 
   def test_invalid_selection_and_preparation_cannot_change_normal_models(self):

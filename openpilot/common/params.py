@@ -7,9 +7,6 @@ import datetime
 from pathlib import Path
 from enum import IntEnum, IntFlag
 
-from openpilot.common.swaglog import cloudlog
-
-
 class ParamKeyFlag(IntFlag):
   PERSISTENT = 0x02
   CLEAR_ON_MANAGER_START = 0x04
@@ -146,6 +143,7 @@ class Params:
     try:
       return CPP_2_PYTHON[t](value)
     except (KeyError, TypeError, ValueError):
+      from openpilot.common.swaglog import cloudlog
       cloudlog.warning(f"Failed to cast param {key} with {value=} from type {t=}")
       return self._cpp2python(t, default, None, key)
 
