@@ -103,7 +103,7 @@ firmware, submodule, dependency lock, production model or public catalog was cha
 
 | Check | Result at `6908d2132c3f30504e20ae3240cc925ee978358f` |
 | --- | --- |
-| Native SCons build, generated schema/bindings | Passed, including new Params bindings |
+| Native x86_64 SCons build, generated schema/bindings | Passed, including new Params bindings |
 | Navigation/UI/selector/lifecycle/messaging/diagnostic/compiler-boundary suite | 693 passed, 310 subtests passed, zero failures/skips;7 existing fork deprecation warnings |
 | EPS/controls/DEC/model-loading/parsing/fallback/recovery/Chestnut/Params preservation suite | 589 passed, 8 subtests passed,2 existing skips, zero failures;1 existing fork warning |
 | Ruff across all project Python changes since target baseline | Passed |
@@ -114,7 +114,7 @@ The2 preservation skips are reported as skips, not passes: an abstract parameter
 base test and the opt-in external-manifest check. That external check was then
 explicitly enabled and passed separately (1 test,80.81s, HEAD requests without model
 bodies). The untouched4851 source archive passed588 preservation tests plus8 subtests;
-its sole initial failure hashed an unhydrated131-byte LFS pointer. Hydrating only
+its sole initial failure hashed an unhydrated LFS pointer. Hydrating only
 the exact baseline OID and rerunning that case passed (1 test,0.70s). This preparation
 failure and correction are retained, not suppressed. All8 DEC checks passed on both
 sources. No inherited regression failure was found in this scope. The four type
