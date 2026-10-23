@@ -8,8 +8,10 @@ GPU diagnostic or on-road reproduction is needed for registration.
 The corrected candidate is **Nav Model Integration Bigv2 — FP32 map correction**
 (`big-nav-v2-map-fp32`). It appears separately from the original Bigv2 under
 **Models → Big Models**, as an installed local navigation-aware model after
-registration. Selecting it keeps Navigation Model Driving **OFF**. Its branch
-approval is **false**; the original artifact's approval does not apply to it.
+registration. Selecting it keeps Navigation Model Driving **OFF**. Following the
+owner's explicit authorization and final review, its branch approval is **true**
+for experimental activation of this exact corrected artifact. Approval is
+independent of the original Bigv2. Updating alone does not enable driving.
 
 ## Update and register
 
@@ -18,6 +20,10 @@ While parked and genuinely off road, leave Navigation Model Driving off. Use
 the existing `mvl-honda-eps-selector21-chestnut-v28` branch, and restart when the
 normal updater requests it. No reinstall, branch switch or service changes are
 needed. This integration does not modify the updater.
+
+If the corrected model is already registered and selected, **skip registration**
+and use the [activation command below](#experimental-activation). No new receipt,
+compilation, download or hardware diagnostic is required.
 
 From Windows PowerShell, run this one command after the update:
 
@@ -56,15 +62,15 @@ ssh comma@10.0.0.134 "cd /data/openpilot && python3 -B -m openpilot.selfdrive.na
 ```
 
 Expected: matching registration, installed corrected artifact, selected candidate,
-reviewed compiler/software evidence, **Branch activation approval: not approved**,
-and **Navigation Model Driving: OFF**. The precise approval blocker is
-`Explicit user authorization for Navigation Model Driving is still required`.
-If another blocker appears, use its exact message; do not rerun compilation.
+reviewed compiler/software evidence, **Branch activation approval: approved**,
+and **Navigation Model Driving: OFF** until explicitly enabled. If a blocker
+appears, use its exact message; do not rerun compilation.
 
 In **Settings → Models → Big Models**, choose **Nav Model Integration Bigv2 —
 FP32 map correction**. Both Models layouts use the same candidate-specific
 registration and admission logic as SSH. The corrected model is selectable while
-approval-blocked; its Navigation Model Driving toggle cannot bypass approval.
+driving is off; its Navigation Model Driving toggle uses the same admission as
+the SSH activation command.
 
 ## Evidence and identities
 
@@ -104,20 +110,48 @@ single-active-model execution and ordinary small-model fallback are unchanged.
 Honda EPS, MVL controls, safety, firmware, catalogs, Selector 21 and routing are
 unchanged.
 
-## Remaining approval
+## Experimental activation
 
-Registration completes local file binding. The remaining approval step is an
-**explicit authorization for experimental driving with corrected artifact
-`4f4c215d…4c1a919c`**, followed by a reviewed branch change setting only this
-candidate's `activation_approved` to true. This task does not grant that approval.
-After that separate authorized update, the existing Settings toggle or
-`manage enable big-nav-v2-map-fp32` will still require off-road/disengaged state
-and ordinary runtime admission. No hidden parameter or JSON editing is needed.
+Final review of integration commit `c2c0d72a9451823e980249203672597e74f7aa30`
+found no concrete integration defect blocking the owner's explicitly authorized
+experimental activation. The reported physical compilation evidence, pinned
+metadata, native loader path, contracts, finite-output rejection and ordinary
+fallback were reviewed. The owner confirmed successful device registration and
+selection with driving OFF; this review did not access the device. Only the
+corrected candidate's registry `activation_approved` changes to true. Its hashes,
+the original candidate, and the historical compiler report's
+`candidate_activation_approved: false` remain unchanged.
+
+After the normal update, while genuinely off road and disengaged, run:
+
+```powershell
+ssh comma@10.0.0.134 "cd /data/openpilot && python3 -B -m openpilot.selfdrive.navigation.manage enable big-nav-v2-map-fp32"
+```
+
+The existing shared Settings/SSH admission rechecks approval, actual registered
+artifact/provenance/warp bytes and ordinary fallback. It checks fresh off-road
+state before and after file admission, selects the corrected manifest, and writes
+the driving request last. It preserves ordinary model selections and does not
+engage controls. Candidate, manifest and enable request persist across normal
+reboots. Runtime admission and failure handling still apply on each drive.
+
+Verify the selected identity and request with:
+
+```powershell
+ssh comma@10.0.0.134 "cd /data/openpilot && python3 -B -m openpilot.selfdrive.navigation.manage status big-nav-v2-map-fp32"
+```
+
+Expected: **approved**, **selected**, and **Navigation Model Driving: requested
+ON**. Inactive runtime while off road is normal. The equivalent UI is
+**Models → Big Models → Nav Model Integration Bigv2 — FP32 map correction**,
+then **Navigation Model Driving**. No hidden parameter or JSON editing is needed.
 
 The report establishes successful physical compiler execution and the reported
 synthetic comparisons. It does not establish sustained corrected-model driving
 performance or reproduce the exact original failing road frame. This is a limit
 of the evidence, not a request for another compilation or validation framework.
+The previously observed roughly one-second first small-model invocation during
+fallback remains unchanged; continuous dual-model execution is not introduced.
 
 ## Roll back without deleting either package
 
@@ -154,3 +188,11 @@ No physical GPU validation was repeated in development.
 Results: **126 focused tests and 175 subtests passed**, plus **17 rendered UI
 tests and 8 subtests** under Xvfb. Ruff and Git whitespace checks passed.
 The compiler and precision-lowering source files retain exactly the hashes above.
+
+The approval change additionally checks the corrected CLI's existing shared
+enable path and real native parameter persistence across manager/transition
+clears. **79 final approval tests and 76 subtests passed**, including the actual
+publication/fallback loop with synthetic CPU:LLVM data, finite-output rejection,
+off-road admission, and CLI selection. No AMD execution was repeated. Ruff and
+whitespace checks passed. Approval does not change any runtime, control, safety
+or updater code.

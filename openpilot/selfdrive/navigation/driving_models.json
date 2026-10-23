@@ -31,7 +31,7 @@
       "action_contract_source": "a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9",
       "sunnypilot_generation": null,
       "warp_sha256": "f1689356ff8e516f87e3d75f6b53e66953a11ee5a97e859b4808c9a16bfe671b",
-      "activation_approved": false,
+      "activation_approved": true,
       "artifact_sha256": "4f4c215db8ad33f2fa074fb6075e2a48ae5c8d766e3c2f9842acf8094c1a919c",
       "metadata_sha256": "cff885b4ef1af332582f6df847351b8d69c2da6e70979718a03e1931f7dbad95",
       "artifact_evidence_reviewed": true,

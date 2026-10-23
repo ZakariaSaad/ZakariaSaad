@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from openpilot.selfdrive.navigation import activation, selection
+from openpilot.selfdrive.navigation import activation, manage, selection
 from openpilot.selfdrive.navigation.errors import NavigationModelDisabled
 from openpilot.selfdrive.navigation.tests.test_activation import ParamsStub
 
@@ -126,9 +126,9 @@ def test_genuine_offroad_refusal_prevents_selection_changes(two_candidates):
   assert fixture.params.values == before
 
 
-def test_future_reviewed_approval_admits_only_the_corrected_artifact(two_candidates):
+def test_reviewed_corrected_cli_admits_only_the_corrected_artifact(two_candidates, capsys):
   fixture = two_candidates
-  # Test-only explicit branch review; production corrected approval stays false.
+  # The fixture starts unapproved independently of the real branch registry.
   registry = json.loads(fixture.registry.read_text())
   registry['candidates'][1]['activation_approved'] = True
   fixture.registry.write_text(json.dumps(registry))
@@ -140,7 +140,11 @@ def test_future_reviewed_approval_admits_only_the_corrected_artifact(two_candida
   activation.validate_admission(permit, fixture.params, allow_unselected_manifest=True)
   with pytest.raises(NavigationModelDisabled, match='manifest changed'):
     activation.validate_runtime_permit(permit, params=fixture.params)
-  selection.set_driving_enabled(fixture.params, True, offroad=True, candidate_id=CORRECTED)
+  assert manage.main(['enable', CORRECTED], params=fixture.params) == 0
+  assert 'Navigation Model Driving requested ON' in capsys.readouterr().out
+  assert fixture.params.get_bool('NavigationModelDrivingEnabled')
+  for key in ('ModelManager_ActiveBundle', 'ModelManager_ActiveBundleChestnut', 'ModelRunnerTypeCache'):
+    assert fixture.params.get(key) == before[key]
   assert fixture.params.get('NavigationModelManifest') == str(fixture.packages[CORRECTED].manifest)
   assert fixture.params.get('NavigationModelCandidate') == CORRECTED
   activation.validate_runtime_permit(permit, params=fixture.params)
@@ -174,7 +178,7 @@ def test_branch_registry_pins_corrected_candidate_without_changing_original_appr
   original, candidate = candidates[ORIGINAL], candidates[CORRECTED]
   assert original['activation_approved'] is True
   assert original['artifact_sha256'] == 'feb2532e2fcd65375ca61d82b1ce16b397244683cb2b183aead316f26454feb4'
-  assert candidate['activation_approved'] is False
+  assert candidate['activation_approved'] is True
   assert candidate['artifact_sha256'] == corrected.ARTIFACT_SHA256
   assert candidate['metadata_sha256'] == corrected.METADATA_SHA256
   assert candidate['compiler_sha256'] == corrected.COMPILER_SHA256

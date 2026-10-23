@@ -170,23 +170,34 @@ assert not [name for name in sys.modules if any(name == prefix or name.startswit
     completed = self.run_system_python(source)
     self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
 
-  def test_native_params_and_disable_work_without_runtime_python_packages(self):
-    """Use the installed native Params API rather than a second Params writer."""
+  def test_corrected_selection_persists_and_disable_works_with_system_python(self):
+    """Use native Params persistence and normal lifecycle clears, without a GPU."""
     source = '''
 import sys
 import tempfile
-from openpilot.common.params import Params
+from openpilot.common.params import Params, ParamKeyFlag
 from openpilot.selfdrive.navigation import manage
 with tempfile.TemporaryDirectory() as directory:
   params = Params(directory)
-  params.put('NavigationModelCandidate', 'big-nav-v2', block=True)
+  params.put('NavigationModelCandidate', 'big-nav-v2-map-fp32', block=True)
+  manifest = '/data/navigation-models/inert-corrected-fixture/manifest.json'
+  params.put('NavigationModelManifest', manifest, block=True)
   params.put('ModelManager_ActiveBundle', {'preserve': 'ordinary-small'}, block=True)
   params.put('ModelManager_ActiveBundleChestnut', {'preserve': 'ordinary-big'}, block=True)
   params.put_bool('NavigationModelDrivingEnabled', True, block=True)
+  del params
+  params = Params(directory)
+  for flag in (ParamKeyFlag.CLEAR_ON_MANAGER_START, ParamKeyFlag.CLEAR_ON_OFFROAD_TRANSITION,
+               ParamKeyFlag.CLEAR_ON_ONROAD_TRANSITION, ParamKeyFlag.CLEAR_ON_IGNITION_ON):
+    params.clear_all(flag)
+  assert params.get_bool('NavigationModelDrivingEnabled')
+  assert params.get('NavigationModelCandidate') == 'big-nav-v2-map-fp32'
+  assert params.get('NavigationModelManifest') == manifest
   assert manage.main(['status'], params=params) == 0
   assert manage.main(['disable'], params=params) == 0
   assert not params.get_bool('NavigationModelDrivingEnabled')
-  assert params.get('NavigationModelCandidate') == 'big-nav-v2'
+  assert params.get('NavigationModelCandidate') == 'big-nav-v2-map-fp32'
+  assert params.get('NavigationModelManifest') == manifest
   assert params.get('ModelManager_ActiveBundle') == {'preserve': 'ordinary-small'}
   assert params.get('ModelManager_ActiveBundleChestnut') == {'preserve': 'ordinary-big'}
   del params
