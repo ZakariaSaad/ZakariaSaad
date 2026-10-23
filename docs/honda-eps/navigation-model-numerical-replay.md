@@ -1,5 +1,7 @@
 # Bigv2 map overflow: isolated numerical investigation
 
+Follow-up: [actual AMD kernel evidence and the targeted compiler correction](navigation-model-map-precision.md).
+
 This continues the investigation from diagnostic baseline `086af922`, using the
 three original rlogs from build `1db06a2` and the repeat failure from build
 `086af922`. It does not change the registered model, driving admission, model

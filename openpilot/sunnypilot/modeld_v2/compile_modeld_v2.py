@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+from contextlib import nullcontext
 from functools import partial
 import hashlib
 import json
@@ -115,13 +116,43 @@ def verify_reloaded(source, reloaded, input_specs, output_specs, allocate_inputs
           'independent_buffers': True, 'primary_output_changes_with_seed': True, 'runs': results}
 
 
+def verify_map_fixtures(source, reloaded, input_specs, output_specs, allocate_inputs, benchmark) -> dict:
+  from openpilot.tools.navigation_map_numerics import FIXTURE_SHA256, synthetic_maps
+  if 'nav_map' not in input_specs or input_specs['nav_map'][:2] != ((1, 1, 256, 256), np.dtype(np.float32).str):
+    raise ValueError('Reviewed map fixture input contract differs')
+  results = {}
+  for name, nav_map in synthetic_maps().items():
+    def initialize(arrays, map_input=nav_map):
+      initialize_check_inputs(arrays, seed=42)
+      arrays['nav_map'][...] = map_input
+
+    def evaluate(run):
+      # Independent identical input AND recurrent buffers for source/reload.
+      inputs = allocate_inputs(input_specs, initialize)
+      outputs = allocate_inputs(output_specs)
+      benchmark(run, output_buffers=outputs, **inputs)
+      return {key: value.numpy().copy() for key, value in outputs.items()}
+
+    expected, actual = evaluate(source), evaluate(reloaded)
+    results[name] = {'synthetic_uint8_map_sha256': FIXTURE_SHA256[name], 'other_inputs_seed': 42,
+                     'independent_buffers': True, 'outputs': compare_outputs(expected, actual)}
+  return {'scope': 'Identical-input/state full candidate source and native reload; no route replay or activation approval', 'cases': results}
+
+
 def main():
+  from openpilot.sunnypilot.modeld_v2.compile_offroad import offroad_compile, require_compile_monitor, cached_gpu_firmware
+  monitored_result = offroad_compile(sys.argv[1:])
+  if monitored_result is not None:
+    raise SystemExit(monitored_result)
   sys.path.insert(0, os.environ.get("TINYGRAD_PATH", "tinygrad_repo"))
   from tinygrad import Device
 
   parser = argparse.ArgumentParser(description="Compile a native-architecture ONNX model into a plain tinygrad artifact")
   parser.add_argument('onnx')
   parser.add_argument('output')
+  parser.add_argument('--offroad', action='store_true', help='Continuously require genuine off-road/disengaged state during compilation')
+  parser.add_argument('--nav-map-precision-fix', action='store_true',
+                      help='Compile the exact reviewed Bigv2 map FP32 correction into a separate, unapproved candidate')
   parser.add_argument('--device-input', action='append', default=[])
   parser.add_argument('--benchmark-runs', type=int, default=20)
   parser.add_argument('--verification-runs', type=int, default=2, help='Independent deterministic seeds, at least two')
@@ -135,12 +166,15 @@ def main():
     parser.error('Verification JSON must be separate from the source and compiled artifact')
   if Path(args.onnx).resolve() == Path(args.output).resolve():
     parser.error('Compiled output must not replace the source ONNX')
+  if args.nav_map_precision_fix and any(path.exists() or path.is_symlink() for path in (Path(args.output), verification_path)):
+    parser.error('Precision correction requires new artifact and verification paths; existing files are preserved')
 
   import tinygrad
   from tinygrad.helpers import DEV
   configured_target = vars(DEV.target(Device.DEFAULT))
   report = {'status': 'compiling', 'source_onnx': str(Path(args.onnx).resolve()), 'source_onnx_sha256': file_sha256(Path(args.onnx)),
-            'compiler_sha256': file_sha256(Path(__file__)), 'artifact': str(Path(args.output).resolve()),
+            'compiler_sha256': file_sha256(Path(__file__)),
+            'compiler_revision': read_only_git(Path(__file__).parent, 'rev-parse', 'HEAD'), 'artifact': str(Path(args.output).resolve()),
             'tinygrad': tinygrad_provenance(Path(tinygrad.__file__).resolve().parent.parent),
             'backend': {'targets': [configured_target], 'hardware_validation': False}, 'artifact_promoted': False,
             'environment': {name: os.environ.get(name) for name in ('DEV', 'BEAM', 'NOOPT', 'TC', 'TC_OPT', 'TC_MIN_GLOBALS',
@@ -149,10 +183,21 @@ def main():
             'benchmark_context': {'OPENPILOT_HACKS': 1} | ({'TC_OPT': 2, 'TC_MIN_GLOBALS': 32} if Device.DEFAULT == 'AMD' else {}),
             'verification': {'seeds': list(range(42, 42 + args.verification_runs)), 'rtol': VERIFICATION_RTOL,
                              'atol': VERIFICATION_ATOL, 'equal_nan': False, 'status': 'pending'}}
+  if args.nav_map_precision_fix:
+    from openpilot.sunnypilot.modeld_v2.nav_map_precision import SOURCE_SHA256
+    if report['source_onnx_sha256'] != SOURCE_SHA256:
+      parser.error('Map precision correction requires the exact reviewed Bigv2 source SHA256')
+    require_compile_monitor()
+    report['candidate_activation_approved'] = False
+    # Exclusively claim the new report path before atomic updates of our report.
+    verification_path.parent.mkdir(parents=True, exist_ok=True)
+    with verification_path.open('x'):
+      pass
   write_verification_report(verification_path, report)
   try:
     report['backend'] = backend_provenance([configured_target])
-    compile_and_verify(args, report)
+    with cached_gpu_firmware() if args.nav_map_precision_fix else nullcontext():
+      compile_and_verify(args, report)
   except BaseException as error:
     report.update(status='failed', error=f'{type(error).__name__}: {error}')
     raise
@@ -169,10 +214,19 @@ def compile_and_verify(args, report):
   from tinygrad.nn.onnx import OnnxRunner
 
   runner, (properties, output_shapes) = OnnxRunner(args.onnx), onnx_metadata(args.onnx)
+  correction = None
+  if getattr(args, 'nav_map_precision_fix', False):
+    from openpilot.sunnypilot.modeld_v2.nav_map_precision import apply_nav_map_precision_fix
+    correction = apply_nav_map_precision_fix(runner, report['source_onnx_sha256'])
+    correction.update(compiler_revision=report.get('compiler_revision'), compiler_sha256=report.get('compiler_sha256'),
+                      tinygrad_revision=report.get('tinygrad', {}).get('revision'))
+    report['map_precision_correction'] = correction
   device_inputs = runner.graph_inputs.keys() if '*' in args.device_input else args.device_input
   metadata = {'metadata': properties} | {f'{kind}_shapes': {name: tuple(d if isinstance(d, int) else 0 for d in shape) for name, shape in shapes.items()}
                                          for kind, shapes in [('input', {name: spec.shape for name, spec in runner.graph_inputs.items()}),
                                                               ('output', output_shapes)]}
+  if correction is not None:
+    metadata['map_precision_correction'] = correction
   input_specs = {name: (tuple(s if isinstance(s, int) else 1 for s in spec.shape), np.dtype(_to_np_dtype(spec.dtype)).str,
                         Device.DEFAULT if name in device_inputs else 'NPY') for name, spec in runner.graph_inputs.items()}
 
@@ -195,6 +249,9 @@ def compile_and_verify(args, report):
     if not np.isfinite(output).all():
       raise ValueError(f'Compile-time output {index} contains nonfinite values')
   part = serialize_jit(jit, recorded[0], frame)
+  if correction is not None:
+    from openpilot.sunnypilot.modeld_v2.nav_map_precision import verify_compiled_precision
+    correction['compiled_precision'] = verify_compiled_precision(part, recorded[0], correction)
   PlainJit(part[0], memoryview(part[1]))
   targets = list({json.dumps(call['target'], sort_keys=True): call['target'] for call in part[0]['calls'] if call['kind'] == 'program'}.values())
   report['backend'] = backend_provenance(targets)
@@ -207,12 +264,19 @@ def compile_and_verify(args, report):
     seeds = list(range(42, 42 + args.verification_runs))
     report['verification'] = {'seeds': seeds, 'rtol': VERIFICATION_RTOL, 'atol': VERIFICATION_ATOL, 'equal_nan': False, 'status': 'running'}
     report['verification'] = verify_reloaded(jit, loaded['run'], input_specs, output_specs, allocate_inputs, benchmark, seeds)
+    if correction is not None:
+      report['map_fixture_verification'] = verify_map_fixtures(jit, loaded['run'], input_specs, output_specs, allocate_inputs, benchmark)
     report['artifact_sha256'] = file_sha256(temporary)
     # Persist the complete successful comparison before promoting the artifact.
     # A later I/O failure can leave an explicit unpromoted report, never a stale pass.
     report['status'] = 'verified_pending_promotion'
     write_verification_report(args.verification_output, report)
-    os.replace(temporary, args.output)
+    if correction is not None:
+      # Atomic no-clobber promotion: a concurrent file creation cannot replace
+      # any original or previously reviewed candidate model.
+      os.link(temporary, args.output)
+    else:
+      os.replace(temporary, args.output)
     report.update(status='passed_source_reload_consistency', artifact_promoted=True)
   finally:
     if temporary is not None:
