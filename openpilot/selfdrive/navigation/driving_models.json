@@ -21,6 +21,29 @@
       "registration_receipt_sha256": "13590d5536b93820623cf059b4853b9d70c1661828343dfc604580c28485454b",
       "runtime_scope": "Physical source/reload compiler verification passed. Live camera inference latency and actual big-model failure recovery remain unmeasured.",
       "software_review_scope": "Native Bigv2 input/output contract, registration, parsing, navigation timing, recurrent state and candidate/fallback software regression tests. This does not authorize driving."
+    },
+    {
+      "id": "big-nav-v2-map-fp32",
+      "display_name": "Nav Model Integration Bigv2 — FP32 map correction",
+      "source_onnx_sha256": "1d18c42ea4cd95c8bffab4635844b78b8e2d4e25b9de44a9c5ac2e0961371a2e",
+      "software_contract_reviewed": true,
+      "action_contract": "comma-nav-v2-20hz-lateral-acceleration-longitudinal-acceleration",
+      "action_contract_source": "a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9",
+      "sunnypilot_generation": null,
+      "warp_sha256": "f1689356ff8e516f87e3d75f6b53e66953a11ee5a97e859b4808c9a16bfe671b",
+      "activation_approved": false,
+      "artifact_sha256": "4f4c215db8ad33f2fa074fb6075e2a48ae5c8d766e3c2f9842acf8094c1a919c",
+      "metadata_sha256": "cff885b4ef1af332582f6df847351b8d69c2da6e70979718a03e1931f7dbad95",
+      "artifact_evidence_reviewed": true,
+      "software_integration_reviewed": true,
+      "compiler_sha256": "0a1c5174d7a27faf03b0304defd2dac6fa1b1cec036165b7dfd42ef0e6a06ce0",
+      "compiler_report_sha256": "3f776eafc180c87fc85333bd029c4ee2bddf206b00ce7df695eba54e306af591",
+      "compiler_revision": "b9aba01d3a25f0a6c86707fe3aa52b29dcb918de",
+      "map_precision_implementation_sha256": "696d9c3b9949618d051ed6fafcfe69c7cd8bc0e2ae17ae0d94d7eeea8e174c4a",
+      "map_precision_correction": "bigv2-map-fc2-fp32-through-gamma-v1",
+      "runtime_compatibility": "physical_compiler_verified",
+      "runtime_scope": "Physical AMD LLVM gfx1200 USB source/reload comparisons and working/overflow map fixtures passed for all six outputs. Live camera inference timing and driving behavior of this corrected artifact remain unmeasured.",
+      "software_review_scope": "Native Bigv2 input/output and recurrent contracts are unchanged. Corrected artifact, compiler, precision lowering, report and registration identities are pinned separately. Activation requires explicit authorization for this corrected artifact."
     }
   ]
 }

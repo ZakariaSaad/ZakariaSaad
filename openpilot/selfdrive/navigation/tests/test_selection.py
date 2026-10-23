@@ -13,6 +13,7 @@ from openpilot.sunnypilot.models.helpers import get_active_model_runner
 class TestNavigationSelection(OpenpilotTestCase):
   def setUp(self):
     super().setUp()
+    self.enterContext(patch('openpilot.selfdrive.navigation.selection.require_offroad'))
     self.params = Params()
     self.params.put('ModelRunnerTypeCache', 0, block=True)
     self.params.put('ModelManager_ActiveBundle', {'untouched': 'small'}, block=True)

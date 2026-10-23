@@ -197,5 +197,90 @@ assert not [name for name in sys.modules if any(name == prefix or name.startswit
     self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
 
 
+class TestCorrectedNavigationManage(unittest.TestCase):
+  """Exercise corrected CLI dispatch independently of installed device files."""
+  ID = 'big-nav-v2-map-fp32'
+  invoke = TestNavigationManage.invoke
+
+  def setUp(self):
+    TestNavigationManage.setUp(self)
+    self.enterContext(patch.object(manage, 'list_candidates', return_value=[
+      {'id': 'big-nav-v2', 'display_name': 'Nav Model Integration Bigv2'},
+      {'id': self.ID, 'display_name': 'Nav Model Integration Bigv2 — FP32 map correction'},
+    ]))
+
+  def test_register_corrected_dispatches_exact_identity_without_enabling(self):
+    receipt = {'manifest_path': '/data/navigation-models/corrected/manifest.json', 'artifact_sha256': '4' * 64}
+    corrected = status(id=self.ID, artifact_path='/data/nav-bigv2/bigv2-amd-map-fp32.sptg')
+    with patch.object(manage, '_register', return_value=receipt) as register, \
+         patch.object(manage, 'candidate_status', return_value=corrected), patch.object(manage, 'set_driving_enabled') as enable:
+      result, output = self.invoke('register', self.ID)
+    self.assertEqual(result, 0)
+    register.assert_called_once_with(self.params, self.ID)
+    enable.assert_not_called()
+    self.assertIn('remains OFF', output)
+    self.assertIn('not approved', output)
+    self.assertIn('bigv2-amd-map-fp32.sptg', output)
+    self.assertEqual(self.params.writes, [])
+
+  def test_register_refusal_is_reported_without_enable_or_select(self):
+    with patch.object(manage, '_register', side_effect=ValueError('Corrected artifact SHA256 mismatch')), \
+         patch.object(manage, 'set_driving_enabled') as enable, patch.object(manage, 'select_candidate') as select:
+      result, output = self.invoke('register', self.ID)
+    self.assertEqual(result, 1)
+    self.assertIn('Corrected artifact SHA256 mismatch', output)
+    enable.assert_not_called()
+    select.assert_not_called()
+    self.assertEqual(self.params.writes, [])
+
+  def test_select_corrected_uses_shared_selection_and_requires_fresh_offroad(self):
+    with patch.object(manage, 'require_offroad') as offroad, \
+         patch.object(manage, 'candidate_status', return_value=status(id=self.ID)) as inspect, \
+         patch.object(manage, 'select_candidate') as select, patch.object(manage, 'set_driving_enabled') as enable:
+      result, output = self.invoke('select', self.ID)
+    self.assertEqual(result, 0)
+    offroad.assert_called_once_with(self.params)
+    inspect.assert_called_once_with(self.params, candidate_id=self.ID)
+    select.assert_called_once_with(self.params, self.ID, offroad=True)
+    enable.assert_not_called()
+    self.assertIn('remains OFF', output)
+
+  def test_onroad_select_never_mutates_selection(self):
+    with patch.object(manage, 'require_offroad', side_effect=NavigationModelDisabled('deviceState.started is true')), \
+         patch.object(manage, 'select_candidate') as select:
+      result, output = self.invoke('select', self.ID)
+    self.assertEqual(result, 1)
+    self.assertIn('deviceState.started', output)
+    select.assert_not_called()
+    self.assertEqual(self.params.writes, [])
+
+  def test_unregistered_selection_is_refused(self):
+    with patch.object(manage, 'require_offroad'), \
+         patch.object(manage, 'candidate_status', return_value=status(id=self.ID, registered=False, installed=False)), \
+         patch.object(manage, 'select_candidate') as select:
+      result, output = self.invoke('select', self.ID)
+    self.assertEqual(result, 1)
+    self.assertIn('Register the matching local candidate', output)
+    select.assert_not_called()
+
+  def test_status_addresses_explicit_model_and_defaults_to_selected(self):
+    with patch.object(manage, 'candidate_status', return_value=status(id=self.ID)) as inspect:
+      self.assertEqual(self.invoke('status', self.ID)[0], 0)
+      inspect.assert_called_once_with(self.params, candidate_id=self.ID)
+      inspect.reset_mock()
+      self.assertEqual(self.invoke('status')[0], 0)
+      inspect.assert_called_once_with(self.params, candidate_id=None)
+
+  def test_enable_corrected_cannot_bypass_its_approval(self):
+    from openpilot.selfdrive.navigation import selection
+    with patch.object(selection, 'candidate_status', return_value=status(id=self.ID)), \
+         patch.object(selection, 'admit_candidate') as admit:
+      result, output = self.invoke('enable', self.ID)
+    self.assertEqual(result, 1)
+    self.assertIn('Explicit user authorization', output)
+    admit.assert_not_called()
+    self.assertEqual(self.params.writes, [])
+
+
 if __name__ == '__main__':
   unittest.main()

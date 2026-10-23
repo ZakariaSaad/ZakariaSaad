@@ -303,7 +303,15 @@ def load_experimental_model(manifest_path: str | Path, *, experimental: bool, ba
     verified = False
     if 'compiler_verification' in metadata:
       from openpilot.selfdrive.navigation.export_experimental_model import validate_exported_verification
-      validate_exported_verification(metadata['compiler_verification'], artifact_hash, contract, model_header, anchor=metadata_path)
+      validate_exported_verification(metadata['compiler_verification'], artifact_hash, contract, model_header, anchor=metadata_path,
+                                    artifact_path=artifact, model_id=model_id)
+      if 'map_precision_correction' in metadata:
+        report_path = Path(metadata['compiler_verification']['report']['path'])
+        report_path = report_path if report_path.is_absolute() else metadata_path.parent / report_path
+        _require(metadata['map_precision_correction'] == _json_file(report_path).get('map_precision_correction'),
+                 'Registered map precision metadata differs from its verified compiler report')
+      elif model_id == 'big-nav-v2-map-fp32':
+        _require(False, 'Corrected Bigv2 is missing its map precision metadata')
       verified = True
     # This schema-compatible object is returned for diagnostic inspection only.
     # It is never saved to a production catalog or passed to an active manager.

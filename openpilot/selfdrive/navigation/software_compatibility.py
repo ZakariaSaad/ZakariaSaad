@@ -136,7 +136,8 @@ def validate_native_layout(header: dict) -> dict:
 
 def _registered_entry(receipt: dict, manifest: Path, registry: dict) -> tuple[dict, dict, Path, Path, Path]:
   _require(receipt.get('prepared') is True and receipt.get('registered') is True, 'Receipt does not confirm successful registration')
-  _require(receipt.get('model_id') == 'big-nav-v2' and receipt.get('source_onnx_sha256') == SOURCE_ONNX_SHA256,
+  _require(isinstance(receipt.get('model_id'), str) and bool(receipt['model_id'])
+           and receipt['model_id'] == registry.get('id') and receipt.get('source_onnx_sha256') == SOURCE_ONNX_SHA256,
            'Receipt source/checkpoint identity mismatch')
   _require(receipt.get('status') == 'registered_disabled' and receipt.get('activation_allowed') is False,
            'Registration receipt must not claim driving activation')
@@ -340,14 +341,19 @@ def validate_software_compatibility(receipt_path: str | Path = DEFAULT_RECEIPT, 
   def receipt_and_manifest():
     receipt = _json_file(Path(receipt_path))
     registry = _json_file(Path(registry_path))
-    candidates = [entry for entry in registry.get('candidates', []) if entry.get('id') == 'big-nav-v2']
-    _require(registry.get('schema_version') == 1 and len(candidates) == 1, 'Branch-reviewed Bigv2 registry entry is missing')
+    identifier = receipt.get('model_id')
+    _require(isinstance(identifier, str) and bool(identifier), 'Registration receipt model identity is missing')
+    records = registry.get('candidates')
+    _require(registry.get('schema_version') == 1 and isinstance(records, list)
+             and all(isinstance(entry, dict) for entry in records), 'Branch-reviewed Bigv2 registry is invalid')
+    candidates = [entry for entry in records if entry.get('id') == identifier]
+    _require(len(candidates) == 1, 'Branch-reviewed Bigv2 registry entry is missing or duplicated: ' + identifier)
     approved = candidates[0]
     manifest = Path(manifest_path if manifest_path is not None else receipt.get('manifest_path', '')).resolve(strict=True)
     entry, metadata, artifact, warp, metadata_path = _registered_entry(receipt, manifest, approved)
     context.update(receipt=receipt, approved=approved, manifest=manifest, entry=entry, metadata=metadata,
                    artifact=artifact, warp=warp, metadata_path=metadata_path)
-    report.update(model_id='big-nav-v2', manifest_path=str(manifest), artifact_sha256=receipt['artifact_sha256'],
+    report.update(model_id=identifier, manifest_path=str(manifest), artifact_sha256=receipt['artifact_sha256'],
                   warp_sha256=receipt['warp_sha256'], metadata_sha256=receipt['metadata_sha256'],
                   source_onnx_sha256=SOURCE_ONNX_SHA256)
     return {'registered': True, 'artifact_bytes': artifact.stat().st_size,
@@ -387,7 +393,8 @@ def validate_software_compatibility(receipt_path: str | Path = DEFAULT_RECEIPT, 
     for key, expected_key in (('compiler', 'compiler_sha256'), ('report', 'compiler_report_sha256')):
       _require(proof.get(key, {}).get('sha256') == context['approved'].get(expected_key), 'Branch-reviewed compiler/report identity mismatch')
     validate_exported_verification(proof, context['receipt']['artifact_sha256'], context['entry']['contract'],
-                                    context['header'], anchor=context['metadata_path'])
+                                    context['header'], anchor=context['metadata_path'], artifact_path=context['artifact'],
+                                    model_id=context['receipt']['model_id'])
     report_path, _ = _local_file(context['metadata_path'], proof['report'], 'Compiler report')
     compiler = _json_file(report_path)
     return {'physical_execution_previously_verified': True, 'verification_seeds': compiler['verification']['seeds'],

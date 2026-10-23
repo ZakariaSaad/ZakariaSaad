@@ -1,18 +1,18 @@
 """Navigation driving selection, separate from ordinary Selector 21 bundle slots."""
 from pathlib import Path
 
-from openpilot.selfdrive.navigation.activation import admit_candidate, candidate_status, list_candidates, validate_admission
+from openpilot.selfdrive.navigation.activation import admit_candidate, candidate_manifest, candidate_status, list_candidates, validate_admission
 from openpilot.selfdrive.navigation.errors import NavigationModelDisabled
 from openpilot.selfdrive.navigation.offroad import require_offroad
 
 
 def _selection_identity(params):
   """Notice an SSH/UI selection or withdrawal during slow file admission."""
-  values = (params.get('NavigationModelCandidate'), params.get_bool('NavigationModelDrivingEnabled'))
+  values = (params.get('NavigationModelCandidate'), params.get('NavigationModelManifest'), params.get_bool('NavigationModelDrivingEnabled'))
   if not hasattr(params, 'get_param_path'):
     return values
   files = []
-  for key in ('NavigationModelCandidate', 'NavigationModelDrivingEnabled'):
+  for key in ('NavigationModelCandidate', 'NavigationModelManifest', 'NavigationModelDrivingEnabled'):
     try:
       stat = Path(params.get_param_path(key)).stat()
       files.append((stat.st_ino, stat.st_size, stat.st_mtime_ns))
@@ -21,14 +21,63 @@ def _selection_identity(params):
   return values, tuple(files)
 
 
+def _restore_selection(params, previous):
+  """Withdraw permission and attempt every pointer restore despite I/O failures."""
+  failures = []
+  for key, value in (('NavigationModelDrivingEnabled', False), *previous.items()):
+    try:
+      if key == 'NavigationModelDrivingEnabled':
+        params.put_bool(key, False, block=True)
+      elif params.get(key) != value:
+        if value is None:
+          params.remove(key)
+        else:
+          params.put(key, value, block=True)
+    except Exception as error:
+      failures.append(f'{key}: {error}')
+    # A native write may silently fail or write successfully before raising.
+    # Always inspect its result, and still attempt the other pointer afterward.
+    try:
+      actual = params.get_bool(key) if key == 'NavigationModelDrivingEnabled' else params.get(key)
+      if actual != value:
+        failures.append(f'Could not restore {key}')
+    except Exception as error:
+      failures.append(f'Could not verify restored {key}: {error}')
+  return failures
+
+
+def _write_selection(params, candidate_id, manifest):
+  if manifest is not None:
+    params.put('NavigationModelManifest', str(manifest), block=True)
+    if params.get('NavigationModelManifest') != str(manifest):
+      raise OSError('Could not persist the registered navigation model manifest')
+  params.put('NavigationModelCandidate', candidate_id, block=True)
+  if params.get('NavigationModelCandidate') != candidate_id:
+    raise OSError('Could not persist the admitted navigation model selection')
+
+
 def select_candidate(params, candidate_id: str, *, offroad: bool) -> None:
   if not offroad:
     raise NavigationModelDisabled('Navigation model selection is available only while off road')
   if candidate_id not in {candidate['id'] for candidate in list_candidates()}:
     raise NavigationModelDisabled('Unknown navigation model candidate')
+  require_offroad(params)
+  manifest = candidate_manifest(params, candidate_id)
+  if manifest is not None:
+    status = candidate_status(params, candidate_id=candidate_id)
+    if not status['registered'] or not status['installed']:
+      raise NavigationModelDisabled(status['reason'])
+  previous = {key: params.get(key) for key in ('NavigationModelCandidate', 'NavigationModelManifest')}
   # Selecting a candidate for preparation does not select it for inference.
   params.put_bool('NavigationModelDrivingEnabled', False, block=True)
-  params.put('NavigationModelCandidate', candidate_id, block=True)
+  if params.get_bool('NavigationModelDrivingEnabled'):
+    raise NavigationModelDisabled('Could not persist Navigation Model Driving OFF')
+  try:
+    _write_selection(params, candidate_id, manifest)
+  except (OSError, RuntimeError, ValueError, TypeError) as error:
+    failures = _restore_selection(params, previous)
+    detail = f'; navigation selection rollback failed: {"; ".join(failures)}' if failures else ''
+    raise NavigationModelDisabled(f'{error}{detail}') from error
 
 
 def set_driving_enabled(params, enabled: bool, *, offroad: bool, candidate_id: str | None = None) -> None:
@@ -53,27 +102,22 @@ def set_driving_enabled(params, enabled: bool, *, offroad: bool, candidate_id: s
     require_offroad(params)
     permit = admit_candidate(params, candidate_id=candidate_id)
     require_offroad(params)
-    validate_admission(permit, params)
+    validate_admission(permit, params, allow_unselected_manifest=True)
     if _selection_identity(params) != selection_identity:
       raise NavigationModelDisabled('Navigation selection or driving permission changed during admission; activation cancelled')
   except (OSError, RuntimeError, ValueError, TypeError, KeyError) as error:
     raise NavigationModelDisabled(str(error)) from error
-  previous = params.get('NavigationModelCandidate')
+  previous = {key: params.get(key) for key in ('NavigationModelCandidate', 'NavigationModelManifest')}
   try:
-    params.put('NavigationModelCandidate', permit.model_id, block=True)
-    if params.get('NavigationModelCandidate') != permit.model_id:
-      raise OSError('Could not persist the admitted navigation model selection')
+    _write_selection(params, permit.model_id, getattr(permit, 'manifest_path', None))
     params.put_bool('NavigationModelDrivingEnabled', True, block=True)
     if not params.get_bool('NavigationModelDrivingEnabled'):
       raise OSError('Could not persist Navigation Model Driving ON')
   except (OSError, RuntimeError, ValueError, TypeError) as error:
     # Never leave a partially written activation requested after an I/O failure.
-    params.put_bool('NavigationModelDrivingEnabled', False, block=True)
-    if previous is None:
-      params.remove('NavigationModelCandidate')
-    else:
-      params.put('NavigationModelCandidate', previous, block=True)
-    raise NavigationModelDisabled(str(error)) from error
+    failures = _restore_selection(params, previous)
+    detail = f'; navigation selection rollback failed: {"; ".join(failures)}' if failures else ''
+    raise NavigationModelDisabled(f'{error}{detail}') from error
 
 
 def selection_description(params) -> str:

@@ -111,7 +111,8 @@ def _verification_report(report: dict, artifact_sha256: str, compiler_sha256: st
            'Primary prediction must change across verification seeds')
 
 
-def validate_exported_verification(proof: dict, artifact_sha256: str, contract: dict, header: dict, *, anchor: Path | None = None) -> None:
+def validate_exported_verification(proof: dict, artifact_sha256: str, contract: dict, header: dict, *, anchor: Path | None = None,
+                                  artifact_path: Path | None = None, model_id: str = 'big-nav-v2') -> None:
   """Recheck exported provenance on every load; no report claim enables actuation."""
   _require(isinstance(proof, dict) and proof.get('scope') == 'source_reload_consistency_only', 'Unsupported compiler verification scope')
   anchor = anchor if anchor is not None else Path.cwd() / 'local-manifest.json'
@@ -124,13 +125,46 @@ def validate_exported_verification(proof: dict, artifact_sha256: str, contract: 
     _source_file(anchor, source)
   runtime = Path(proof.get('tinygrad_root', ''))
   _runtime_checkout(runtime if runtime.is_absolute() else anchor.parent / runtime)
-  _verification_report(_json_file(report_path), artifact_sha256, compiler_sha, contract, header)
+  report = _json_file(report_path)
+  _verification_report(report, artifact_sha256, compiler_sha, contract, header)
+  from openpilot.selfdrive.navigation import corrected_bigv2 as corrected
+  if model_id == corrected.MODEL_ID or artifact_sha256 == corrected.ARTIFACT_SHA256 or 'map_precision_correction' in report:
+    _require(model_id == corrected.MODEL_ID, 'Corrected Bigv2 must retain its distinct model identity')
+    _require(proof['report']['sha256'] == corrected.REPORT_SHA256, 'Corrected compiler report differs from the reviewed evidence')
+    _, implementation_sha = _local_file(anchor, proof.get('map_precision_implementation'), 'Map precision implementation')
+    _require(implementation_sha == corrected.IMPLEMENTATION_SHA256, 'Corrected map implementation source SHA256 mismatch')
+    corrected.validate_precision_report(report, contract, _output_comparison)
+    _require(artifact_path is not None, 'Corrected model requires actual native artifact byte validation')
+    corrected.validate_precision_artifact(artifact_path, header, report['map_precision_correction'])
+
+
+def build_metadata(header: dict, contract: dict, target: dict, proof: dict, *, camera_profile=None,
+                   source_bytes_rechecked=False, correction=None) -> dict:
+  """Deterministic sidecar construction; callers separately validate actual files."""
+  named = {row['name']: row for row in header['inputs'] if row['name'] is not None}
+  metadata = {'schema_version': 1, 'source_onnx_sha256': SOURCE_ONNX_SHA256, 'tinygrad_ref': TINYGRAD_REF,
+              'target': target, 'output_slices': contract['output_slices'], 'compiler_verification': proof,
+              'hardware_driving_validation': False, 'selector_generation_verified': False,
+              'source_onnx_bytes_rechecked': source_bytes_rechecked,
+              'limitations': ['Local report and static byte bindings were validated; reports are not authenticated attestations.',
+                              'Source/reload consistency does not prove model quality, vehicle safety or firmware compatibility.',
+                              'The exporter never reads pickle extras; diagnostic adapters must use their bounded literal-slice decoder.']}
+  if camera_profile is not None:
+    metadata['camera_profile'] = camera_profile
+  if correction is not None:
+    metadata['map_precision_correction'] = correction
+  for kind in ('input', 'output'):
+    metadata[f'{kind}_specs'] = {row['name']: {'shape': row['shape'], 'dtype': _dtype(row['dtype']),
+                                            'device': named[row['name']]['device'] if kind == 'input' else 'AMD'}
+                               for row in contract[f'{kind}s']}
+  return metadata
 
 
 def export_experimental_model(artifact_path: str | Path, warp_path: str | Path, verification_path: str | Path,
                               source_onnx_path: str | Path | None, compiler_path: str | Path, tinygrad_root: str | Path,
                               output_manifest: str | Path, *, experimental: bool, portable: bool = False,
-                              camera_profile: dict | None = None) -> Path:
+                              camera_profile: dict | None = None, model_id: str = 'big-nav-v2',
+                              precision_implementation_path: str | Path | None = None) -> Path:
   """Export new JSON files after validation; never overwrite an existing manifest.
 
   Requires an existing AMD artifact and its successful compiler report. The
@@ -143,6 +177,12 @@ def export_experimental_model(artifact_path: str | Path, warp_path: str | Path, 
   try:
     catalog = copy.deepcopy(load_experimental_catalog(DEFAULT_CATALOG, experimental=experimental))
     entry = catalog['entries'][0]
+    from openpilot.selfdrive.navigation import corrected_bigv2 as corrected
+    _require(model_id in ('big-nav-v2', corrected.MODEL_ID), 'Unknown existing navigation model identity')
+    entry['id'] = model_id
+    if model_id == corrected.MODEL_ID:
+      entry['selector21_bundle']['display_name'] = corrected.DISPLAY_NAME
+      entry['selector21_bundle']['short_name'] = 'NAV-BIG-V2-MAP-FP32'
     contract = entry['contract']
     _require(hashlib.sha256(json.dumps(contract, sort_keys=True, separators=(',', ':')).encode()).hexdigest() == CONTRACT_SHA256,
              'Pinned public contract changed')
@@ -157,28 +197,23 @@ def export_experimental_model(artifact_path: str | Path, warp_path: str | Path, 
              'source_onnx': (_record(Path(source_onnx_path)) if source_onnx_path is not None else
                              {'sha256': SOURCE_ONNX_SHA256, 'bytes_retained': False}),
              'tinygrad_root': str(Path(tinygrad_root).resolve(strict=True))}
+    if model_id == corrected.MODEL_ID:
+      _require(precision_implementation_path is not None, 'Corrected compiler implementation source is required')
+      proof['map_precision_implementation'] = _record(Path(precision_implementation_path))
     if portable:
-      for key in ('report', 'compiler', 'source_onnx'):
+      for key in ('report', 'compiler', 'source_onnx', 'map_precision_implementation'):
+        if key not in proof:
+          continue
         if 'path' in proof[key]:
           proof[key]['path'] = os.path.relpath(proof[key]['path'], output.parent)
       proof['tinygrad_root'] = os.path.relpath(proof['tinygrad_root'], output.parent)
       for record in (artifact_record, warp_record):
         record['path'] = os.path.relpath(record['path'], output.parent)
-    validate_exported_verification(proof, artifact_record['sha256'], contract, header, anchor=sidecar)
-    named = {row['name']: row for row in header['inputs'] if row['name'] is not None}
-    metadata = {'schema_version': 1, 'source_onnx_sha256': SOURCE_ONNX_SHA256, 'tinygrad_ref': TINYGRAD_REF,
-                'target': entry['target'], 'output_slices': contract['output_slices'], 'compiler_verification': proof,
-                'hardware_driving_validation': False, 'selector_generation_verified': False,
-                'source_onnx_bytes_rechecked': source_onnx_path is not None,
-                'limitations': ['Local report and static byte bindings were validated; reports are not authenticated attestations.',
-                                'Source/reload consistency does not prove model quality, vehicle safety or firmware compatibility.',
-                                'The exporter never reads pickle extras; diagnostic adapters must use their bounded literal-slice decoder.']}
-    if camera_profile is not None:
-      metadata['camera_profile'] = camera_profile
-    for kind in ('input', 'output'):
-      metadata[f'{kind}_specs'] = {row['name']: {'shape': row['shape'], 'dtype': _dtype(row['dtype']),
-                                              'device': named[row['name']]['device'] if kind == 'input' else 'AMD'}
-                                 for row in contract[f'{kind}s']}
+    validate_exported_verification(proof, artifact_record['sha256'], contract, header, anchor=sidecar,
+                                  artifact_path=artifact, model_id=model_id)
+    metadata = build_metadata(header, contract, entry['target'], proof, camera_profile=camera_profile,
+                              source_bytes_rechecked=source_onnx_path is not None,
+                              correction=_json_file(Path(verification_path))['map_precision_correction'] if model_id == corrected.MODEL_ID else None)
     _model_contract(header, metadata, contract)
     inputs = {artifact, warp, Path(verification_path).resolve(), Path(compiler_path).resolve(), DEFAULT_CATALOG}
     if source_onnx_path is not None:
@@ -200,7 +235,7 @@ def export_experimental_model(artifact_path: str | Path, warp_path: str | Path, 
         manifest_file.flush()
         os.link(temporary_sidecar, sidecar)  # Atomic no-overwrite publication.
         published_sidecar = True
-        inspected = load_experimental_model(temporary_manifest, experimental=True, backend='AMD')
+        inspected = load_experimental_model(temporary_manifest, experimental=True, backend='AMD', model_id=model_id)
         _require(inspected.compiler_verification_validated, 'Exported compiler provenance was not validated')
         os.link(temporary_manifest, output)
         published_manifest = True

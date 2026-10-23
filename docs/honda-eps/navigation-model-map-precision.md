@@ -1,5 +1,10 @@
 # Bigv2 map precision correction
 
+The separately compiled physical AMD candidate has now passed the reported
+compiler checks. Use [the corrected-model registration and selection workflow](navigation-model-corrected-integration.md)
+for the already compiled artifact. The build instructions below document the
+earlier compiler stage and do not need to be repeated.
+
 This continues [the numerical investigation](navigation-model-numerical-replay.md)
 from `74414354db1b12f767ba957ea24fffb25d04f366`. The correction is a guarded,
 opt-in compiler transformation. Updating Git alone **does not repair the kernels

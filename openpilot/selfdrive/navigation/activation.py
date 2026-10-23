@@ -13,6 +13,7 @@ from openpilot.selfdrive.navigation.experimental_catalog import SOURCE_ONNX_SHA2
 from openpilot.selfdrive.navigation.errors import NavigationModelDisabled
 
 REGISTRY = Path(__file__).with_name('driving_models.json')
+REGISTRATION_ROOT = Path('/data/navigation-models')
 _PERMIT_SEAL = object()
 
 
@@ -33,6 +34,38 @@ def _candidate(params, candidate_id=None):
 
 def list_candidates() -> list[dict]:
   return [{'id': entry['id'], 'display_name': entry['display_name']} for entry in _json_file(REGISTRY).get('candidates', [])]
+
+
+def candidate_manifest(params, candidate_id: str) -> Path | None:
+  """Find only this candidate's registered package; receipts never grant approval.
+
+  Keep a matching configured manifest authoritative, including malformed or
+  mismatched identity declarations, so a damaged selection is reported rather
+  than silently replaced. A different candidate's package is never substituted.
+  """
+  configured = _text(params.get('NavigationModelManifest'))
+  if configured and Path(configured).is_file():
+    records = _json_file(Path(configured)).get('entries', [])
+    if not isinstance(records, list) or not all(isinstance(record, dict) for record in records):
+      raise NavigationModelDisabled('The configured navigation manifest has invalid entries')
+    if any(record.get('id') == candidate_id for record in records):
+      return Path(configured)
+  entry = _candidate(params, candidate_id)
+  filename = 'latest-registration.json' if candidate_id == 'big-nav-v2' else candidate_id + '-registration.json'
+  if Path(filename).name != filename:
+    raise NavigationModelDisabled('Invalid registered navigation candidate identifier')
+  receipt_path = REGISTRATION_ROOT / filename
+  if not receipt_path.is_file():
+    return None
+  receipt = _json_file(receipt_path)
+  if receipt.get('registered') is not True or receipt.get('model_id') != candidate_id or any(
+    receipt.get(key) != entry.get(key) for key in ('artifact_sha256', 'warp_sha256', 'metadata_sha256')
+  ):
+    raise NavigationModelDisabled('Registration receipt does not match the selected candidate identity')
+  manifest = receipt.get('manifest_path')
+  if not isinstance(manifest, str) or not manifest or '://' in manifest:
+    raise NavigationModelDisabled('Registration receipt has no local manifest path')
+  return Path(manifest)
 
 
 def Params():
@@ -108,7 +141,8 @@ def candidate_status(params=None, *, candidate_id=None) -> dict:
     if any(not isinstance(entry.get(key), str) or re.fullmatch('[0-9a-f]{64}', entry[key]) is None
            for key in ('artifact_sha256', 'warp_sha256', 'metadata_sha256', 'compiler_sha256', 'compiler_report_sha256')):
       reasons.append('Reviewed model, warp, metadata, compiler and verification-report hashes are not pinned')
-    manifest = _text(params.get('NavigationModelManifest'))
+    manifest_path = candidate_manifest(params, entry['id'])
+    manifest = str(manifest_path) if manifest_path is not None else ''
     registered = installed = False
     artifact_path = ''
     if manifest and Path(manifest).is_file():
@@ -139,7 +173,7 @@ def candidate_status(params=None, *, candidate_id=None) -> dict:
     software_reviewed = entry.get('software_contract_reviewed') is True and entry.get('software_integration_reviewed') is True
     return {'id': entry['id'], 'display_name': entry['display_name'], 'eligible': not reasons,
             'reason': '; '.join(reasons), 'enabled': params.get_bool('NavigationModelDrivingEnabled'),
-            'registered': registered, 'installed': installed, 'artifact_path': artifact_path, 'approved': approved,
+            'registered': registered, 'installed': installed, 'artifact_path': artifact_path, 'manifest_path': manifest, 'approved': approved,
             'selected': _text(params.get('NavigationModelCandidate')) == entry['id'],
             'blockers': reasons, 'software_compatible': software_reviewed,
             'artifact_evidence_reviewed': entry.get('artifact_evidence_reviewed') is True,
@@ -147,7 +181,7 @@ def candidate_status(params=None, *, candidate_id=None) -> dict:
             'local_file_validation': 'Required at runtime admission; registration status checks declared identities only'}
   except (ValueError, OSError, TypeError, KeyError) as error:
     return {'id': '', 'display_name': 'Navigation model', 'eligible': False, 'reason': str(error), 'enabled': False,
-            'registered': False, 'installed': False, 'artifact_path': '', 'approved': False, 'selected': False,
+            'registered': False, 'installed': False, 'artifact_path': '', 'manifest_path': '', 'approved': False, 'selected': False,
             'blockers': [str(error)], 'software_compatible': False, 'artifact_evidence_reviewed': False,
             'runtime_compatibility': 'unverified'}
 
@@ -207,7 +241,10 @@ def admit_candidate(params=None, *, candidate_id=None) -> DrivingPermit:
   fallback_reason = ordinary_fallback_reason(params, verify=True)
   if fallback_reason:
     raise NavigationModelDisabled(fallback_reason)
-  manifest = Path(_text(params.get('NavigationModelManifest'))).resolve(strict=True)
+  chosen_manifest = candidate_manifest(params, approved['id'])
+  if chosen_manifest is None:
+    raise NavigationModelDisabled('The selected candidate has no registered manifest')
+  manifest = chosen_manifest.resolve(strict=True)
   manifest_fingerprint = _fingerprint(manifest)
   manifest_entry = next(item for item in _json_file(manifest)['entries'] if item['id'] == approved['id'])
   artifact_paths = []
@@ -245,12 +282,13 @@ def authorize_runtime(params=None) -> DrivingPermit | None:
   return permit
 
 
-def validate_admission(permit, params=None) -> None:
+def validate_admission(permit, params=None, *, allow_unselected_manifest=False) -> None:
   """Recheck admitted file/selection identities without requiring activation."""
   params = params if params is not None else Params()
   if not isinstance(permit, DrivingPermit) or permit.seal is not _PERMIT_SEAL:
     raise NavigationModelDisabled('A branch-reviewed runtime permit is required')
-  if Path(_text(params.get('NavigationModelManifest'))).resolve() != permit.manifest_path:
+  current = candidate_manifest(params, permit.model_id) if allow_unselected_manifest else Path(_text(params.get('NavigationModelManifest')))
+  if current is None or current.resolve() != permit.manifest_path:
     raise NavigationModelDisabled('Navigation model manifest changed')
   if _fingerprint(REGISTRY) != permit.registry_fingerprint or \
      tuple(_fingerprint(path) for path in (permit.artifact_path, permit.warp_path, permit.manifest_path, permit.metadata_path)) != permit.file_fingerprints:

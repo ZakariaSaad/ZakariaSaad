@@ -9,9 +9,10 @@ import os
 from pathlib import Path
 import sys
 
-from openpilot.selfdrive.navigation.activation import candidate_status
+from openpilot.selfdrive.navigation.activation import candidate_status, list_candidates
 from openpilot.selfdrive.navigation.errors import NavigationModelDisabled
-from openpilot.selfdrive.navigation.selection import set_driving_enabled
+from openpilot.selfdrive.navigation.offroad import require_offroad
+from openpilot.selfdrive.navigation.selection import select_candidate, set_driving_enabled
 
 
 def _params():
@@ -21,16 +22,18 @@ def _params():
   return Params()
 
 
-def _status(params) -> None:
-  status = candidate_status(params, candidate_id='big-nav-v2')
-  print(f"Model: {status['display_name']} (big-nav-v2)")
+def _status(params, candidate_id=None) -> None:
+  status = candidate_status(params, candidate_id=candidate_id)
+  print(f"Model: {status['display_name']} ({status['id']})")
   installed = 'installed' if status.get('installed') else 'missing'
   print(f"Local artifact ({installed}): " + (status.get('artifact_path') or 'not found in the configured manifest'))
   print('Registration: ' + ('matching manifest configured' if status.get('registered') else 'missing or mismatched'))
+  if status.get('manifest_path'):
+    print('Manifest: ' + status['manifest_path'])
   print('Software compatibility/integration: ' + ('reviewed' if status.get('software_compatible') else 'not reviewed'))
   print('Compiler/artifact evidence: ' + ('reviewed' if status.get('artifact_evidence_reviewed') else 'not reviewed'))
   print('Branch activation approval: ' + ('approved' if status.get('approved') else 'not approved'))
-  print('Bigv2 selection: ' + ('selected' if status.get('selected') else 'not selected'))
+  print('Navigation model selection: ' + ('selected' if status.get('selected') else 'not selected'))
   print('Navigation Model Driving: ' + ('requested ON' if params.get_bool('NavigationModelDrivingEnabled') else 'OFF'))
   runtime = params.get('NavigationModelRuntimeState')
   print('Runtime: ' + (str(runtime) if runtime else 'inactive (normal while off road)'))
@@ -48,21 +51,48 @@ def _status(params) -> None:
     print('Eligible for explicit enable; enable also requires fresh off-road/disengaged state and successful file admission.')
 
 
+def _register(params, candidate_id):
+  # Import registration only for this operation: status/disable remain usable
+  # with system Python without importing messaging or model runtime packages.
+  from openpilot.selfdrive.navigation.preparation import prepare_existing_model
+  require_offroad(params)
+  return prepare_existing_model(params, is_offroad=True, model_id=candidate_id)
+
+
 def main(argv=None, *, params=None) -> int:
   parser = argparse.ArgumentParser(description=__doc__)
   commands = parser.add_subparsers(dest='command', required=True)
-  commands.add_parser('status', help='show registration, approval, selection and activation blockers')
+  candidates = {entry['id']: entry['display_name'] for entry in list_candidates()}
+  status = commands.add_parser('status', help='show registration, approval, selection and activation blockers')
+  status.add_argument('model', nargs='?', choices=list(candidates), help='defaults to the selected navigation candidate')
+  register = commands.add_parser('register', help='verify and register existing local files while off road; driving stays OFF')
+  register.add_argument('model', choices=list(candidates))
+  select = commands.add_parser('select', help='select an installed local navigation candidate while off road; driving stays OFF')
+  select.add_argument('model', choices=list(candidates))
   enable = commands.add_parser('enable', help='explicitly request an approved, registered model while off road')
-  enable.add_argument('model', choices=['big-nav-v2'])
+  enable.add_argument('model', choices=list(candidates))
   commands.add_parser('disable', help='withdraw navigation driving permission; ordinary model selections are preserved')
   args = parser.parse_args(argv)
   try:
     params = _params() if params is None else params
     if args.command == 'status':
-      _status(params)
+      _status(params, args.model)
+    elif args.command == 'register':
+      receipt = _register(params, args.model)
+      print(f"Registered {candidates[args.model]}. Navigation Model Driving remains OFF.")
+      print('Manifest: ' + receipt['manifest_path'])
+      print('Artifact SHA256: ' + receipt['artifact_sha256'])
+      _status(params, args.model)
+    elif args.command == 'select':
+      require_offroad(params)
+      status = candidate_status(params, candidate_id=args.model)
+      if not status.get('registered') or not status.get('installed'):
+        raise NavigationModelDisabled('Register the matching local candidate before selecting it: ' + status['reason'])
+      select_candidate(params, args.model, offroad=True)
+      print(f"Selected {candidates[args.model]}. Navigation Model Driving remains OFF.")
     elif args.command == 'enable':
       set_driving_enabled(params, True, offroad=True, candidate_id=args.model)
-      print('Bigv2 selected; Navigation Model Driving requested ON. This does not engage vehicle controls.')
+      print(f'{candidates[args.model]} selected; Navigation Model Driving requested ON. This does not engage vehicle controls.')
     else:
       set_driving_enabled(params, False, offroad=True)
       print('Navigation Model Driving OFF. Ordinary model selections are unchanged.')

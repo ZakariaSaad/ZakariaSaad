@@ -156,7 +156,7 @@ class TestSoftwareCompatibility(unittest.TestCase):
                       warp_artifact={'path': str(self.warp), 'sha256': digest(self.warp)},
                       compiler_metadata={'path': self.sidecar.name, 'sha256': digest(self.sidecar)})
     self.manifest.write_text(json.dumps(self.catalog))
-    self.registration = {'prepared': True, 'registered': True, 'model_id': 'big-nav-v2', 'source_onnx_sha256': SOURCE_ONNX_SHA256,
+    self.registration = {'prepared': True, 'registered': True, 'model_id': self.entry['id'], 'source_onnx_sha256': SOURCE_ONNX_SHA256,
                           'manifest_path': str(self.manifest), 'activation_allowed': False, 'status': 'registered_disabled',
                           'artifact_sha256': digest(self.model), 'warp_sha256': digest(self.warp), 'metadata_sha256': digest(self.sidecar),
                           'camera_profile': copy.deepcopy(self.metadata['camera_profile']), 'gpu_execution_performed': False}
@@ -195,6 +195,50 @@ class TestSoftwareCompatibility(unittest.TestCase):
     self.assertNotIn('minimum_valid_frames', self.approved)
     self.assertFalse(report['activation_allowed'])
     self.assertFalse(details['branch_activation_approved'])
+
+  def test_receipt_candidate_uses_its_own_registry_identity_without_inheriting_approval(self):
+    # Inert native fixtures test candidate dispatch and file bindings only;
+    # correction-specific compiler evidence has separate registration tests.
+    original = copy.deepcopy(self.approved)
+    original.update(activation_approved=True, artifact_sha256='0' * 64)
+    self.entry['id'] = self.approved['id'] = 'big-nav-v2-map-fp32'
+    self.save_metadata()
+    self.registry.write_text(json.dumps({'schema_version': 1, 'candidates': [original, self.approved]}))
+    before = {path: path.read_bytes() for path in self.root.iterdir() if path.is_file()}
+    report = self.validate()
+    # The synthetic legacy report must not become corrected-model evidence
+    # merely because candidate/receipt labels agree.
+    self.assertFalse(report['passed'], report)
+    self.assertEqual(next(check['status'] for check in report['checks'] if check['name'] == 'registered_files_and_hashes'), 'passed')
+    proof_check = next(check for check in report['checks'] if check['name'] == 'compiler_provenance_and_source_reload_evidence')
+    self.assertEqual(proof_check['status'], 'failed')
+    self.assertIn('reviewed evidence', proof_check['reason'])
+    self.assertEqual(report['model_id'], 'big-nav-v2-map-fp32')
+    self.assertEqual(report['artifact_sha256'], self.approved['artifact_sha256'])
+    details = next(check['details'] for check in report['checks'] if check['name'] == 'branch_reviewed_software_integration')
+    self.assertFalse(details['branch_activation_approved'])
+    self.assertFalse(report['activation_allowed'])
+    self.assertEqual(before, {path: path.read_bytes() for path in self.root.iterdir() if path.is_file()})
+
+  def test_unknown_duplicate_or_cross_candidate_receipts_are_rejected(self):
+    original = copy.deepcopy(self.registration)
+    for identifier in ('unknown-nav-candidate', '', None):
+      with self.subTest(identifier=identifier):
+        self.receipt.write_text(json.dumps(original | {'model_id': identifier}))
+        self.assertFalse(self.validate()['passed'])
+    self.receipt.write_text(json.dumps(original))
+    self.registry.write_text(json.dumps({'schema_version': 1, 'candidates': [self.approved, self.approved]}))
+    self.assertFalse(self.validate()['passed'])
+    # Matching hashes cannot substitute a different model's entry/receipt.
+    self.entry['id'] = 'big-nav-v2-map-fp32'
+    self.manifest.write_text(json.dumps(self.catalog))
+    self.registry.write_text(json.dumps({'schema_version': 1, 'candidates': [self.approved]}))
+    self.assertFalse(self.validate()['passed'])
+
+  def test_registered_entry_requires_the_same_candidate_as_its_branch_record(self):
+    other = self.approved | {'id': 'big-nav-v2-map-fp32'}
+    with self.assertRaisesRegex(ExperimentalCatalogError, 'identity mismatch'):
+      compatibility._registered_entry(self.registration, self.manifest.resolve(), other)
 
   def test_artifact_receipt_metadata_report_and_compiler_tampering_rejected(self):
     for path in (self.model, self.sidecar, self.compiler_report, self.compiler):

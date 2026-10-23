@@ -11,7 +11,7 @@ import pyray as rl
 
 from openpilot.cereal import custom
 from openpilot.sunnypilot.models.helpers import ACTIVE_BUNDLE_KEYS, get_selected_bundle, resolve_bundle_by_ref
-from openpilot.selfdrive.navigation.activation import candidate_status
+from openpilot.selfdrive.navigation.activation import candidate_status, list_candidates
 from openpilot.selfdrive.navigation.model_inputs import NavigationModelDisabled
 from openpilot.selfdrive.navigation.selection import select_candidate, selection_description, set_driving_enabled
 from openpilot.common.constants import CV
@@ -34,20 +34,21 @@ from openpilot.system.ui.sunnypilot.widgets.tree_dialog import TreeOptionDialog,
 if gui_app.sunnypilot_ui():
   from openpilot.system.ui.sunnypilot.widgets.list_view import button_item_sp as button_item
 
-NAVIGATION_REF = 'navigation:big-nav-v2'
+NAVIGATION_PREFIX = 'navigation:'
+NAVIGATION_REF = NAVIGATION_PREFIX + 'big-nav-v2'
 
 
 class ExistingBigv2RegistrationDialog(ConfirmDialog):
   """Background file verification with all visual updates on the render thread."""
-  def __init__(self, params, *, is_offroad: bool):
-    super().__init__(tr("Checking existing Bigv2 and camera warp. Navigation driving stays off."), tr("Close"), cancel_text="")
+  def __init__(self, params, *, is_offroad: bool, model_id: str):
+    super().__init__(tr("Checking the selected existing navigation model and camera warp. Navigation driving stays off."), tr("Close"), cancel_text="")
     self._finished = threading.Event()
     self._error: str | None = None
     self._shown_result = False
     def run():
       try:
         from openpilot.selfdrive.navigation.preparation import prepare_existing_model
-        receipt = prepare_existing_model(params, is_offroad=is_offroad)
+        receipt = prepare_existing_model(params, is_offroad=is_offroad, model_id=model_id)
         if receipt.get('prepared') is not True or receipt.get('activation_allowed') is not False:
           raise ValueError('Existing model registration was not completed')
       except Exception as error:
@@ -62,7 +63,7 @@ class ExistingBigv2RegistrationDialog(ConfirmDialog):
     if self._finished.is_set() and not self._shown_result:
       self._shown_result = True
       self.set_text((tr("Registration failed: ") + self._error) if self._error else
-                    tr("Existing Bigv2 and camera warp registered. Navigation driving stays off."))
+                    tr("Selected navigation model and camera warp registered. Navigation driving stays off."))
 
 
 class NavigationActivationDialog(ConfirmDialog):
@@ -189,7 +190,7 @@ class ModelsLayout(Widget):
                                                enabled=lambda: not self._navigation_activation_running() and
                                                ((ui_state.is_offroad() and candidate_status(ui_state.params)['eligible']) or
                                                 ui_state.params.get_bool('NavigationModelDrivingEnabled')))
-    self.navigation_register = button_item(tr("Register existing Bigv2"), tr("REGISTER"),
+    self.navigation_register = button_item(tr("Register selected navigation model"), tr("REGISTER"),
                                               tr("Validate and register the installed model and camera warp. Navigation driving stays off."),
                                               self._register_existing_navigation,
                                               enabled=lambda: ui_state.is_offroad() and not self._navigation_registration_running())
@@ -227,7 +228,8 @@ class ModelsLayout(Widget):
       return
     if self._navigation_registration_running():
       return
-    self._navigation_registration = ExistingBigv2RegistrationDialog(ui_state.params, is_offroad=offroad)
+    self._navigation_registration = ExistingBigv2RegistrationDialog(
+      ui_state.params, is_offroad=offroad, model_id=candidate_status(ui_state.params)['id'])
     gui_app.push_widget(self._navigation_registration)
 
   def _update_lagd_description(self, lagd_toggle: bool):
@@ -385,12 +387,13 @@ class ModelsLayout(Widget):
       return
     selected_ref = self.model_dialog.selection_ref
     self.model_dialog = None
-    if selected_ref == NAVIGATION_REF:
-      status = candidate_status(ui_state.params, candidate_id='big-nav-v2')
+    if isinstance(selected_ref, str) and selected_ref.startswith(NAVIGATION_PREFIX):
+      candidate_id = selected_ref.removeprefix(NAVIGATION_PREFIX)
+      status = candidate_status(ui_state.params, candidate_id=candidate_id)
       try:
         if self._selection_source != 'chestnut' or not status.get('installed'):
           raise NavigationModelDisabled('The registered local Bigv2 model is not installed')
-        select_candidate(ui_state.params, 'big-nav-v2', offroad=ui_state.is_offroad())
+        select_candidate(ui_state.params, candidate_id, offroad=ui_state.is_offroad())
         gui_app.push_widget(alert_dialog(selection_description(ui_state.params) + "\n" +
           tr("Driving stays off. Use Navigation Model Driving in Models to request activation after approval.")))
       except NavigationModelDisabled as error:
@@ -447,22 +450,24 @@ class ModelsLayout(Widget):
 
   def _source_folders(self, favorites, source):
     bundles = bundles_for_source(source)
-    navigation = candidate_status(ui_state.params, candidate_id='big-nav-v2') if source == 'chestnut' else None
-    if not bundles and navigation is None:
+    navigation = [candidate_status(ui_state.params, candidate_id=candidate['id']) for candidate in list_candidates()] if source == 'chestnut' else []
+    if not bundles and not navigation:
       return []
     roots = [TreeNode("Default", {'display_name': default_model_name(source)})]
-    if navigation is not None:
-      state = tr("installed local, navigation aware") if navigation.get('installed') else tr("local model not installed")
-      state += tr("; eligible") if navigation['eligible'] else tr("; activation blocked")
-      roots.append(TreeNode(NAVIGATION_REF, {'display_name': f"{navigation['display_name']} ({state})"}))
+    for candidate in navigation:
+      state = tr("installed local, navigation aware") if candidate.get('installed') else tr("local model not installed")
+      state += tr("; eligible") if candidate['eligible'] else tr("; activation blocked")
+      roots.append(TreeNode(NAVIGATION_PREFIX + candidate['id'], {'display_name': f"{candidate['display_name']} ({state})"}))
     folders_list = [TreeFolder("", roots)]
     folders_list.extend(self._get_folders(favorites, bundles))
     return folders_list
 
   @staticmethod
   def _slot_active_ref(source: str) -> str:
-    if source == 'chestnut' and candidate_status(ui_state.params).get('selected'):
-      return NAVIGATION_REF
+    if source == 'chestnut':
+      navigation = candidate_status(ui_state.params)
+      if navigation.get('selected'):
+        return NAVIGATION_PREFIX + navigation['id']
     bundle = get_selected_bundle(ui_state.params, source)
     return bundle.ref if bundle else "Default"
 

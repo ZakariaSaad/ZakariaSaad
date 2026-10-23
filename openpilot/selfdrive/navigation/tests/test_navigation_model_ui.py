@@ -55,6 +55,9 @@ class TestNavigationModelUI(OpenpilotTestCase):
                                                           'ModelRunnerTypeCache', 'NavigationEnabled')}
     self.enterContext(patch.object(ui_state, 'params', self.params))
     self.offroad = self.enterContext(patch.object(ui_state, 'is_offroad', return_value=True))
+    # These rendered widgets have no native messaging publishers. Fresh-state
+    # enforcement is covered separately by selection/offroad regression tests.
+    self.enterContext(patch('openpilot.selfdrive.navigation.selection.require_offroad'))
     self.enterContext(patch.object(gui_app, '_nav_stack', []))
 
   def assert_ordinary_settings_preserved(self):
@@ -322,6 +325,81 @@ class TestNavigationModelUI(OpenpilotTestCase):
     self.assertIsNone(self.params.get('ModelManager_ActiveBundleChestnut'))
     self.assertEqual(self.params.get('ModelManager_ActiveBundle'), small)
 
+  def test_both_big_models_views_keep_corrected_and_original_ids_distinct(self):
+    import pyray as rl
+    from openpilot.selfdrive.ui.sunnypilot.mici.layouts.models import ModelsLayoutMici
+    from openpilot.selfdrive.ui.sunnypilot.layouts.settings.models import ModelsLayout, NAVIGATION_PREFIX
+    from openpilot.system.ui.lib.application import gui_app
+    from openpilot.system.ui.widgets import DialogResult
+    candidates = [{'id': 'big-nav-v2', 'display_name': 'Nav Model Integration Bigv2'},
+                  {'id': 'big-nav-v2-map-fp32', 'display_name': 'Nav Model Integration Bigv2 — FP32 map correction'}]
+
+    def status(params, *, candidate_id=None):
+      identifier = candidate_id or params.get('NavigationModelCandidate') or 'big-nav-v2'
+      item = next(entry for entry in candidates if entry['id'] == identifier)
+      return item | {'installed': True, 'eligible': False, 'enabled': False,
+                     'selected': params.get('NavigationModelCandidate') == identifier,
+                     'reason': 'Explicit user authorization is still required'}
+
+    def select(params, candidate_id, *, offroad):
+      self.assertTrue(offroad)
+      params.put_bool('NavigationModelDrivingEnabled', False, block=True)
+      params.put('NavigationModelCandidate', candidate_id, block=True)
+
+    self.params.put('ModelManager_DownloadRef', 'preserve-existing-queue', block=True)
+    for module, layout_type in (('mici.layouts', ModelsLayoutMici), ('layouts.settings', ModelsLayout)):
+      path = f'openpilot.selfdrive.ui.sunnypilot.{module}.models'
+      with self.subTest(module=module), patch(path + '.list_candidates', return_value=candidates), \
+           patch(path + '.candidate_status', side_effect=status), patch(path + '.bundles_for_source', return_value=[]), \
+           patch(path + '.select_candidate', side_effect=select) as selection:
+        layout = layout_type()
+        gui_app.push_widget(layout)
+        for chosen in (candidates[1], candidates[0]):
+          self.params.put_bool('NavigationModelDrivingEnabled', True, block=True)
+          if module == 'mici.layouts':
+            layout._select_hardware('chestnut')
+            submenu = gui_app.get_active_widget()
+            self.draw(submenu)
+            buttons = submenu._scroller.items[1:]
+            self.assertEqual([button.text for button in buttons], [candidate['display_name'] for candidate in candidates])
+            self.assertTrue(all(button.enabled and 'activation blocked' in button.value for button in buttons))
+            buttons[candidates.index(chosen)]._handle_mouse_release(rl.Vector2(0, 0))
+          else:
+            layout._open_source_dialog('chestnut')
+            self.draw(gui_app.get_active_widget(), 2160, 1080)
+            nodes = layout._source_folders(set(), 'chestnut')[0].nodes[1:]
+            self.assertEqual([node.ref for node in nodes], [NAVIGATION_PREFIX + candidate['id'] for candidate in candidates])
+            self.assertTrue(all('installed local' in node.data['display_name'] and 'activation blocked' in node.data['display_name'] for node in nodes))
+            layout.model_dialog._select_node(nodes[candidates.index(chosen)])
+            layout._on_model_selected(DialogResult.CONFIRM)
+            self.assertEqual(layout._slot_active_ref('chestnut'), NAVIGATION_PREFIX + chosen['id'])
+          selection.assert_called_with(self.params, chosen['id'], offroad=True)
+          self.assertEqual(self.params.get('NavigationModelCandidate'), chosen['id'])
+          self.assertFalse(self.params.get_bool('NavigationModelDrivingEnabled'))
+          self.assertEqual(self.params.get('ModelManager_DownloadRef'), 'preserve-existing-queue')
+          self.assert_ordinary_settings_preserved()
+
+  def test_registration_targets_the_selected_corrected_model_in_both_views(self):
+    from openpilot.selfdrive.ui.sunnypilot.mici.layouts.models import ModelsLayoutMici
+    from openpilot.selfdrive.ui.sunnypilot.layouts.settings.models import ModelsLayout
+    from openpilot.system.ui.lib.application import gui_app
+    corrected = 'big-nav-v2-map-fp32'
+    self.params.put('NavigationModelCandidate', corrected, block=True)
+    for module, layout_type in (('mici.layouts', ModelsLayoutMici), ('layouts.settings', ModelsLayout)):
+      path = f'openpilot.selfdrive.ui.sunnypilot.{module}.models'
+      with self.subTest(module=module), patch(path + '.candidate_status', return_value={'id': corrected}), \
+           patch('openpilot.selfdrive.navigation.preparation.prepare_existing_model',
+                 return_value={'prepared': True, 'activation_allowed': False}) as prepare:
+        layout = layout_type()
+        gui_app.push_widget(layout)
+        layout._register_existing_navigation()
+        dialog = gui_app.get_active_widget()
+        dialog.worker.join(3)
+        self.assertFalse(dialog.worker.is_alive())
+        prepare.assert_called_once_with(self.params, is_offroad=True, model_id=corrected)
+        self.assertFalse(self.params.get_bool('NavigationModelDrivingEnabled'))
+        self.assert_ordinary_settings_preserved()
+
   def test_activation_admission_runs_off_render_thread_and_ignores_duplicate_request(self):
     from openpilot.selfdrive.ui.sunnypilot.mici.layouts.models import ModelsLayoutMici
     from openpilot.selfdrive.ui.sunnypilot.layouts.settings.models import ModelsLayout
@@ -369,10 +447,11 @@ class TestNavigationModelUI(OpenpilotTestCase):
     from openpilot.system.ui.lib.application import gui_app
     entered, release = threading.Event(), threading.Event()
     ui_thread = threading.get_ident()
-    def prepare(params, *, is_offroad):
+    def prepare(params, *, is_offroad, model_id):
       self.assertNotEqual(threading.get_ident(), ui_thread)
       self.assertIs(params, self.params)
       self.assertTrue(is_offroad)
+      self.assertEqual(model_id, 'big-nav-v2')
       entered.set()
       if not release.wait(3):
         raise RuntimeError('Test did not release registration worker')
@@ -382,7 +461,7 @@ class TestNavigationModelUI(OpenpilotTestCase):
     with patch('openpilot.selfdrive.navigation.preparation.prepare_existing_model', side_effect=prepare) as service:
       layout, _details, _toggle, _candidates = self.open_mici()
       button = layout.navigation_register_btn
-      self.assertEqual(button.text, 'Register existing Bigv2')
+      self.assertEqual(button.text, 'Register selected navigation model')
       button._handle_mouse_release(rl.Vector2(0, 0))
       dialog = gui_app.get_active_widget()
       self.assertIsInstance(dialog, ExistingBigv2RegistrationDialog)
@@ -396,7 +475,7 @@ class TestNavigationModelUI(OpenpilotTestCase):
       dialog.worker.join(3)
       self.assertFalse(dialog.worker.is_alive())
       self.draw(dialog)
-      self.assertEqual(dialog._card.text, 'Bigv2 registered')
+      self.assertEqual(dialog._card.text, 'Navigation model registered')
       self.assertTrue(button.enabled)
       self.assertEqual(self.params.get('NavigationModelManifest'), '/fixture/validated/manifest.json')
       self.assertFalse(self.params.get_bool('NavigationModelDrivingEnabled'))
@@ -441,7 +520,7 @@ class TestNavigationModelUI(OpenpilotTestCase):
         self.assertIsInstance(dialog, ExistingBigv2RegistrationDialog)
         dialog.worker.join(3)
         self.draw(dialog, 2160, 1080)
-        service.assert_called_once_with(self.params, is_offroad=True)
+        service.assert_called_once_with(self.params, is_offroad=True, model_id='big-nav-v2')
         if error:
           self.assertIn(str(error), dialog._label._text)
         else:

@@ -29,15 +29,15 @@ from openpilot.system.ui.widgets.scroller import NavScroller
 
 class ExistingBigv2RegistrationDialog(BigDialog):
   """Hash existing files off the render thread; result widgets stay on the UI thread."""
-  def __init__(self, params, *, is_offroad: bool):
-    super().__init__(tr("Register existing Bigv2"), tr("Checking existing model and camera warp. Navigation driving stays off."))
+  def __init__(self, params, *, is_offroad: bool, model_id: str):
+    super().__init__(tr("Register selected navigation model"), tr("Checking existing model and camera warp. Navigation driving stays off."))
     self._finished = threading.Event()
     self._error: str | None = None
     self._shown_result = False
     def run():
       try:
         from openpilot.selfdrive.navigation.preparation import prepare_existing_model
-        receipt = prepare_existing_model(params, is_offroad=is_offroad)
+        receipt = prepare_existing_model(params, is_offroad=is_offroad, model_id=model_id)
         if receipt.get('prepared') is not True or receipt.get('activation_allowed') is not False:
           raise ValueError('Existing model registration was not completed')
       except Exception as error:
@@ -51,7 +51,7 @@ class ExistingBigv2RegistrationDialog(BigDialog):
     super()._update_state()
     if self._finished.is_set() and not self._shown_result:
       self._shown_result = True
-      self._card.set_text(tr("Registration failed") if self._error else tr("Bigv2 registered"))
+      self._card.set_text(tr("Registration failed") if self._error else tr("Navigation model registered"))
       self._card.set_value(self._error or tr("Existing model and warp registered. Navigation driving stays off."))
 
 
@@ -206,7 +206,7 @@ class ModelsLayoutMici(NavScroller):
       button.set_enabled(ui_state.is_offroad)
       button.set_click_callback(lambda candidate_id=candidate['id']: self._select_navigation_candidate(candidate_id))
       items.append(button)
-    self.navigation_register_btn = BigButton(tr("Register existing Bigv2"), value=tr("use installed files"), font_size=36)
+    self.navigation_register_btn = BigButton(tr("Register selected navigation model"), value=status['display_name'], font_size=36)
     self.navigation_register_btn.set_enabled(lambda: ui_state.is_offroad() and not self._navigation_registration_running())
     self.navigation_register_btn.set_click_callback(self._register_existing_navigation)
     items.append(self.navigation_register_btn)
@@ -225,7 +225,8 @@ class ModelsLayoutMici(NavScroller):
       return
     if self._navigation_registration_running():
       return
-    self._navigation_registration = ExistingBigv2RegistrationDialog(ui_state.params, is_offroad=offroad)
+    self._navigation_registration = ExistingBigv2RegistrationDialog(
+      ui_state.params, is_offroad=offroad, model_id=candidate_status(ui_state.params)['id'])
     gui_app.push_widget(self._navigation_registration)
 
   @property
@@ -274,8 +275,8 @@ class ModelsLayoutMici(NavScroller):
     favorites = set(favs.split(';')) if favs else set()
 
     bundles = bundles_for_source(source)
-    navigation = candidate_status(ui_state.params, candidate_id='big-nav-v2') if source == 'chestnut' else None
-    if not bundles and navigation is None:
+    navigation = [candidate_status(ui_state.params, candidate_id=candidate['id']) for candidate in list_candidates()] if source == 'chestnut' else []
+    if not bundles and not navigation:
       gui_app.push_widget(BigDialog(title=tr("No models available"),
                                     description=tr("No models are available for this hardware yet. Connect to the internet and refresh the model list.")))
       return
@@ -286,13 +287,13 @@ class ModelsLayoutMici(NavScroller):
     default_btn.set_click_callback(lambda s=source: self._select_default(s))
     folder_buttons.append(default_btn)
 
-    if navigation is not None:
-      value = tr("installed local · navigation aware") if navigation.get('installed') else tr("local model not installed")
-      value += tr(" · eligible") if navigation['eligible'] else tr(" · activation blocked")
-      button = BigButton(navigation['display_name'], value=value, font_size=36)
-      button.set_enabled(lambda: ui_state.is_offroad() and
-                         candidate_status(ui_state.params, candidate_id='big-nav-v2').get('installed', False))
-      button.set_click_callback(lambda: self._select_navigation_candidate('big-nav-v2', require_installed=True))
+    for candidate in navigation:
+      value = tr("installed local · navigation aware") if candidate.get('installed') else tr("local model not installed")
+      value += tr(" · eligible") if candidate['eligible'] else tr(" · activation blocked")
+      button = BigButton(candidate['display_name'], value=value, font_size=36)
+      button.set_enabled(lambda candidate_id=candidate['id']: ui_state.is_offroad() and
+                         candidate_status(ui_state.params, candidate_id=candidate_id).get('installed', False))
+      button.set_click_callback(lambda candidate_id=candidate['id']: self._select_navigation_candidate(candidate_id, require_installed=True))
       folder_buttons.append(button)
 
     for folder in sorted(folders.keys(), key=lambda f: max((bundle.index for bundle in folders[f]), default=-1), reverse=True):
