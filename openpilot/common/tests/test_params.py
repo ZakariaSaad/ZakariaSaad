@@ -20,6 +20,19 @@ class TestParams(OpenpilotTestCase):
     self.params.put("CarParams", st, block=True)
     assert self.params.get("CarParams") == st
 
+  def test_filtered_key_buffers_are_valid_distinct_and_survive_native_calls(self):
+    all_keys = set(self.params.all_keys())
+    for _ in range(3):
+      backup = self.params.all_keys(ParamKeyFlag.BACKUP)
+      assert len(backup) == len(set(backup)) and set(backup) <= all_keys
+      assert b"EnforceTorqueControl" in backup and b"NeuralNetworkLateralControl" in backup
+      assert b"CarParams" not in backup
+      assert all(key.decode("utf-8") for key in backup)
+      before = list(backup)
+      self.params.get_param_path("CarParams")
+      self.params.all_keys(ParamKeyFlag.PERSISTENT)
+      assert backup == before
+
   def test_params_get_cleared_manager_start(self):
     self.params.put("CarParams", b"test", block=True)
     self.params.put("DongleId", "cb38263377b873ee", block=True)

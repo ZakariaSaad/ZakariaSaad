@@ -162,10 +162,14 @@ ParamsBuffer params_key_at(ParamsHandle *handle, size_t index) noexcept {
 
 size_t params_keys_by_flag(ParamsHandle *handle, uint32_t flag, ParamsBuffer *out, size_t out_size) noexcept {
   return translate_exceptions(size_t{0}, [&]() {
-    auto filtered = handle->params.allKeys(static_cast<ParamKeyFlag>(flag));
+    // The caller copies these views after this function returns. A local vector
+    // (or return_string's single shared buffer) invalidates earlier entries.
+    // Match the scalar API's thread-local lifetime without cross-thread races.
+    thread_local std::vector<std::string> filtered;
+    filtered = handle->params.allKeys(static_cast<ParamKeyFlag>(flag));
     size_t count = std::min(filtered.size(), out_size);
     for (size_t i = 0; i < count; i++) {
-      out[i] = return_string(filtered[i]);
+      out[i] = {filtered[i].data(), filtered[i].size()};
     }
     return filtered.size();
   });
