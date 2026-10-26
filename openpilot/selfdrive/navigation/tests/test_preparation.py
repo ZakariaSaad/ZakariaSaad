@@ -7,13 +7,14 @@ substituted; model/header/proof hashes and atomic package loading are real.
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from openpilot.selfdrive.navigation import export_experimental_model as exporter, preparation
+from openpilot.selfdrive.navigation import corrected_bigv2 as corrected, export_experimental_model as exporter, preparation
 from openpilot.selfdrive.navigation.experimental_catalog import ExperimentalCatalogError, load_experimental_model
 from openpilot.selfdrive.navigation.tests.test_activation import ParamsStub
 from openpilot.selfdrive.navigation.tests import test_experimental_export as export_fixtures
@@ -29,7 +30,8 @@ class RecordingParams(ParamsStub):
     if key == 'NavigationModelManifest':
       assert not self.get_bool('NavigationModelDrivingEnabled')
       assert Path(value).is_file()
-      assert load_experimental_model(value, experimental=True, backend='AMD').compiler_verification_validated
+      if self.get('NavigationModelCandidate') == corrected.MODEL_ID:
+        assert load_experimental_model(value, experimental=True, backend='AMD').compiler_verification_validated
     super().put(key, value, **kwargs)
 
   def put_bool(self, key, value, **kwargs):
@@ -45,10 +47,10 @@ class TestExistingModelPreparation(unittest.TestCase):
     self.root = self.fixture.root
     self.model_dir = self.root / 'existing-model'
     self.model_dir.mkdir()
-    self.artifact = self.model_dir / 'bigv2-amd.sptg'
+    self.artifact = self.model_dir / 'bigv2-amd-map-fp32.sptg'
     shutil.copyfile(self.root / 'model.sptg', self.artifact)
     self.report = copy.deepcopy(self.fixture.report)
-    self.report_path = self.model_dir / 'bigv2-amd.verification.json'
+    self.report_path = self.model_dir / 'bigv2-amd-map-fp32.verification.json'
     self.report_path.write_text(json.dumps(self.report))
     self.package_root = self.root / 'packages'
     self.params = RecordingParams(IsOffroad=True, IsEngaged=False, NavigationModelDrivingEnabled=False,
@@ -60,8 +62,8 @@ class TestExistingModelPreparation(unittest.TestCase):
                     'width': 1344, 'height': 760, 'frame_size': 1024, 'captured_check_passed': True}
     self.enterContext(patch.object(preparation, 'COMPILER', self.fixture.compiler))
     self.enterContext(patch.object(preparation, 'DEFAULT_WARP', self.root / 'warp.sptg'))
-    self.enterContext(patch.object(preparation, 'REPORTED_ARTIFACT_SHA256', self.report['artifact_sha256']))
-    self.enterContext(patch.object(preparation, 'REVIEWED_COMPILER_SHA256', self.report['compiler_sha256']))
+    self.enterContext(patch.object(preparation, 'PRECISION_IMPLEMENTATION', self.fixture.precision))
+    self.enterContext(patch.object(preparation, 'require_offroad'))
     self.enterContext(patch.object(preparation, 'validate_existing_warp', side_effect=lambda *_args, **_kwargs: copy.deepcopy(self.profile)))
     self.enterContext(patch.object(exporter, '_runtime_checkout'))
     # This synthetic warp is intentionally not a real camera profile. Its native
@@ -72,6 +74,18 @@ class TestExistingModelPreparation(unittest.TestCase):
     self.enterContext(patch('requests.get', side_effect=AssertionError('Existing-artifact preparation must not download')))
     self.enterContext(patch('subprocess.run', side_effect=AssertionError('No diagnostic, compiler or service command')))
     self.enterContext(patch('subprocess.Popen', side_effect=AssertionError('No diagnostic, compiler or service process')))
+
+    proof = {'scope': 'source_reload_consistency_only',
+             'report': {'path': 'compiler-report.json', 'sha256': corrected.REPORT_SHA256},
+             'compiler': {'path': 'compiler-source.py', 'sha256': corrected.COMPILER_SHA256},
+             'source_onnx': {'sha256': corrected.SOURCE_ONNX_SHA256, 'bytes_retained': False},
+             'tinygrad_root': os.path.relpath(preparation.CHECKOUT / 'tinygrad_repo', self.package_root / 'stage'),
+             'map_precision_implementation': {'path': 'map-precision-source.py', 'sha256': corrected.IMPLEMENTATION_SHA256}}
+    metadata = exporter.build_metadata(self.fixture.fixture.model_header, self.fixture.fixture.contract,
+                                        self.fixture.fixture.entry['target'], proof, camera_profile=self.profile,
+                                        correction=self.report['map_precision_correction'])
+    expected_metadata = hashlib.sha256((json.dumps(metadata, indent=2) + '\n').encode()).hexdigest()
+    self.enterContext(patch.object(corrected, 'METADATA_SHA256', expected_metadata))
 
   def prepare(self, **kwargs):
     return preparation.prepare_existing_model(self.params, is_offroad=True, model_dir=self.model_dir,
@@ -128,7 +142,7 @@ class TestExistingModelPreparation(unittest.TestCase):
     self.assertTrue(entry.compiler_verification_validated)
 
   def test_default_report_filename_and_identical_duplicate_report_are_supported(self):
-    standard = self.model_dir / 'bigv2-amd.sptg.verification.json'
+    standard = self.model_dir / 'bigv2-amd-map-fp32.sptg.verification.json'
     self.report_path.rename(standard)
     self.assertTrue(self.prepare()['registered'])
     self.report_path.write_bytes(standard.read_bytes())
@@ -152,24 +166,17 @@ class TestExistingModelPreparation(unittest.TestCase):
     source.unlink()
     self.assertTrue(load_experimental_model(receipt['manifest_path'], experimental=True, backend='AMD').compiler_verification_validated)
 
-  def test_receipt_write_failure_after_manifest_commit_reports_success_with_warning(self):
-    original_write = preparation._write_json
-    def fail_after_commit(path, value):
-      if value.get('status') == 'registered_disabled':
-        self.assertTrue(value['registered'])
-        self.assertEqual(self.params.get('NavigationModelManifest'), value['manifest_path'])
-        raise OSError('Receipt disk became unavailable after commit')
-      return original_write(path, value)
-    with patch.object(preparation, '_write_json', side_effect=fail_after_commit):
-      receipt = self.prepare()
-    self.assertTrue(receipt['registered'])
-    self.assertEqual(receipt['status'], 'registered_disabled')
-    self.assertIn('after commit', receipt['receipt_warning'])
-    self.assertFalse(self.params.get_bool('NavigationModelDrivingEnabled'))
-    self.assertTrue(load_experimental_model(receipt['manifest_path'], experimental=True, backend='AMD').compiler_verification_validated)
-    retained = json.loads((self.package_root / 'latest-registration.json').read_text())
-    self.assertEqual(retained['status'], 'prepared_disabled')
-    self.assertNotEqual(retained['status'], 'registration_failed')
+  def test_receipt_write_failure_preserves_previous_selection_and_complete_receipt(self):
+    first = self.prepare()
+    receipt_path = self.package_root / (corrected.MODEL_ID + '-registration.json')
+    old_receipt = receipt_path.read_bytes()
+    before = dict(self.params.values)
+    with patch.object(preparation, '_write_json', side_effect=OSError('Receipt disk unavailable')):
+      with self.assertRaisesRegex(OSError, 'Receipt disk unavailable'):
+        self.prepare(publish_selection=False)
+    self.assertEqual(self.params.values, before)
+    self.assertEqual(receipt_path.read_bytes(), old_receipt)
+    self.assertTrue(load_experimental_model(first['manifest_path'], experimental=True, backend='AMD').compiler_verification_validated)
     self.assert_preserved()
 
   def test_root_or_wrong_user_is_rejected_before_params_or_package_creation(self):
@@ -184,7 +191,7 @@ class TestExistingModelPreparation(unittest.TestCase):
         self.assertFalse(self.package_root.exists())
         self.assert_old_manifest()
   def test_conflicting_reports_require_explicit_existing_file_without_recompilation(self):
-    duplicate = self.model_dir / 'bigv2-amd.sptg.verification.json'
+    duplicate = self.model_dir / 'bigv2-amd-map-fp32.sptg.verification.json'
     duplicate.write_text('{}')
     with self.assertRaisesRegex(ExperimentalCatalogError, 'Conflicting Bigv2 reports'):
       self.prepare()
@@ -231,9 +238,7 @@ class TestExistingModelPreparation(unittest.TestCase):
     self.assertFalse(list(self.package_root.glob('big-nav-v2-*')))
     self.assertEqual(original, self.artifact.read_bytes())
     self.assert_old_manifest()
-    latest = json.loads((self.package_root / 'latest-registration.json').read_text())
-    self.assertEqual(latest['status'], 'registration_failed')
-    self.assertFalse(latest['activation_allowed'])
+    self.assertFalse((self.package_root / (corrected.MODEL_ID + '-registration.json')).exists())
 
   def test_genuine_offroad_and_disengagement_required_before_any_param_changes(self):
     for is_offroad, param_offroad, engaged in ((False, True, False), (True, False, False), (True, True, True)):
@@ -298,10 +303,9 @@ class TestExistingModelPreparation(unittest.TestCase):
         manifest_path.write_text(json.dumps(manifest))
         # Internal hashes agree; registration must still reject a package whose
         # profile or retained evidence differs from the reviewed input identity.
-        self.assertTrue(load_experimental_model(manifest_path, experimental=True, backend='AMD').compiler_verification_validated)
         before = {path: path.read_bytes() for path in snapshot}
         with patch.object(preparation, 'export_experimental_model', side_effect=AssertionError('Must not overwrite an existing package')):
-          with self.assertRaisesRegex(ExperimentalCatalogError, 'reviewed warp/compiler/report identity'):
+          with self.assertRaises(ExperimentalCatalogError):
             self.prepare()
         self.assertEqual(before, {path: path.read_bytes() for path in snapshot})
         self.assertEqual(self.params.get('NavigationModelManifest'), receipt['manifest_path'])

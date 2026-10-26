@@ -5,7 +5,7 @@
   "description": "Local registered-package wrapper, separate from production Selector catalogs. No downloadable compiled model or driving authorization is provided.",
   "entries": [
     {
-      "id": "big-nav-v2",
+      "id": "big-nav-v2-map-fp32",
       "enabled": false,
       "normal_activation_allowed": false,
       "selector_generation_verified": false,
@@ -26,8 +26,8 @@
       },
       "selector21_bundle": {
         "index": 0,
-        "short_name": "NAV-BIG-V2-DIAGNOSTIC",
-        "display_name": "Big navigation v2 (non-actuating diagnostic only)",
+        "short_name": "NAV-BIG-V2-MAP-FP32",
+        "display_name": "Nav Model Integration Bigv2 — FP32 map correction",
         "models": [],
         "generation": 0,
         "environment": "development",

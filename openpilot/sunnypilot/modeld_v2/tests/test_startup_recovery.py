@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 from openpilot.common.params import Params, ParamKeyFlag
 from openpilot.common.test import OpenpilotTestCase
 from openpilot.selfdrive.navigation.errors import NavigationModelDisabled
+from openpilot.selfdrive.navigation.candidate_identity import MODEL_ID
 from openpilot.sunnypilot.modeld_v2 import modeld
 
 
@@ -27,7 +28,7 @@ class TestStartupRecovery(OpenpilotTestCase):
     self.params.put_bool('ChestnutActive', True, block=True)
     self.params.put_bool('ChestnutRetry', False, block=True)
     self.params.put_bool('OnroadCycleRequested', False, block=True)
-    self.params.put('NavigationModelCandidate', 'big-nav-v2', block=True)
+    self.params.put('NavigationModelCandidate', MODEL_ID, block=True)
     self.params.put('NavigationModelManifest', '/data/navigation-models/unchanged/manifest.json', block=True)
     self.params.put('ModelManager_ActiveBundle', {'preserve': 'ordinary-small'}, block=True)
     self.params.put('ModelManager_ActiveBundleChestnut', {'preserve': 'ordinary-big'}, block=True)
@@ -56,7 +57,7 @@ class TestStartupRecovery(OpenpilotTestCase):
   @contextmanager
   def startup(self, *, navigation=True, big_error=None, small_error=False, timeout=False):
     self.params.put_bool('NavigationModelDrivingEnabled', navigation, block=True)
-    permit = SimpleNamespace(model_id='big-nav-v2') if navigation else None
+    permit = SimpleNamespace(model_id=MODEL_ID) if navigation else None
     small = SimpleNamespace(chestnut=False, numpy_inputs={}, warmup=Mock(), run=Mock())
     big = SimpleNamespace(chestnut=True, numpy_inputs={}, warmup=Mock(), run=Mock())
     release = threading.Event()

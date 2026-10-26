@@ -1,5 +1,12 @@
 # Nav Bigv2 selection and activation
 
+> **Historical / superseded:** This document records the retired original Bigv2 activation and startup fixes.
+> Its original-model selection/activation commands are no longer supported and
+> must not be used as current instructions. Use [SunnyLink model and EPS controls](sunnylink-model-and-eps-controls.md)
+> and [corrected artifact evidence](navigation-model-corrected-integration.md).
+> The original `big-nav-v2` is retired; useful evidence and technical findings below are retained.
+
+
 Use the already installed `/data/nav-bigv2/bigv2-amd.sptg` and its registered
 manifest. No model download, recompilation, duplicate copy or fresh software
 installation is needed. Update the installed

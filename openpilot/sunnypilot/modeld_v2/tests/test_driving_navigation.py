@@ -12,6 +12,7 @@ from tinygrad.helpers import Context, DEV
 from tinygrad.runtime.ops_amd import AMDDevice, USBIface
 
 from openpilot.selfdrive.navigation import activation, model_inputs
+from openpilot.selfdrive.navigation.candidate_identity import MODEL_ID
 from openpilot.selfdrive.navigation.tests.test_activation import ParamsStub, reviewed_fixture
 from openpilot.selfdrive.navigation.tests.test_model_input_admission import Client, Messages
 from openpilot.sunnypilot.modeld_v2 import modeld
@@ -44,8 +45,8 @@ class TestDrivingNavigation(unittest.TestCase):
     for mode, expected_loads in (('approved', [False]), ('off', [True, False]), ('blocked', [True, False]),
                                  ('candidate_failed', [False]), ('small_failed', [False])):
       with self.subTest(mode=mode), ExitStack() as stack:
-        params = ParamsStub(NavigationModelDrivingEnabled=mode != 'off', NavigationModelCandidate='big-nav-v2', ChestnutActive=True)
-        permit = SimpleNamespace(model_id='big-nav-v2')
+        params = ParamsStub(NavigationModelDrivingEnabled=mode != 'off', NavigationModelCandidate=MODEL_ID, ChestnutActive=True)
+        permit = SimpleNamespace(model_id=MODEL_ID)
         small = SimpleNamespace(numpy_inputs={}, chestnut=False, run=Mock(), warmup=Mock())
         big = SimpleNamespace(numpy_inputs={}, chestnut=True, warmup=Mock(), run=Mock())
         candidate = SimpleNamespace(numpy_inputs={'navigation': np.zeros(47)}, chestnut=True, warmup=Mock(), run=Mock())

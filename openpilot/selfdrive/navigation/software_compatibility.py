@@ -25,7 +25,7 @@ from openpilot.selfdrive.navigation.export_experimental_model import validate_ex
 
 ROOT = Path(__file__).resolve().parents[3]
 REGISTRY = Path(__file__).with_name('driving_models.json')
-DEFAULT_RECEIPT = Path('/data/navigation-models/latest-registration.json')
+DEFAULT_RECEIPT = Path('/data/navigation-models/big-nav-v2-map-fp32-registration.json')
 DEFAULT_PARAMS = Path('/data/params/d')
 DEFAULT_MODELS = Path('/data/media/0/models')
 # Primitive native buffer encodings supported by the pinned loader, never eval.

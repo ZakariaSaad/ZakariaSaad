@@ -86,19 +86,33 @@ def _migrate_tesla_mads_screen_button(_params):
 
 def _migrate_model_bundle_slots(_params):
   # Pre-split, a chestnut user's big-model selection lived in the single
-  # ActiveBundle. Seed both slots; validation drops whichever does not match
-  # its own manifest.
+  # ActiveBundle. Seed once; an intentionally empty modern slot means Default,
+  # not permission to restore a legacy model again on the next boot.
   try:
-    if _params.get("ModelManager_ActiveBundleChestnut") is not None:
+    if _params.get_bool("ModelManager_BundleSlotsMigrated"):
       return
-    if (chestnut_bundle := _params.get("ModelManager_ActiveBundleUSBGPU")) is not None:
-      _params.put("ModelManager_ActiveBundleChestnut", chestnut_bundle, block=True)
-      cloudlog.info("params_migration: seeded ModelManager_ActiveBundleChestnut from ModelManager_ActiveBundleUSBGPU")
-      return
-    if (bundle := _params.get("ModelManager_ActiveBundle")) is None:
-      return
-    _params.put("ModelManager_ActiveBundleChestnut", bundle, block=True)
-    cloudlog.info("params_migration: seeded ModelManager_ActiveBundleChestnut from ModelManager_ActiveBundle")
+    active_json = _params.get("ModelManager_ActiveJson")
+    modern = any(_params.get(key) is not None for key in (
+      "ModelManager_ActiveBundleChestnut", "ModelManager_ModelsCache_Chestnut", "ModelManager_SelectionRequest",
+      "ModelManager_SelectionState", "NavigationModelCandidate")) or isinstance(active_json, dict) and 'chestnut' in active_json
+    if not modern:
+      source = 'ModelManager_ActiveBundleUSBGPU'
+      bundle = _params.get(source)
+      if bundle is None:
+        source = 'ModelManager_ActiveBundle'
+        bundle = _params.get(source)
+      if bundle is not None:
+        from openpilot.selfdrive.navigation.candidate_identity import is_retired_bundle
+        if is_retired_bundle(bundle):
+          cloudlog.warning('params_migration: original Bigv2 is retired; legacy bytes retained without selecting it')
+        else:
+          _params.put("ModelManager_ActiveBundleChestnut", bundle, block=True)
+          if _params.get("ModelManager_ActiveBundleChestnut") != bundle:
+            raise RuntimeError('Could not persist legacy model-slot migration')
+          cloudlog.info(f"params_migration: seeded ModelManager_ActiveBundleChestnut from {source}")
+    _params.put_bool("ModelManager_BundleSlotsMigrated", True, block=True)
+    if not _params.get_bool("ModelManager_BundleSlotsMigrated"):
+      raise RuntimeError('Could not persist model-slot migration marker')
   except Exception as e:
     cloudlog.exception(f"Error migrating model bundle slots: {e}")
 

@@ -1,6 +1,13 @@
 # Navigation-model software status
 
-The current installed-branch workflow is
+> **Historical / superseded:** This document records the earlier original-Bigv2 software investigation.
+> Its original-model selection/activation commands are no longer supported and
+> must not be used as current instructions. Use [SunnyLink model and EPS controls](sunnylink-model-and-eps-controls.md)
+> and [corrected artifact evidence](navigation-model-corrected-integration.md).
+> The original `big-nav-v2` is retired; useful evidence and technical findings below are retained.
+
+
+The then-current installed-branch workflow was
 [Nav Bigv2 selection and activation](navigation-model-activation-workflow.md).
 The existing [software compatibility report](navigation-model-software-compatibility.md)
 remains available for inspecting files; the seven successful device checks do

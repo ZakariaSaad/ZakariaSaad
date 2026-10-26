@@ -7,6 +7,7 @@ all negative report checks and manifest roundtrips execute the real code.
 import copy
 import hashlib
 import json
+import struct
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -15,7 +16,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from openpilot.selfdrive.navigation import export_experimental_model as exporter
+from openpilot.selfdrive.navigation import corrected_bigv2 as corrected, export_experimental_model as exporter
 from openpilot.selfdrive.navigation.experimental_catalog import (
   DEFAULT_CATALOG, SOURCE_ONNX_SHA256, TINYGRAD_REF, ExperimentalCatalogError, load_experimental_model,
 )
@@ -60,11 +61,56 @@ class TestExperimentalExport(unittest.TestCase):
                                 {'seed': 43, 'source_repeatability': None, 'outputs': results[1]}]},
     }
 
+
+    # Inert protected map kernels and report fields exercise the same corrected
+    # provenance checks as production, without executing any uploaded artifact.
+    artifact = self.root / 'model.sptg'
+    raw = artifact.read_bytes()
+    size = struct.unpack('<Q', raw[8:16])[0]
+    container = json.loads(raw[16:16 + size])
+    header = container['parts'][0]['header']
+    header['calls'] = [{'kind': 'program', 'target': target, 'name': name, 'lib': [0, 1], 'ins': [], 'outs': [0],
+                       'args': [{'buffer': index, 'offset': 0, 'nbytes': 131072, 'dtype': 'dtypes.f32'}]}
+                      for index, name in enumerate(('synthetic_dot', 'synthetic_scale'))]
+    header['buffers'] = [{'device': 'AMD', 'dtype': 'dtypes.f16', 'nbytes': 1, 'init': [0, 1]}]
+    encoded = json.dumps(container).encode()
+    artifact.write_bytes(b'SPTGPLN1' + struct.pack('<Q', len(encoded)) + encoded + bytes(-(16 + len(encoded)) % 256)
+                         + raw[16 + size + -(16 + size) % 256:])
+    self.fixture.model_header = header
+    self.fixture.entry['compiled_artifact']['sha256'] = exporter._digest(artifact)
+    self.fixture.manifest.write_text(json.dumps(self.fixture.catalog))
+    self.precision = self.root / 'precision.py'
+    self.precision.write_text('# inert reviewed lowering fixture; never executed\n')
+    self.report.update(artifact_sha256=exporter._digest(artifact), compiler_revision=corrected.COMPILER_REVISION,
+                       candidate_activation_approved=False)
+    kernel_sha = hashlib.sha256(b'\0').hexdigest()
+    correction = {'id': corrected.CORRECTION_ID, 'implementation_sha256': exporter._digest(self.precision),
+                  'source_onnx_sha256': corrected.SOURCE_ONNX_SHA256, 'compiler_sha256': self.report['compiler_sha256'],
+                  'compiler_revision': corrected.COMPILER_REVISION, 'tinygrad_revision': corrected.TINYGRAD_REF,
+                  'operand_dtype': 'float16', 'dot_bias_gamma_dtype': 'float32', 'residual_input_dtype': 'float16',
+                  'materialized_fp32_shape': [1, 512, 8, 8], 'original_matmul': 'node_MatMul_599',
+                  'requires_separate_registration_and_approval': True,
+                  'initializers': {'synthetic_initializer': {'nbytes': 1, 'sha256': kernel_sha}},
+                  'compiled_precision': {'status': 'passed_compiled_ir_and_native_buffer_checks',
+                                         'residual_boundary': {'materialized_dtype': 'float16', 'nbytes': 65536}}}
+    for index, key in enumerate(('dot', 'bias_gamma')):
+      correction['compiled_precision'][key] = {'call': index, 'name': header['calls'][index]['name'], 'target': target,
+                                               'kernel_sha256': kernel_sha, 'early_half_casts': 0,
+                                               'llvm_early_half_narrowing': False, 'floating_arithmetic': ['float32']}
+    self.report['map_precision_correction'] = correction
+    self.report['map_fixture_verification'] = {'cases': {
+      name: {'synthetic_uint8_map_sha256': digest, 'other_inputs_seed': 42, 'independent_buffers': True,
+             'outputs': copy.deepcopy(self.report['verification']['runs'][0]['outputs'])} for name, digest in corrected.FIXTURES.items()}}
+    self.report_path.write_text(json.dumps(self.report))
+    for name, value in (('ARTIFACT_SHA256', self.report['artifact_sha256']), ('COMPILER_SHA256', self.report['compiler_sha256']),
+                        ('IMPLEMENTATION_SHA256', exporter._digest(self.precision)), ('REPORT_SHA256', exporter._digest(self.report_path))):
+      self.enterContext(patch.object(corrected, name, value))
+
   def export(self):
     self.report_path.write_text(json.dumps(self.report))
     return exporter.export_experimental_model(
       self.root / 'model.sptg', self.root / 'warp.sptg', self.report_path, self.source,
-      self.compiler, self.runtime, self.output, experimental=True,
+      self.compiler, self.runtime, self.output, experimental=True, precision_implementation_path=self.precision,
     )
 
   def test_data_only_fixture_roundtrip_binds_real_local_hashes_and_remains_non_actuating(self):

@@ -1,8 +1,15 @@
 # Existing Bigv2 registration: completed evidence
 
+> **Historical / superseded:** This document records the original Bigv2 registration evidence.
+> Its original-model selection/activation commands are no longer supported and
+> must not be used as current instructions. Use [SunnyLink model and EPS controls](sunnylink-model-and-eps-controls.md)
+> and [corrected artifact evidence](navigation-model-corrected-integration.md).
+> The original `big-nav-v2` is retired; useful evidence and technical findings below are retained.
+
+
 The physical model compilation and existing-artifact registration are complete.
-Use the [software compatibility workflow](navigation-model-software-compatibility.md)
-for the next step. Do not download, compile or register Bigv2 again.
+The [software compatibility workflow](navigation-model-software-compatibility.md)
+was the following investigation stage. It is retained as historical evidence.
 
 The supplied `latest-registration.json` records `prepared: true`,
 `registered: true`, `status: registered_disabled` and `activation_allowed: false`.

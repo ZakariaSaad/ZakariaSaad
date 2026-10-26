@@ -36,13 +36,16 @@ class RecordingParams:
   def put_bool(self, key, value, **kwargs):
     self.put(key, bool(value), **kwargs)
 
+  def remove(self, key):
+    self.values.pop(key, None)
+
 
 def status(**updates):
-  return {'id': 'big-nav-v2', 'display_name': 'Nav Model Integration Bigv2', 'eligible': False,
+  return {'id': 'big-nav-v2-map-fp32', 'display_name': 'Nav Model Integration Bigv2', 'eligible': False,
           'reason': 'Explicit user authorization for Navigation Model Driving is still required',
           'blockers': ['Explicit user authorization for Navigation Model Driving is still required'],
           'enabled': False, 'registered': True, 'installed': True, 'selected': False, 'approved': False,
-          'artifact_path': '/data/nav-bigv2/bigv2-amd.sptg', 'software_compatible': True,
+          'artifact_path': '/data/nav-bigv2/bigv2-amd-map-fp32.sptg', 'software_compatible': True,
           'artifact_evidence_reviewed': True, 'runtime_compatibility': 'unverified', **updates}
 
 
@@ -51,6 +54,10 @@ class TestNavigationManage(unittest.TestCase):
     self.params = RecordingParams()
     self.before = copy.deepcopy(self.params.values)
     self.enterContext(patch('os.geteuid', return_value=1000))
+    def offroad(params):
+      if not params.get_bool('IsOffroad') or params.get_bool('IsEngaged'):
+        raise NavigationModelDisabled('Genuine off-road and disengaged state required')
+    self.enterContext(patch('openpilot.sunnypilot.models.selection.require_offroad', side_effect=offroad))
     self.enterContext(patch('subprocess.run', side_effect=AssertionError('CLI must not run a compiler, service or diagnostic')))
     self.enterContext(patch('subprocess.Popen', side_effect=AssertionError('CLI must not spawn a compiler, service or diagnostic')))
 
@@ -65,7 +72,7 @@ class TestNavigationManage(unittest.TestCase):
       result, output = self.invoke('status')
     self.assertEqual(result, 0)
     self.assertIn('Nav Model Integration Bigv2', output)
-    self.assertIn('/data/nav-bigv2/bigv2-amd.sptg', output)
+    self.assertIn('/data/nav-bigv2/bigv2-amd-map-fp32.sptg', output)
     for label in ('registration', 'compatibility', 'approval', 'selection', 'activation'):
       self.assertIn(label, output.lower())
     self.assertIn('Explicit user authorization', output)
@@ -85,19 +92,19 @@ class TestNavigationManage(unittest.TestCase):
   def test_enable_uses_shared_admission_and_does_not_write_around_a_refusal(self):
     reason = 'Explicit user authorization for Navigation Model Driving is still required'
     with patch.object(manage, 'set_driving_enabled', side_effect=NavigationModelDisabled(reason)) as enable:
-      result, output = self.invoke('enable', 'big-nav-v2')
+      result, output = self.invoke('enable', 'big-nav-v2-map-fp32')
     self.assertNotEqual(result, 0)
     self.assertIn(reason, output)
-    enable.assert_called_once_with(self.params, True, offroad=True, candidate_id='big-nav-v2')
+    enable.assert_called_once_with(self.params, True, offroad=True, candidate_id='big-nav-v2-map-fp32')
     self.assertEqual(self.params.values, self.before)
     self.assertEqual(self.params.writes, [])
 
   def test_successful_enable_requests_only_shared_navigation_selection(self):
     with patch.object(manage, 'set_driving_enabled') as enable:
-      result, output = self.invoke('enable', 'big-nav-v2')
+      result, output = self.invoke('enable', 'big-nav-v2-map-fp32')
     self.assertEqual(result, 0)
     self.assertIn('Bigv2', output)
-    enable.assert_called_once_with(self.params, True, offroad=True, candidate_id='big-nav-v2')
+    enable.assert_called_once_with(self.params, True, offroad=True, candidate_id='big-nav-v2-map-fp32')
     # The CLI must not separately mutate a flag, manifest or ordinary bundle.
     self.assertEqual(self.params.writes, [])
 
@@ -109,15 +116,15 @@ class TestNavigationManage(unittest.TestCase):
     self.assertIn('off', output.lower())
     self.assertFalse(self.params.get_bool('NavigationModelDrivingEnabled'))
     before['NavigationModelDrivingEnabled'] = False
-    self.assertEqual(self.params.values, before)
-    self.assertEqual(self.params.writes, [('NavigationModelDrivingEnabled', False)])
+    self.assertEqual({key: self.params.values[key] for key in before}, before)
+    self.assertEqual(self.params.values['ModelManager_SelectionState']['state'], 'selected')
 
-  def test_disable_withdraws_permission_without_waiting_for_offroad_or_proof(self):
+  def test_disable_rejects_unsafe_onroad_configuration_change(self):
     self.params.values.update(IsOffroad=False, IsEngaged=True, NavigationModelDrivingEnabled=True)
     with patch.object(manage, 'candidate_status', side_effect=AssertionError('Disable must never need artifact or approval checks')):
       result, _output = self.invoke('disable')
-    self.assertEqual(result, 0)
-    self.assertFalse(self.params.get_bool('NavigationModelDrivingEnabled'))
+    self.assertEqual(result, 1)
+    self.assertTrue(self.params.get_bool('NavigationModelDrivingEnabled'))
 
   def test_unknown_model_cannot_change_any_selection(self):
     with patch.object(manage, 'set_driving_enabled') as enable:
@@ -137,9 +144,9 @@ class TestNavigationManage(unittest.TestCase):
     self.assertIn('without sudo', output.getvalue())
 
   def test_admission_io_error_keeps_original_reason_and_selection(self):
-    reason = 'Unable to read /data/nav-bigv2/bigv2-amd.sptg: permission denied'
+    reason = 'Unable to read /data/nav-bigv2/bigv2-amd-map-fp32.sptg: permission denied'
     with patch.object(manage, 'set_driving_enabled', side_effect=OSError(reason)):
-      result, output = self.invoke('enable', 'big-nav-v2')
+      result, output = self.invoke('enable', 'big-nav-v2-map-fp32')
     self.assertNotEqual(result, 0)
     self.assertIn(reason, output)
     self.assertEqual(self.params.values, self.before)
@@ -194,7 +201,9 @@ with tempfile.TemporaryDirectory() as directory:
   assert params.get('NavigationModelCandidate') == 'big-nav-v2-map-fp32'
   assert params.get('NavigationModelManifest') == manifest
   assert manage.main(['status'], params=params) == 0
-  assert manage.main(['disable'], params=params) == 0
+  from unittest.mock import patch
+  with patch('openpilot.sunnypilot.models.selection.require_offroad'):
+    assert manage.main(['disable'], params=params) == 0
   assert not params.get_bool('NavigationModelDrivingEnabled')
   assert params.get('NavigationModelCandidate') == 'big-nav-v2-map-fp32'
   assert params.get('NavigationModelManifest') == manifest
@@ -216,7 +225,6 @@ class TestCorrectedNavigationManage(unittest.TestCase):
   def setUp(self):
     TestNavigationManage.setUp(self)
     self.enterContext(patch.object(manage, 'list_candidates', return_value=[
-      {'id': 'big-nav-v2', 'display_name': 'Nav Model Integration Bigv2'},
       {'id': self.ID, 'display_name': 'Nav Model Integration Bigv2 — FP32 map correction'},
     ]))
 
@@ -244,35 +252,30 @@ class TestCorrectedNavigationManage(unittest.TestCase):
     select.assert_not_called()
     self.assertEqual(self.params.writes, [])
 
-  def test_select_corrected_uses_shared_selection_and_requires_fresh_offroad(self):
-    with patch.object(manage, 'require_offroad') as offroad, \
-         patch.object(manage, 'candidate_status', return_value=status(id=self.ID)) as inspect, \
+  def test_select_corrected_uses_shared_preparation_without_manual_registration_gate(self):
+    with patch.object(manage, 'candidate_status') as inspect, \
          patch.object(manage, 'select_candidate') as select, patch.object(manage, 'set_driving_enabled') as enable:
       result, output = self.invoke('select', self.ID)
     self.assertEqual(result, 0)
-    offroad.assert_called_once_with(self.params)
-    inspect.assert_called_once_with(self.params, candidate_id=self.ID)
+    inspect.assert_not_called()
     select.assert_called_once_with(self.params, self.ID, offroad=True)
     enable.assert_not_called()
-    self.assertIn('remains OFF', output)
+    self.assertIn('requested ON', output)
 
   def test_onroad_select_never_mutates_selection(self):
-    with patch.object(manage, 'require_offroad', side_effect=NavigationModelDisabled('deviceState.started is true')), \
-         patch.object(manage, 'select_candidate') as select:
+    with patch.object(manage, 'select_candidate', side_effect=NavigationModelDisabled('deviceState.started is true')) as select:
       result, output = self.invoke('select', self.ID)
     self.assertEqual(result, 1)
     self.assertIn('deviceState.started', output)
-    select.assert_not_called()
+    select.assert_called_once_with(self.params, self.ID, offroad=True)
     self.assertEqual(self.params.writes, [])
 
-  def test_unregistered_selection_is_refused(self):
-    with patch.object(manage, 'require_offroad'), \
-         patch.object(manage, 'candidate_status', return_value=status(id=self.ID, registered=False, installed=False)), \
-         patch.object(manage, 'select_candidate') as select:
+  def test_shared_preparation_failure_is_reported(self):
+    with patch.object(manage, 'select_candidate', side_effect=NavigationModelDisabled('Corrected artifact SHA256 mismatch')):
       result, output = self.invoke('select', self.ID)
     self.assertEqual(result, 1)
-    self.assertIn('Register the matching local candidate', output)
-    select.assert_not_called()
+    self.assertIn('Corrected artifact SHA256 mismatch', output)
+    self.assertEqual(self.params.writes, [])
 
   def test_status_addresses_explicit_model_and_defaults_to_selected(self):
     with patch.object(manage, 'candidate_status', return_value=status(id=self.ID)) as inspect:
@@ -283,14 +286,15 @@ class TestCorrectedNavigationManage(unittest.TestCase):
       inspect.assert_called_once_with(self.params, candidate_id=None)
 
   def test_enable_corrected_cannot_bypass_its_approval(self):
-    from openpilot.selfdrive.navigation import selection
-    with patch.object(selection, 'candidate_status', return_value=status(id=self.ID)), \
-         patch.object(selection, 'admit_candidate') as admit:
+    from openpilot.sunnypilot.models import selection
+    with patch.object(selection, 'candidate_status', return_value={'registered': True}), \
+         patch.object(selection, 'admit_candidate', side_effect=NavigationModelDisabled('Explicit user authorization is required')):
       result, output = self.invoke('enable', self.ID)
     self.assertEqual(result, 1)
     self.assertIn('Explicit user authorization', output)
-    admit.assert_not_called()
-    self.assertEqual(self.params.writes, [])
+    self.assertFalse(self.params.get_bool('NavigationModelDrivingEnabled'))
+    for key in self.before:
+      self.assertEqual(self.params.values[key], self.before[key])
 
 
 if __name__ == '__main__':

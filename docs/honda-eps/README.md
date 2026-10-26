@@ -4,8 +4,9 @@ This development port adds a **disabled-by-default** controller for the 2022 Hon
 Insight EX, Bosch A, with corrected `39990-TXM,A040-PTM-20261016b.rwd`. It retains
 MVL's longitudinal planner/MPC, braking and acceleration adaptation, red-light
 stopping, stop-and-go, lane-centering/lane-change flow, MADS, driver monitoring,
-model selection/inference, and existing Honda/Panda code. It has not been road
-validated on MVL. Complete controlled vehicle validation before ordinary use.
+model selection/inference, and existing Honda/Panda code. The original port
+validation records below describe its comparisons and limitations. Current UI
+selection instructions are in [SunnyLink controls](sunnylink-model-and-eps-controls.md).
 
 Base: [`mvl-boston/openpilot` `sp-honda-dev-202608`](https://github.com/mvl-boston/openpilot/tree/cb15c04e918b759688cb354b1bbc9b3c5a47a65c).
 The existing opendbc gitlink stays `cf46117420f283b3e38241c00d728a191aa9fccc`;
@@ -67,8 +68,8 @@ python -m openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.firmware_verify 
 
 **Verifying a file does not establish what is installed.** The old incorrect PTM
 and corrected build both report `39990-TXM,A040`. Establish the installed revision
-from your verified flash record/readback before making the separate owner
-confirmation below. Do not confirm based only on the diagnostic part number.
+from your verified flash record/readback before making an installed-build
+confirmation. The new UI preserves the existing confirmation; it cannot create one. Do not confirm based only on the diagnostic part number.
 This project does not flash or modify the EPS.
 
 Admission requires exact `HONDA_INSIGHT`, Honda Bosch A flags, torque steering,
@@ -166,52 +167,24 @@ truncated integer E4 request mismatch against reconstructed James, with maximum
 continuous difference 0.003247 E4. This supersedes the earlier subset's zero-mismatch
 claim; see the [recorded-route comparison](recorded-route-comparison.md).
 
-## Enable after validation and roll back
+## Select or restore the controller
 
-The development branch may be installed for controlled validation only after the
-installed corrected image is independently confirmed. Validate on a suitable
-controlled course with immediate driver takeover available: engagement mid-turn,
-low/medium/high-speed turns and unwinds, stops/restarts, override/release, lane
-changes, saturation, and each intended AI model. Inspect the PID/FF/command-delay
-logs for oscillation, overshoot and unexpected authority changes. Unit tests and
-source comparisons alone do not authorize ordinary-road use.
+Use **SunnyLink → Steering → Insight EPS Controller → Insight-specific EPS
+lateral controller** while genuinely off road and disengaged. ON requests the
+existing custom controller; OFF restores the existing ordinary selection path
+on the next drive cycle. The adjacent status distinguishes requested and
+currently effective state and explains eligibility failures.
 
-While safely offroad, run this from the repository using its Python environment,
-**only after confirming the installed build**. This example explicitly selects
-the source rack and recorded response for controlled comparison; use `mvl` and/or
-`source` instead when validating those alternatives:
+Existing installed-firmware confirmation, geometry/response calibration and
+ordinary torque/NN preferences are preserved. Toggling never writes firmware,
+fabricates verification, retunes either controller or changes a drive's latch.
+No SSH parameter editing is needed for this routine operation. See
+[SunnyLink controls and recovery](sunnylink-model-and-eps-controls.md).
 
-```python
-from openpilot.common.params import Params
-from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import FIRMWARE_SHA256
-p = Params()
-assert p.get_bool("IsOffroad"), "change controller settings only offroad"
-p.put("HondaEpsFirmwareGeometry", "james", block=True)
-p.put("HondaEpsFirmwareResponse", "route32", block=True)
-p.put("HondaEpsFirmwareVerifiedSha256", FIRMWARE_SHA256, block=True)
-p.put_bool("HondaEpsFirmwareEnabled", True, block=True)
-```
-
-Begin a new onroad cycle. Inspect `HondaEpsFirmwareDriveConfig` offroad/on startup
-to confirm the admitted profile/geometry. EnforceTorqueControl/NNLC cannot replace
-an admitted firmware controller. No UI toggle is added in this development port.
-Confirmation is an owner attestation; the controller cannot read flash contents.
-Clear it after any EPS reflash, ECU/vehicle change, or uncertainty about the build.
-
-Rollback while offroad:
-
-```python
-from openpilot.common.params import Params
-p = Params()
-assert p.get_bool("IsOffroad")
-p.put_bool("HondaEpsFirmwareEnabled", False, block=True)
-p.remove("HondaEpsFirmwareVerifiedSha256")
-```
-
-Start a new onroad cycle; the original MVL selection path (including its existing
-EnforceTorqueControl preference) is restored. To remove the port entirely, switch
-back to the original `sp-honda-dev-202608` installation/commit. No opendbc pointer,
-Panda setting, longitudinal tuning or EPS image needs restoration.
+Installed-build confirmation remains an owner attestation: the controller cannot
+read flash contents. Reassess that confirmation after an EPS reflash, ECU/vehicle
+change or uncertainty about the installed build. Turning the controller OFF for
+routine use does not erase valid confirmation or calibration.
 
 ## Added and modified files
 
@@ -240,4 +213,10 @@ changed by this port.
 
 ## Navigation-model integration
 
-The current Nav Bigv2 procedure is the [selection and activation workflow](navigation-model-activation-workflow.md). It reuses the already compiled and registered model, exposes it under Big Models, and provides one SSH management command. Experimental branch approval is owner-authorized; Navigation Model Driving remains off until manually enabled after updating.
+The current workflow is [SunnyLink model and EPS controls](sunnylink-model-and-eps-controls.md).
+Only corrected **Nav Model Integration Bigv2 — FP32 map correction** is supported.
+Explicit selection prepares/reuses its installed local artifact and requests
+navigation driving ON after admission; selecting an ordinary big model withdraws
+that request. Explicit OFF and ordinary selections persist across reboot.
+The original Bigv2 is retired. See [corrected artifact evidence](navigation-model-corrected-integration.md)
+for immutable identities, approval and numerical limitations.

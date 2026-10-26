@@ -5,15 +5,15 @@ This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
 import re
-import threading
 import time
 import pyray as rl
 
 from openpilot.cereal import custom
-from openpilot.sunnypilot.models.helpers import ACTIVE_BUNDLE_KEYS, get_selected_bundle, resolve_bundle_by_ref
+from openpilot.sunnypilot.models.helpers import get_selected_bundle, resolve_bundle_by_ref
+from openpilot.sunnypilot.models.selection import NAV_REF, selection_status
 from openpilot.selfdrive.navigation.activation import candidate_status, list_candidates
-from openpilot.selfdrive.navigation.model_inputs import NavigationModelDisabled
-from openpilot.selfdrive.navigation.selection import select_candidate, selection_description, set_driving_enabled
+from openpilot.selfdrive.navigation.selection import selection_description
+from openpilot.selfdrive.ui.sunnypilot.model_selection import ModelSelectionRequest, selection_message
 from openpilot.common.constants import CV
 from openpilot.selfdrive.ui.ui_state import device, ui_state
 from openpilot.selfdrive.ui.sunnypilot.model_info import (big_model_state, bundles_for_source, carrying_model, default_model_name,
@@ -35,54 +35,17 @@ if gui_app.sunnypilot_ui():
   from openpilot.system.ui.sunnypilot.widgets.list_view import button_item_sp as button_item
 
 NAVIGATION_PREFIX = 'navigation:'
-NAVIGATION_REF = NAVIGATION_PREFIX + 'big-nav-v2'
+NAVIGATION_REF = NAV_REF
 
 
-class ExistingBigv2RegistrationDialog(ConfirmDialog):
-  """Background file verification with all visual updates on the render thread."""
-  def __init__(self, params, *, is_offroad: bool, model_id: str):
-    super().__init__(tr("Checking the selected existing navigation model and camera warp. Navigation driving stays off."), tr("Close"), cancel_text="")
-    self._finished = threading.Event()
-    self._error: str | None = None
-    self._shown_result = False
-    def run():
-      try:
-        from openpilot.selfdrive.navigation.preparation import prepare_existing_model
-        receipt = prepare_existing_model(params, is_offroad=is_offroad, model_id=model_id)
-        if receipt.get('prepared') is not True or receipt.get('activation_allowed') is not False:
-          raise ValueError('Existing model registration was not completed')
-      except Exception as error:
-        self._error = str(error)
-      finally:
-        self._finished.set()
-    self.worker = threading.Thread(target=run, daemon=True, name='navigation-model-registration')
-    self.worker.start()
-
-  def _update_state(self):
-    super()._update_state()
-    if self._finished.is_set() and not self._shown_result:
-      self._shown_result = True
-      self.set_text((tr("Registration failed: ") + self._error) if self._error else
-                    tr("Selected navigation model and camera warp registered. Navigation driving stays off."))
-
-
-class NavigationActivationDialog(ConfirmDialog):
-  """Keep the UI responsive during shared, read-only file admission."""
-  def __init__(self, params, *, is_offroad: bool, on_finished):
-    super().__init__(tr("Checking navigation approval and existing registered files. No model is downloaded or executed."), tr("Close"), cancel_text="")
-    self._finished = threading.Event()
-    self._error: str | None = None
-    self._shown_result = False
-    self._on_finished = on_finished
-    def run():
-      try:
-        set_driving_enabled(params, True, offroad=is_offroad)
-      except Exception as error:
-        self._error = str(error)
-      finally:
-        self._finished.set()
-    self.worker = threading.Thread(target=run, daemon=True, name='navigation-model-activation')
-    self.worker.start()
+class ModelSelectionDialog(ConfirmDialog):
+  """Show the shared request status without blocking the render thread."""
+  def __init__(self, params, *, source: str, ref: str | None, is_offroad: bool, on_finished, cancel: bool = False):
+    super().__init__(tr("Checking off-road status. The current model stays selected until the replacement is ready."),
+                     tr("Close"), cancel_text="")
+    self.request = ModelSelectionRequest(params, source=source, ref=ref, offroad=is_offroad, cancel=cancel)
+    self.worker = self.request.worker
+    self._on_finished, self._shown_result = on_finished, False
     self._confirm_button.set_enabled(lambda: not self.worker.is_alive())
 
   def _confirm_button_callback(self):
@@ -95,11 +58,11 @@ class NavigationActivationDialog(ConfirmDialog):
 
   def _update_state(self):
     super()._update_state()
-    if self._finished.is_set() and not self._shown_result:
-      self._shown_result = True
-      self.set_text((tr("Navigation activation blocked: ") + self._error) if self._error else
-                    tr("Admission passed. The selected navigation model is requested for the next drive."))
-      self._on_finished()
+    if self.request.finished.is_set():
+      self.set_text((tr("Model selection blocked: ") if self.request.error else "") + self.request.description())
+      if not self._shown_result:
+        self._shown_result = True
+        self._on_finished()
 
 
 class ModelsLayout(Widget):
@@ -114,8 +77,7 @@ class ModelsLayout(Widget):
     self._refreshing = False
     self._refresh_start: float | None = None
     self._last_note = None
-    self._navigation_registration: ExistingBigv2RegistrationDialog | None = None
-    self._navigation_activation: NavigationActivationDialog | None = None
+    self._model_selection: ModelSelectionDialog | None = None
     self.last_cache_calc_time = 0
 
     self._initialize_items()
@@ -153,9 +115,9 @@ class ModelsLayout(Widget):
       callback=self._clear_cache
     )
 
-    self.cancel_download_item = button_item(lambda: tr("Cancel Verification") if self._verifying else tr("Cancel Download"),
+    self.cancel_download_item = button_item(lambda: tr("Cancel Verification") if self._verifying else tr("Cancel Model Selection"),
                                             tr("Cancel"), "",
-                                            lambda: ui_state.params.remove("ModelManager_DownloadRef"))
+                                            self._cancel_selection)
 
     self.lane_turn_value_control = option_item_sp(tr("Adjust Lane Turn Speed"), "LaneTurnValue", 500, 2000,
                                                   tr("Set the maximum speed for lane turn desires. Default is 19 mph."),
@@ -187,50 +149,29 @@ class ModelsLayout(Widget):
                                                lambda: selection_description(ui_state.params),
                                                initial_state=ui_state.params.get_bool('NavigationModelDrivingEnabled'),
                                                callback=self._set_navigation_driving,
-                                               enabled=lambda: not self._navigation_activation_running() and
-                                               ((ui_state.is_offroad() and candidate_status(ui_state.params)['eligible']) or
-                                                ui_state.params.get_bool('NavigationModelDrivingEnabled')))
-    self.navigation_register = button_item(tr("Register selected navigation model"), tr("REGISTER"),
-                                              tr("Validate and register the installed model and camera warp. Navigation driving stays off."),
-                                              self._register_existing_navigation,
-                                              enabled=lambda: ui_state.is_offroad() and not self._navigation_registration_running())
-
+                                               enabled=lambda: not self._model_selection_running() and ui_state.is_offroad())
     self.items = [self.small_model_item, self.big_model_item, self.cancel_download_item, self.download_item, self.refresh_item, self.clear_cache_item,
-                  self.navigation_status, self.navigation_driving, self.navigation_register, self.lane_turn_desire_toggle, self.lane_turn_value_control,
+                  self.navigation_status, self.navigation_driving, self.lane_turn_desire_toggle, self.lane_turn_value_control,
                   self.lagd_toggle, self.delay_control, self.camera_offset]
 
-  def _set_navigation_driving(self, enabled):
-    if enabled:
-      if self._navigation_activation_running():
-        return
-      self._navigation_activation = NavigationActivationDialog(
-        ui_state.params, is_offroad=ui_state.is_offroad(), on_finished=lambda:
-        self.navigation_driving.action_item.set_state(ui_state.params.get_bool('NavigationModelDrivingEnabled')))
-      gui_app.push_widget(self._navigation_activation)
-      self.navigation_driving.action_item.set_state(ui_state.params.get_bool('NavigationModelDrivingEnabled'))
+  def _request_selection(self, source: str, ref: str | None, *, cancel: bool = False):
+    if self._model_selection_running():
       return
-    try:
-      set_driving_enabled(ui_state.params, False, offroad=ui_state.is_offroad())
-    except NavigationModelDisabled as error:
-      gui_app.push_widget(alert_dialog(str(error)))
+    self._model_selection = ModelSelectionDialog(
+      ui_state.params, source=source, ref=ref, is_offroad=ui_state.is_offroad(), cancel=cancel, on_finished=lambda:
+      self.navigation_driving.action_item.set_state(ui_state.params.get_bool('NavigationModelDrivingEnabled')))
+    gui_app.push_widget(self._model_selection)
+
+  def _set_navigation_driving(self, enabled):
+    self._request_selection('chestnut', NAV_REF if enabled else None)
     self.navigation_driving.action_item.set_state(ui_state.params.get_bool('NavigationModelDrivingEnabled'))
 
-  def _navigation_activation_running(self):
-    return self._navigation_activation is not None and self._navigation_activation.worker.is_alive()
+  def _model_selection_running(self):
+    return self._model_selection is not None and self._model_selection.worker.is_alive()
 
-  def _navigation_registration_running(self):
-    return self._navigation_registration is not None and self._navigation_registration.worker.is_alive()
-
-  def _register_existing_navigation(self):
-    offroad = ui_state.is_offroad()
-    if not offroad:
-      gui_app.push_widget(alert_dialog(tr("Register navigation models only while off road.")))
-      return
-    if self._navigation_registration_running():
-      return
-    self._navigation_registration = ExistingBigv2RegistrationDialog(
-      ui_state.params, is_offroad=offroad, model_id=candidate_status(ui_state.params)['id'])
-    gui_app.push_widget(self._navigation_registration)
+  def _cancel_selection(self):
+    request = selection_status(ui_state.params)
+    self._request_selection(request.get('source', 'chestnut'), request.get('ref'), cancel=True)
 
   def _update_lagd_description(self, lagd_toggle: bool):
     desc = tr("Enable this for the car to learn and adapt its steering response time. Disable to use a fixed steering response time. " +
@@ -252,7 +193,7 @@ class ModelsLayout(Widget):
       if response == DialogResult.CONFIRM:
         ui_state.params.put_bool("ModelManager_ClearCache", True)
 
-    dialog = ConfirmDialog(tr("This will delete ALL downloaded models from the cache except the currently active model. Are you sure?"),
+    dialog = ConfirmDialog(tr("Delete unused downloaded models? Selected models and required fallback files are kept."),
                            tr("Clear Cache"), callback=_callback)
     gui_app.push_widget(dialog)
 
@@ -304,11 +245,11 @@ class ModelsLayout(Widget):
         segments.append(("|", rl.GRAY, None, None))
       bundle = get_selected_bundle(ui_state.params, source)
       name = bundle.internalName if bundle else default_model_name(source)
-      color = ON_COLOR if (source == carry_source and name == carry_internal) else rl.LIGHTGRAY
+      color = ON_COLOR if not ui_state.is_offroad() and source == carry_source and name == carry_internal else rl.LIGHTGRAY
       if source == 'chestnut' and ui_state.params.get_bool('NavigationModelDrivingEnabled'):
         navigation = candidate_status(ui_state.params)
         name = navigation['display_name']
-        color = ON_COLOR if carry_source == 'chestnut' and carry_internal == navigation['id'] else rl.LIGHTGRAY
+        color = ON_COLOR if not ui_state.is_offroad() and carry_source == 'chestnut' and carry_internal == navigation['id'] else rl.LIGHTGRAY
       name = "● " + name
       if source == "chestnut":
         if big_state == 'failed':
@@ -334,6 +275,9 @@ class ModelsLayout(Widget):
     """The failover story for the Model Status row. One-way big -> small, and the
     fallback is runner-matched: a Default big can only fall back to the Default
     small (stock modeld), a custom big has no automatic fallback yet."""
+    requested = selection_status(ui_state.params)
+    if requested.get('state') in ('pending', 'preparing', 'downloading', 'failed', 'cancelled') or requested.get('selected_ref') == NAV_REF:
+      return selection_message(requested)
     navigation = candidate_status(ui_state.params)
     if navigation.get('selected'):
       if not navigation['enabled']:
@@ -388,29 +332,15 @@ class ModelsLayout(Widget):
     selected_ref = self.model_dialog.selection_ref
     self.model_dialog = None
     if isinstance(selected_ref, str) and selected_ref.startswith(NAVIGATION_PREFIX):
-      candidate_id = selected_ref.removeprefix(NAVIGATION_PREFIX)
-      status = candidate_status(ui_state.params, candidate_id=candidate_id)
-      try:
-        if self._selection_source != 'chestnut' or not status.get('installed'):
-          raise NavigationModelDisabled('The registered local Bigv2 model is not installed')
-        select_candidate(ui_state.params, candidate_id, offroad=ui_state.is_offroad())
-        gui_app.push_widget(alert_dialog(selection_description(ui_state.params) + "\n" +
-          tr("Driving stays off. Use Navigation Model Driving in Models to request activation after approval.")))
-      except NavigationModelDisabled as error:
-        gui_app.push_widget(alert_dialog(str(error)))
+      if self._selection_source == 'chestnut':
+        self._request_selection('chestnut', selected_ref)
       return
     if selected_ref == "Default":
-      if self._selection_source in ACTIVE_BUNDLE_KEYS:
-        if self._selection_source == 'chestnut':
-          set_driving_enabled(ui_state.params, False, offroad=ui_state.is_offroad())
-          ui_state.params.remove('NavigationModelCandidate')
-        ui_state.params.remove(ACTIVE_BUNDLE_KEYS[self._selection_source])
+      if self._selection_source in ('qcom', 'chestnut'):
+        self._request_selection(self._selection_source, 'Default')
       return
     if selected_bundle := self._resolve_selected_bundle(selected_ref):
-      if self._selection_source == 'chestnut':
-        set_driving_enabled(ui_state.params, False, offroad=ui_state.is_offroad())
-        ui_state.params.remove('NavigationModelCandidate')
-      ui_state.params.put("ModelManager_DownloadRef", selected_bundle.ref)
+      self._request_selection(self._selection_source, selected_bundle.ref)
 
   def _resolve_selected_bundle(self, ref):
     source_bundles = {source: bundles_for_source(source) for source in ("qcom", "chestnut")}
@@ -455,8 +385,8 @@ class ModelsLayout(Widget):
       return []
     roots = [TreeNode("Default", {'display_name': default_model_name(source)})]
     for candidate in navigation:
-      state = tr("installed local, navigation aware") if candidate.get('installed') else tr("local model not installed")
-      state += tr("; eligible") if candidate['eligible'] else tr("; activation blocked")
+      state = tr("installed local, navigation aware") if candidate.get('installed') else tr("local files checked on selection")
+      state += tr("; enables navigation driving after verification")
       roots.append(TreeNode(NAVIGATION_PREFIX + candidate['id'], {'display_name': f"{candidate['display_name']} ({state})"}))
     folders_list = [TreeFolder("", roots)]
     folders_list.extend(self._get_folders(favorites, bundles))
@@ -490,17 +420,21 @@ class ModelsLayout(Widget):
     self._update_lagd_description(live_delay)
     self.model_manager = ui_state.sm["modelManagerSP"]
     self._handle_bundle_download_progress()
+    if selection_status(ui_state.params).get('state') in ('pending', 'preparing', 'downloading'):
+      self.cancel_download_item.set_visible(True)
+    self.cancel_download_item.action_item.set_enabled(ui_state.is_offroad() and not self._model_selection_running())
 
     carry_source, _, carry_display = carrying_model()
     for item, item_source in ((self.small_model_item, "qcom"), (self.big_model_item, "chestnut")):
       bundle = get_selected_bundle(ui_state.params, item_source)
       name = bundle.displayName if bundle else default_model_name(item_source)
-      color = ON_COLOR if (item_source == carry_source and name == carry_display) else style.ITEM_TEXT_VALUE_COLOR
+      color = ON_COLOR if not ui_state.is_offroad() and item_source == carry_source and name == carry_display else style.ITEM_TEXT_VALUE_COLOR
       if item_source == 'chestnut':
         navigation = candidate_status(ui_state.params)
         if navigation.get('selected'):
           name = navigation['display_name'] + (tr(" (navigation requested)") if navigation['enabled'] else tr(" (local; driving off)"))
-          color = ON_COLOR if carry_source == 'chestnut' and carry_display == navigation['display_name'] else style.ITEM_TEXT_VALUE_COLOR
+          active = not ui_state.is_offroad() and carry_source == 'chestnut' and carry_display == navigation['display_name']
+          color = ON_COLOR if active else style.ITEM_TEXT_VALUE_COLOR
       item.action_item.set_value(name, color)
 
     note = self._status_note()
@@ -509,9 +443,9 @@ class ModelsLayout(Widget):
       self._set_item_note(self.download_item, note)
 
     offroad = ui_state.is_offroad()
-    self.small_model_item.action_item.set_enabled(offroad)
-    self.big_model_item.action_item.set_enabled(offroad)
-    self.small_model_item.set_description("" if offroad else tr("Only available when vehicle is off, or always offroad mode is on"))
+    self.small_model_item.action_item.set_enabled(offroad and not self._model_selection_running())
+    self.big_model_item.action_item.set_enabled(offroad and not self._model_selection_running())
+    self.small_model_item.set_description("" if offroad else tr("Model selection requires genuine off-road and disengaged status"))
 
     # manager is offroad-only, so an onroad clear would never be serviced
     self.clear_cache_item.action_item.set_enabled(offroad and not self._downloading and not self._clearing)

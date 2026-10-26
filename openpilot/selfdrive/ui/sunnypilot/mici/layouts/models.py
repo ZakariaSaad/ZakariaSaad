@@ -4,18 +4,18 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
-import threading
 import time
 
 import pyray as rl
 
 from openpilot.cereal import custom
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationDialog, BigDialog
-from openpilot.sunnypilot.models.helpers import ACTIVE_BUNDLE_KEYS, get_selected_bundle
+from openpilot.sunnypilot.models.helpers import get_selected_bundle
+from openpilot.sunnypilot.models.selection import NAV_REF, selection_status
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigToggle
 from openpilot.selfdrive.navigation.activation import candidate_status, list_candidates
-from openpilot.selfdrive.navigation.model_inputs import NavigationModelDisabled
-from openpilot.selfdrive.navigation.selection import select_candidate, selection_description, set_driving_enabled
+from openpilot.selfdrive.navigation.selection import selection_description
+from openpilot.selfdrive.ui.sunnypilot.model_selection import ModelSelectionRequest
 from openpilot.selfdrive.ui.ui_state import ui_state, device
 from openpilot.selfdrive.ui.sunnypilot.model_info import (active_source, big_model_state, bundles_for_source, carrying_model,
                                                            default_model_name, model_cache_size_mb, model_info, queued_name,
@@ -27,66 +27,29 @@ from openpilot.system.ui.widgets.label import UnifiedLabel
 from openpilot.system.ui.widgets.scroller import NavScroller
 
 
-class ExistingBigv2RegistrationDialog(BigDialog):
-  """Hash existing files off the render thread; result widgets stay on the UI thread."""
-  def __init__(self, params, *, is_offroad: bool, model_id: str):
-    super().__init__(tr("Register selected navigation model"), tr("Checking existing model and camera warp. Navigation driving stays off."))
-    self._finished = threading.Event()
-    self._error: str | None = None
-    self._shown_result = False
-    def run():
-      try:
-        from openpilot.selfdrive.navigation.preparation import prepare_existing_model
-        receipt = prepare_existing_model(params, is_offroad=is_offroad, model_id=model_id)
-        if receipt.get('prepared') is not True or receipt.get('activation_allowed') is not False:
-          raise ValueError('Existing model registration was not completed')
-      except Exception as error:
-        self._error = str(error)
-      finally:
-        self._finished.set()
-    self.worker = threading.Thread(target=run, daemon=True, name='navigation-model-registration')
-    self.worker.start()
-
-  def _update_state(self):
-    super()._update_state()
-    if self._finished.is_set() and not self._shown_result:
-      self._shown_result = True
-      self._card.set_text(tr("Registration failed") if self._error else tr("Navigation model registered"))
-      self._card.set_value(self._error or tr("Existing model and warp registered. Navigation driving stays off."))
-
-
-class NavigationActivationDialog(BigDialog):
-  """Run the shared file admission off the render thread; no model execution."""
-  def __init__(self, params, *, is_offroad: bool, on_finished):
-    super().__init__(tr("Checking navigation activation"), tr("Checking approval and existing registered files. No model is downloaded or executed."))
-    self._finished = threading.Event()
-    self._error: str | None = None
-    self._shown_result = False
-    self._on_finished = on_finished
-    def run():
-      try:
-        set_driving_enabled(params, True, offroad=is_offroad)
-      except Exception as error:
-        self._error = str(error)
-      finally:
-        self._finished.set()
-    self.worker = threading.Thread(target=run, daemon=True, name='navigation-model-activation')
-    self.worker.start()
+class ModelSelectionDialog(BigDialog):
+  """Keep the shared off-road request guard out of the render loop."""
+  def __init__(self, params, *, source: str, ref: str | None, is_offroad: bool, on_finished, cancel: bool = False):
+    super().__init__(tr("Model selection"), tr("Checking off-road status. The current model stays selected until the replacement is ready."))
+    self.request = ModelSelectionRequest(params, source=source, ref=ref, offroad=is_offroad, cancel=cancel)
+    self.worker = self.request.worker
+    self._on_finished, self._shown_result = on_finished, False
 
   def _back_enabled(self):
     return not self.worker.is_alive()
 
   def _update_state(self):
     super()._update_state()
-    if self._finished.is_set() and not self._shown_result:
-      self._shown_result = True
-      self._card.set_text(tr("Navigation activation blocked") if self._error else tr("Navigation driving requested"))
-      self._card.set_value(self._error or tr("Admission passed. The selected navigation model is requested for the next drive."))
-      self._on_finished()
+    if self.request.finished.is_set():
+      self._card.set_text(tr("Model selection blocked") if self.request.error else tr("Model selection"))
+      self._card.set_value(self.request.description())
+      if not self._shown_result:
+        self._shown_result = True
+        self._on_finished()
 
 
 class NavigationDrivingToggle(BigToggle):
-  """Reflect permission withdrawn or requested through the shared SSH command."""
+  """Reflect permission withdrawn or requested through the shared selection service."""
   def _update_state(self):
     super()._update_state()
     self.set_checked(ui_state.params.get_bool('NavigationModelDrivingEnabled'))
@@ -103,6 +66,9 @@ def _model_info() -> tuple[str, str, str]:
     big = get_selected_bundle(ui_state.params, "chestnut")
     carry_display = big.displayName if big else default_model_name("chestnut")
   active_text = (carry_display or active_name).lower()
+  navigation = candidate_status(ui_state.params)
+  if ui_state.is_offroad() and navigation.get('selected') and navigation['enabled']:
+    active_text = navigation['display_name'].lower()
   if state == 'failed':
     return active_text, tr("big model"), tr("unavailable")
   if state == 'loading':
@@ -150,8 +116,7 @@ class ModelsLayoutMici(NavScroller):
     self._download_frame = 0
     self._was_downloading = False
     self._selection_source: str | None = None
-    self._navigation_registration: ExistingBigv2RegistrationDialog | None = None
-    self._navigation_activation: NavigationActivationDialog | None = None
+    self._model_selection: ModelSelectionDialog | None = None
 
     self.select_model_btn = BigButton(tr("select model"))
     self.select_model_btn.set_click_callback(self._show_folders)
@@ -161,13 +126,13 @@ class ModelsLayoutMici(NavScroller):
     self._refresh_start: float | None = None
 
     self.cancel_download_btn = BigButton(tr("cancel download"))
-    self.cancel_download_btn.set_click_callback(lambda: ui_state.params.remove("ModelManager_DownloadRef"))
+    self.cancel_download_btn.set_click_callback(self._cancel_selection)
 
     self.clear_cache_btn = BigButton(tr("clear cache"), value=f"{model_cache_size_mb():.1f} MB")
     self.clear_cache_btn.set_click_callback(self._confirm_clear_cache)
     self._cache_size_time = 0.0
 
-    self.navigation_models_btn = BigButton(tr("navigation models"), value=tr("off by default"))
+    self.navigation_models_btn = BigButton(tr("navigation driving"), value=tr("off"))
     self.navigation_models_btn.set_click_callback(self._show_navigation_models)
 
     self.main_items = [self.current_model_info, self.select_model_btn, self.navigation_models_btn,
@@ -180,54 +145,28 @@ class ModelsLayoutMici(NavScroller):
     details.set_click_callback(lambda: gui_app.push_widget(BigDialog(
       tr("Navigation models"), selection_description(ui_state.params))))
     enable = NavigationDrivingToggle(tr("navigation driving"), initial_state=ui_state.params.get_bool('NavigationModelDrivingEnabled'))
-    enable.set_enabled(lambda: not self._navigation_activation_running() and
-                       ((ui_state.is_offroad() and candidate_status(ui_state.params)['eligible']) or
-                        ui_state.params.get_bool('NavigationModelDrivingEnabled')))
+    enable.set_enabled(lambda: not self._model_selection_running() and ui_state.is_offroad())
 
     def on_enable(checked):
-      if checked:
-        if self._navigation_activation_running():
-          return
-        self._navigation_activation = NavigationActivationDialog(
-          ui_state.params, is_offroad=ui_state.is_offroad(),
-          on_finished=lambda: enable.set_checked(ui_state.params.get_bool('NavigationModelDrivingEnabled')))
-        gui_app.push_widget(self._navigation_activation)
-        enable.set_checked(ui_state.params.get_bool('NavigationModelDrivingEnabled'))
-        return
-      try:
-        set_driving_enabled(ui_state.params, False, offroad=ui_state.is_offroad())
-      except NavigationModelDisabled as error:
-        gui_app.push_widget(BigDialog(tr("Navigation model unavailable"), str(error)))
+      self._request_selection('chestnut', NAV_REF if checked else None,
+                              on_finished=lambda: enable.set_checked(ui_state.params.get_bool('NavigationModelDrivingEnabled')))
       enable.set_checked(ui_state.params.get_bool('NavigationModelDrivingEnabled'))
     enable._toggle_callback = on_enable
-    items = [details, enable]
-    for candidate in list_candidates():
-      button = BigButton(candidate['display_name'], value=tr("select navigation candidate"), font_size=36)
-      button.set_enabled(ui_state.is_offroad)
-      button.set_click_callback(lambda candidate_id=candidate['id']: self._select_navigation_candidate(candidate_id))
-      items.append(button)
-    self.navigation_register_btn = BigButton(tr("Register selected navigation model"), value=status['display_name'], font_size=36)
-    self.navigation_register_btn.set_enabled(lambda: ui_state.is_offroad() and not self._navigation_registration_running())
-    self.navigation_register_btn.set_click_callback(self._register_existing_navigation)
-    items.append(self.navigation_register_btn)
-    self._push_selection_view(items)
+    self._push_selection_view([details, enable])
 
-  def _navigation_activation_running(self):
-    return self._navigation_activation is not None and self._navigation_activation.worker.is_alive()
+  def _model_selection_running(self):
+    return self._model_selection is not None and self._model_selection.worker.is_alive()
 
-  def _navigation_registration_running(self):
-    return self._navigation_registration is not None and self._navigation_registration.worker.is_alive()
-
-  def _register_existing_navigation(self):
-    offroad = ui_state.is_offroad()
-    if not offroad:
-      gui_app.push_widget(BigDialog(tr("Registration unavailable"), tr("Register navigation models only while off road.")))
+  def _request_selection(self, source: str, ref: str | None, *, on_finished=lambda: None, cancel: bool = False):
+    if self._model_selection_running():
       return
-    if self._navigation_registration_running():
-      return
-    self._navigation_registration = ExistingBigv2RegistrationDialog(
-      ui_state.params, is_offroad=offroad, model_id=candidate_status(ui_state.params)['id'])
-    gui_app.push_widget(self._navigation_registration)
+    self._model_selection = ModelSelectionDialog(
+      ui_state.params, source=source, ref=ref, is_offroad=ui_state.is_offroad(), on_finished=on_finished, cancel=cancel)
+    gui_app.push_widget(self._model_selection)
+
+  def _cancel_selection(self):
+    request = selection_status(ui_state.params)
+    self._request_selection(request.get('source', 'chestnut'), request.get('ref'), cancel=True)
 
   @property
   def model_manager(self):
@@ -262,7 +201,7 @@ class ModelsLayoutMici(NavScroller):
       if navigation and navigation.get('selected'):
         value = navigation['display_name'] + (tr(" (navigation requested)") if navigation['enabled'] else tr(" (local; driving off)"))
       if source == active and (not navigation or not navigation.get('selected') or carrying_model()[1] == navigation['id']):
-        value += f" ({tr('active')})"
+        value += f" ({tr('selected') if ui_state.is_offroad() else tr('active')})"
       btn = BigButton(label.lower(), value=value)
       btn.set_click_callback(lambda s=source: self._select_hardware(s))
       hardware_btns.append(btn)
@@ -288,12 +227,11 @@ class ModelsLayoutMici(NavScroller):
     folder_buttons.append(default_btn)
 
     for candidate in navigation:
-      value = tr("installed local · navigation aware") if candidate.get('installed') else tr("local model not installed")
-      value += tr(" · eligible") if candidate['eligible'] else tr(" · activation blocked")
+      value = tr("installed local · navigation aware") if candidate.get('installed') else tr("local files checked on selection")
+      value += tr(" · enables navigation driving after verification")
       button = BigButton(candidate['display_name'], value=value, font_size=36)
-      button.set_enabled(lambda candidate_id=candidate['id']: ui_state.is_offroad() and
-                         candidate_status(ui_state.params, candidate_id=candidate_id).get('installed', False))
-      button.set_click_callback(lambda candidate_id=candidate['id']: self._select_navigation_candidate(candidate_id, require_installed=True))
+      button.set_enabled(lambda: ui_state.is_offroad() and not self._model_selection_running())
+      button.set_click_callback(lambda candidate_id=candidate['id']: self._select_navigation_candidate(candidate_id))
       folder_buttons.append(button)
 
     for folder in sorted(folders.keys(), key=lambda f: max((bundle.index for bundle in folders[f]), default=-1), reverse=True):
@@ -310,29 +248,16 @@ class ModelsLayoutMici(NavScroller):
     self._scroller.scroll_panel.set_offset(0.0)
 
   def _select_model(self, bundle):
-    if self._selection_source == 'chestnut':
-      set_driving_enabled(ui_state.params, False, offroad=ui_state.is_offroad())
-      ui_state.params.remove('NavigationModelCandidate')
-    ui_state.params.put("ModelManager_DownloadRef", bundle.ref)
     self._pop_to_main()
+    self._request_selection(self._selection_source, bundle.ref)
 
   def _select_default(self, source):
-    if source == 'chestnut':
-      set_driving_enabled(ui_state.params, False, offroad=ui_state.is_offroad())
-      ui_state.params.remove('NavigationModelCandidate')
-    ui_state.params.remove(ACTIVE_BUNDLE_KEYS[source])
     self._pop_to_main()
+    self._request_selection(source, 'Default')
 
-  def _select_navigation_candidate(self, candidate_id, *, require_installed=False):
-    try:
-      if require_installed and not candidate_status(ui_state.params, candidate_id=candidate_id).get('installed'):
-        raise NavigationModelDisabled('The registered local Bigv2 model is not installed')
-      select_candidate(ui_state.params, candidate_id, offroad=ui_state.is_offroad())
-      self._pop_to_main()
-      gui_app.push_widget(BigDialog(tr("Navigation model selected"), selection_description(ui_state.params) + "\n" +
-        tr("Driving stays off. Use Models → navigation models → navigation driving to request activation after approval.")))
-    except NavigationModelDisabled as error:
-      gui_app.push_widget(BigDialog(tr("Navigation model unavailable"), str(error)))
+  def _select_navigation_candidate(self, candidate_id):
+    self._pop_to_main()
+    self._request_selection('chestnut', 'navigation:' + candidate_id)
 
   def _confirm_clear_cache(self):
     icon = gui_app.texture("icons_mici/settings/network/new/trash.png", 54, 64)
@@ -370,7 +295,7 @@ class ModelsLayoutMici(NavScroller):
     super()._update_state()
 
     self.navigation_models_btn.set_value(tr('requested') if ui_state.params.get_bool('NavigationModelDrivingEnabled') else tr('off'))
-    self.select_model_btn.set_enabled(ui_state.is_offroad())
+    self.select_model_btn.set_enabled(ui_state.is_offroad() and not self._model_selection_running())
     self.cancel_download_btn.set_visible(False)
     self.current_model_info.current_model_header._shimmer = False
     self.current_model_info.info_header._shimmer = False
@@ -402,7 +327,7 @@ class ModelsLayoutMici(NavScroller):
     self.refresh_btn.set_enabled(ui_state.is_offroad() and not is_downloading and not refreshing)
     self.refresh_btn.set_value(tr("fetching...") if refreshing else "")
 
-    self.current_model_info.current_model_header.set_text(tr("active model"))
+    self.current_model_info.current_model_header.set_text(tr("selected model") if ui_state.is_offroad() else tr("active model"))
     active_text, info_header, info_text = _model_info()
     self.current_model_info.current_model_text.set_text(active_text)
     self.current_model_info.info_header.set_text(info_header)
@@ -443,3 +368,12 @@ class ModelsLayoutMici(NavScroller):
     elif manager.selectedBundle and manager.selectedBundle.status == custom.ModelManagerSP.DownloadStatus.downloaded:
       self.current_model_info.info_header.set_text(tr("downloaded"))
       self.current_model_info.info_text.set_text(tr("downloaded"))
+
+    requested = selection_status(ui_state.params)
+    if requested.get('state') in ('pending', 'preparing', 'downloading'):
+      self.cancel_download_btn.set_visible(True)
+      self.cancel_download_btn.set_text(tr("cancel model selection"))
+    self.cancel_download_btn.set_enabled(ui_state.is_offroad() and not self._model_selection_running())
+    if requested.get('state') in ('pending', 'preparing', 'downloading', 'failed', 'cancelled') or requested.get('selected_ref') == NAV_REF:
+      self.current_model_info.info_header.set_text(requested['state'])
+      self.current_model_info.info_text.set_text(requested.get('message', ''))

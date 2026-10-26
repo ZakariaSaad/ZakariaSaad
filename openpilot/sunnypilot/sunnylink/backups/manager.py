@@ -22,6 +22,7 @@ from openpilot.cereal import messaging, custom
 from openpilot.sunnypilot.sunnylink.api import SunnylinkApi
 from openpilot.sunnypilot.sunnylink.backups.utils import decrypt_compressed_data, encrypt_compressed_data, SnakeCaseEncoder
 from openpilot.sunnypilot.sunnylink.utils import get_param_as_byte, save_param_from_base64_encoded_string
+from openpilot.sunnypilot.sunnylink import insight_eps
 
 
 class OperationType(Enum):
@@ -191,13 +192,27 @@ class BackupManagerSP:
 
   def _apply_config(self, config_data: dict[str, str]) -> None:
     """Applies configuration data from a backup, but only for parameters marked as backupable."""
+    from openpilot.sunnypilot.sunnylink.model_selection import model_restore_settings
+    config_data = model_restore_settings(self.params, config_data)
     backupable_params = [k.decode('utf-8') for k in self.params.all_keys(ParamKeyFlag.BACKUP)]
     backupable_set_lower = {p.lower() for p in backupable_params}
 
     restored_count = 0
     skipped_count = 0
 
+    eps_keys = {key.lower(): key for key in insight_eps.SETTINGS}
+    eps_updates = {eps_keys[key.lower()]: insight_eps.decode_update(eps_keys[key.lower()], value)
+                   for key, value in config_data.items() if key.lower() in eps_keys}
+    if eps_updates:
+      # Firmware confirmation and the active-drive snapshot are never backup
+      # settings. A settings restore uses the same fresh off-road admission as
+      # SunnyLink and leaves the old complete EPS settings on refusal.
+      insight_eps.apply_settings(self.params, eps_updates)
+      restored_count += len(eps_updates)
+
     for param, encoded_value in config_data.items():
+      if param.lower() in eps_keys:
+        continue
       if param.lower() in backupable_set_lower:
         # Find real param name (with correct casing)
         real_param = next(p for p in backupable_params if p.lower() == param.lower())

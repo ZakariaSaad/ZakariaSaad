@@ -15,6 +15,8 @@ import re
 import struct
 from typing import Any
 
+from openpilot.selfdrive.navigation.candidate_identity import MODEL_ID, RETIRED_REASON, is_retired
+
 
 SOURCE_ONNX_SHA256 = '1d18c42ea4cd95c8bffab4635844b78b8e2d4e25b9de44a9c5ac2e0961371a2e'
 TINYGRAD_REF = '69fd4d34d4430036378aba2b43f9d339cdd6ea73'
@@ -258,7 +260,7 @@ def _warp_contract(header: dict) -> int:
 
 
 def load_experimental_model(manifest_path: str | Path, *, experimental: bool, backend: str,
-                            expected_arch: str = 'gfx1200', model_id: str = 'big-nav-v2') -> ExperimentalModelEntry:
+                            expected_arch: str = 'gfx1200', model_id: str = MODEL_ID) -> ExperimentalModelEntry:
   """Validate local static contracts for parsed-tensor diagnostics, never actuation.
 
   The checked-in template is intentionally disabled. A compiler-produced local
@@ -268,11 +270,13 @@ def load_experimental_model(manifest_path: str | Path, *, experimental: bool, ba
   file-only/non-actuating session and validate compiler parity before inference.
   """
   try:
+    _require(not is_retired(model_id), RETIRED_REASON)
     manifest = Path(manifest_path).resolve(strict=True)
     catalog = load_experimental_catalog(manifest, experimental=experimental)
     entries = [entry for entry in catalog['entries'] if entry['id'] == model_id]
     _require(len(entries) == 1, f'Unknown experimental model: {model_id}')
     entry = entries[0]
+    _require(not is_retired(artifact_sha256=(entry.get('compiled_artifact') or {}).get('sha256')), RETIRED_REASON)
     _require(entry.get('enabled') is True, 'Experimental model template is disabled until local artifacts are verified')
     _require(entry.get('normal_activation_allowed') is False and entry.get('selector_generation_verified') is False,
              'Normal activation/generation semantics must remain explicitly unverified')

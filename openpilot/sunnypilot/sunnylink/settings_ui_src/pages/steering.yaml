@@ -7,6 +7,31 @@ order: 1
 remote_configurable: true
 description: Lateral control, lane changes, and steering behavior
 sections:
+- id: insight_eps
+  title: Insight EPS Controller
+  description: Existing firmware-aware controller; selection is latched for each drive.
+  items:
+  - key: HondaEpsFirmwareEnabled
+    widget: toggle
+    title: Insight-specific EPS lateral controller
+    description: Select the existing Insight EPS controller for the next drive. OFF restores the ordinary lateral-controller path.
+    details: Requires the supported Insight TXM-A040 modified EPS and its existing installed-firmware confirmation. This toggle does not flash or confirm firmware, change calibration, or engage controls. Ordinary torque and neural-network settings are preserved; Insight EPS takes priority when admitted. Changes require genuine off-road and disengaged status and apply on the next drive cycle.
+    enablement:
+    - $ref: '#/macros/offroad'
+    - type: not_engaged
+    - type: any
+      conditions:
+      - type: capability
+        field: honda_eps_eligible
+        equals: true
+      - type: capability
+        field: honda_eps_requested
+        equals: true
+  - key: HondaEpsFirmwareStatus
+    widget: info
+    title: Insight EPS requested and effective status
+    description: Live eligibility and current drive selection; settings apply on the next drive cycle.
+    blocked: true
 - id: mads
   title: Modular Assistive Driving System (MADS)
   description: ''

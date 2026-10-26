@@ -42,6 +42,11 @@ CAPABILITY_FIELDS = (
   "device_type",
   "subaru_has_sng",
   "hyundai_alpha_long_available",
+  "honda_eps_supported",
+  "honda_eps_eligible",
+  "honda_eps_requested",
+  "honda_eps_effective",
+  "honda_eps_status",
 )
 
 CAPABILITY_LABELS: dict[str, str] = {
@@ -64,6 +69,11 @@ CAPABILITY_LABELS: dict[str, str] = {
   "device_type": "Device type",
   "subaru_has_sng": "Subaru Stop-and-Go available",
   "hyundai_alpha_long_available": "Hyundai Alpha Longitudinal available",
+  "honda_eps_supported": "Supported Insight TXM-A040 EPS configuration",
+  "honda_eps_eligible": "Insight EPS firmware confirmation and calibration ready",
+  "honda_eps_requested": "Insight EPS controller requested",
+  "honda_eps_effective": "Insight EPS controller selected for the current drive",
+  "honda_eps_status": "Insight EPS requested and effective controller status",
 }
 
 # Explicit defaults for non-boolean capability fields
@@ -72,6 +82,7 @@ CAPABILITY_DEFAULTS: dict[str, bool | str | int] = {
   "steer_control_type": "",
   "device_type": "",
   "protocol_version": PROTOCOL_VERSION,
+  "honda_eps_status": "",
 }
 
 
@@ -178,6 +189,12 @@ def generate_capabilities(params: Params | None = None) -> dict:
       cloudlog.exception("capabilities: failed to deserialize CarParamsSPPersistent")
 
   _resolve_brand_capabilities(caps, bundle_platform, CP)
+
+  from openpilot.sunnypilot.sunnylink.insight_eps import status as insight_eps_status
+  eps = insight_eps_status(params)
+  for key in ("supported", "eligible", "requested", "effective"):
+    caps["honda_eps_" + key] = eps[key]
+  caps["honda_eps_status"] = eps["description"]
 
   return caps
 

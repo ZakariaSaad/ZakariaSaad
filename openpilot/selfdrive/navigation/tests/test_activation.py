@@ -54,7 +54,7 @@ def reviewed_fixture(input_specs=None, metadata=None):
                   artifact_evidence_reviewed=True, activation_approved=True)
     hashes = [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths[:2]] + [hashlib.sha256(metadata_path.read_bytes()).hexdigest()]
     record.update(dict(zip(('artifact_sha256', 'warp_sha256', 'metadata_sha256'), hashes, strict=True)))
-    paths[2].write_text(json.dumps({'entries': [{'id': 'big-nav-v2',
+    paths[2].write_text(json.dumps({'entries': [{'id': 'big-nav-v2-map-fp32',
       'compiled_artifact': {'path': str(paths[0]), 'sha256': hashes[0]},
       'warp_artifact': {'path': str(paths[1]), 'sha256': hashes[1]},
       'compiler_metadata': {'path': str(metadata_path), 'sha256': hashes[2]}}]}))
@@ -62,13 +62,13 @@ def reviewed_fixture(input_specs=None, metadata=None):
     registry.write_text(json.dumps(source))
     fallback = root / 'ordinary.sptg'
     fallback.write_bytes(b'SPTGPLN1-inert-unit-fixture')
-    params = ParamsStub(NavigationModelDrivingEnabled=True, NavigationModelCandidate='big-nav-v2', NavigationModelManifest=str(paths[2]),
+    params = ParamsStub(NavigationModelDrivingEnabled=True, NavigationModelCandidate='big-nav-v2-map-fp32', NavigationModelManifest=str(paths[2]),
                         ModelManager_ActiveBundle={'minimumSelectorVersion': 21, 'runner': 'tinygrad',
                                                   'models': [{'artifact': {'fileName': fallback.name}}]})
     reviewed_metadata = dict(metadata or {})
     reviewed_metadata['compiler_verification'] = {'compiler': {'sha256': record['compiler_sha256']},
                                                 'report': {'sha256': record['compiler_report_sha256']}}
-    entry = SimpleNamespace(model_id='big-nav-v2', artifact_path=paths[0], warp_path=paths[1], input_specs=input_specs or {},
+    entry = SimpleNamespace(model_id='big-nav-v2-map-fp32', artifact_path=paths[0], warp_path=paths[1], input_specs=input_specs or {},
                             metadata=reviewed_metadata, warp_frame_size=1622016, compiler_verification_validated=True,
                             **dict(zip(('artifact_sha256', 'warp_sha256', 'metadata_sha256'), hashes, strict=True)))
     with patch.object(activation, 'REGISTRY', registry), patch.object(activation, 'Params', return_value=params), \
@@ -87,7 +87,7 @@ class TestActivation(unittest.TestCase):
 
   def test_branch_approval_keeps_opt_in_off_and_requires_registered_local_files(self):
     params = ParamsStub(NavigationModelDrivingEnabled=False, NavigationEnabled=True, NavigationModelInputsEnabled=True,
-                        NavigationModelCandidate='big-nav-v2', NavigationModelManifest='/nonexistent')
+                        NavigationModelCandidate='big-nav-v2-map-fp32', NavigationModelManifest='/nonexistent')
     with patch.object(activation, 'ordinary_fallback_reason', return_value=''):
       status = activation.candidate_status(params)
       self.assertTrue(status['approved'])
@@ -96,7 +96,7 @@ class TestActivation(unittest.TestCase):
       self.assertTrue(status['artifact_evidence_reviewed'])
       self.assertTrue(status['software_compatible'])
       self.assertFalse(status['registered'])
-      self.assertEqual(status['runtime_compatibility'], 'unverified')
+      self.assertEqual(status['runtime_compatibility'], 'physical_compiler_verified')
       self.assertIsNone(activation.authorize_runtime(params))
       self.assertFalse(params.get_bool('NavigationModelDrivingEnabled'))
       # Writing an enable flag cannot bypass the remaining admission checks.
@@ -119,7 +119,7 @@ class TestActivation(unittest.TestCase):
       params.values['NavigationModelCandidate'] = 'unreviewed-model'
       with self.assertRaises(NavigationModelDisabled):
         activation.validate_runtime_permit(permit, params=params)
-      params.values['NavigationModelCandidate'] = 'big-nav-v2'
+      params.values['NavigationModelCandidate'] = 'big-nav-v2-map-fp32'
       permit.artifact_path.write_bytes(b'mutated')
       with self.assertRaises(NavigationModelDisabled):
         activation.validate_runtime_permit(permit, params=params)
@@ -162,7 +162,7 @@ class TestActivation(unittest.TestCase):
       self.assertFalse(status['registered'])
       self.assertFalse(status['eligible'])
       self.assertIn('does not declare the reviewed', status['reason'])
-      for entries in (None, {}, [None], [{'id': 'big-nav-v2', 'compiled_artifact': None}]):
+      for entries in (None, {}, [None], [{'id': 'big-nav-v2-map-fp32', 'compiled_artifact': None}]):
         with self.subTest(entries=entries):
           permit.manifest_path.write_text(json.dumps({'entries': entries}))
           self.assertFalse(activation.candidate_status(params)['eligible'])
@@ -198,8 +198,8 @@ class TestReadOnlyAdmission(unittest.TestCase):
       params.values['NavigationModelCandidate'] = 'another-selection'
       before = dict(params.values)
       verifier.reset_mock()
-      permit = activation.admit_candidate(params, candidate_id='big-nav-v2')
-      self.assertEqual(permit.model_id, 'big-nav-v2')
+      permit = activation.admit_candidate(params, candidate_id='big-nav-v2-map-fp32')
+      self.assertEqual(permit.model_id, 'big-nav-v2-map-fp32')
       self.assertEqual(params.values, before)
       activation.validate_admission(permit, params)
       verifier.assert_called_once()

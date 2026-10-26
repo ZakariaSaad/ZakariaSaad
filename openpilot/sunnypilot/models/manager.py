@@ -7,6 +7,8 @@ See the LICENSE.md file in the root directory for more details.
 
 import asyncio
 import os
+from pathlib import Path
+import tempfile
 import time
 
 import requests
@@ -19,6 +21,7 @@ from openpilot.cereal import messaging, custom
 from openpilot.sunnypilot.models.fetcher import ModelFetcher
 from openpilot.sunnypilot.models.helpers import (ACTIVE_BUNDLE_KEYS, get_active_bundle, get_selected_bundle,
                                                   resolve_bundle_by_ref, validate_active_bundles, verify_file)
+from openpilot.sunnypilot.models.selection import complete_ordinary_selection, process_pending_selection, report_download_state
 
 # (connect, read) seconds. read is per-request inactivity, not a total cap
 DOWNLOAD_TIMEOUT = (30, 30)
@@ -118,7 +121,10 @@ class ModelManagerSP:
     url = artifact.downloadUri.uri
     expected_hash = artifact.downloadUri.sha256
     filename = artifact.fileName
+    if not filename or Path(filename).name != filename or filename in ('.', '..'):
+      raise ValueError('Model artifacts must use a plain filename')
     full_path = os.path.join(destination_path, filename)
+    temporary_path = None
 
     try:
       if await verify_file(full_path, expected_hash):
@@ -129,9 +135,22 @@ class ModelManagerSP:
         self._report_status()
         return
 
-      await self._download_file(url, full_path, artifact)
-      if not await verify_file(full_path, expected_hash):
+      # The active selection remains usable until an independently verified file
+      # is complete. Never truncate a cached artifact during a replacement.
+      fd, temporary_path = tempfile.mkstemp(dir=destination_path, prefix='.' + filename + '.', suffix='.part')
+      os.close(fd)
+      await self._download_file(url, temporary_path, artifact)
+      artifact.downloadProgress.status = custom.ModelManagerSP.DownloadStatus.verifying
+      self._sync_artifact_progress(artifact)
+      self._report_status()
+      if not await verify_file(temporary_path, expected_hash):
         raise ValueError(f"Hash validation failed for {filename}")
+      if self._download_interrupted():
+        raise DownloadCancelled('Download cancelled before publication')
+      if os.path.exists(full_path) and Path(full_path).resolve() in self._protected_model_paths():  # noqa: ASYNC240
+        raise ValueError('Refusing to overwrite a selected model artifact with different bytes: ' + filename)
+      os.replace(temporary_path, full_path)
+      temporary_path = None
 
       artifact.downloadProgress.status = custom.ModelManagerSP.DownloadStatus.downloaded
       artifact.downloadProgress.progress = 100
@@ -151,8 +170,6 @@ class ModelManagerSP:
 
     except Exception as e:
       cloudlog.error(f"Error downloading {filename}: {str(e)}")
-      if os.path.isfile(full_path):  # noqa: ASYNC240
-        os.remove(full_path)
       artifact.downloadProgress.status = custom.ModelManagerSP.DownloadStatus.failed
       artifact.downloadProgress.eta = 0
       self._sync_artifact_progress(artifact)
@@ -161,6 +178,10 @@ class ModelManagerSP:
       self._report_status()
       self._download_start_times.pop(artifact.fileName, None)
       raise
+
+    finally:
+      if temporary_path is not None:
+        Path(temporary_path).unlink(missing_ok=True)  # noqa: ASYNC240
 
   async def _process_model(self, model, destination_path: str) -> None:
     """Processes a single model download including verification"""
@@ -179,7 +200,7 @@ class ModelManagerSP:
     model_manager_state.availableBundles = self.available_models
     self.pm.send('modelManagerSP', msg)
 
-  async def _download_bundle(self, model_bundle: custom.ModelManagerSP.ModelBundle, destination_path: str, source: str) -> None:
+  async def _download_bundle(self, model_bundle: custom.ModelManagerSP.ModelBundle, destination_path: str, source: str) -> bool:
     self.selected_bundle = model_bundle
     self.selected_bundle.status = custom.ModelManagerSP.DownloadStatus.downloading
     for model in self.selected_bundle.models:
@@ -204,8 +225,11 @@ class ModelManagerSP:
       if self._download_interrupted():
         raise DownloadCancelled("Download cancelled")
       self.selected_bundle.status = custom.ModelManagerSP.DownloadStatus.downloaded
-      self.params.put(ACTIVE_BUNDLE_KEYS[source], model_bundle.to_dict(), block=True)
+      # Selection is a separate, guarded transaction. A replaced request may
+      # finish caching bytes, but cannot publish its obsolete model selection.
+      completed = complete_ordinary_selection(self.params, source, model_bundle.to_dict(), self._download_ref)
       self.active_bundle = get_active_bundle(self.params, chestnut=self.chestnut_present)
+      return completed
 
     except Exception:
       if self.selected_bundle is not None:
@@ -215,9 +239,9 @@ class ModelManagerSP:
     finally:
       self._report_status()
 
-  def download(self, model_bundle: custom.ModelManagerSP.ModelBundle, destination_path: str, source: str) -> None:
+  def download(self, model_bundle: custom.ModelManagerSP.ModelBundle, destination_path: str, source: str) -> bool:
     """Main entry point for downloading a model bundle"""
-    asyncio.run(self._download_bundle(model_bundle, destination_path, source))
+    return asyncio.run(self._download_bundle(model_bundle, destination_path, source))
 
   def _process_download_requests(self) -> None:
     # loops so a ref queued during a download starts in the same tick, without
@@ -232,13 +256,24 @@ class ModelManagerSP:
         return
       model_to_download, source = resolved
       self._download_ref = ref_to_download
+      pending = False
       try:
-        self.download(model_to_download, Paths.model_root(), source)
+        report_download_state(self.params, ref_to_download, 'downloading')
+        completed = self.download(model_to_download, Paths.model_root(), source)
+        pending = completed is False and self.params.get('ModelManager_DownloadRef') == ref_to_download
+      except DownloadCancelled as e:
+        report_download_state(self.params, ref_to_download, 'cancelled', str(e))
       except Exception as e:
+        report_download_state(self.params, ref_to_download, 'failed', str(e))
         cloudlog.exception(e)
       finally:
-        self._release_download_ref()
+        if not pending:
+          self._release_download_ref()
+        else:
+          self._download_ref = None
         self.selected_bundle = None
+      if pending:
+        return
 
   def main_thread(self) -> None:
     """Main thread for model management"""
@@ -250,15 +285,17 @@ class ModelManagerSP:
         self.chestnut_present = self.sm['deviceState'].chestnutPresent
         self.source_models = {source: self.model_fetcher.get_bundles_for_source(source) for source in ModelFetcher.MODEL_SOURCES}
         self.available_models = self.source_models[ModelFetcher.active_source(self.chestnut_present)]
-        validate_active_bundles(self.params, self.source_models)
         self.active_bundle = get_active_bundle(self.params, chestnut=self.chestnut_present)
 
-        if get_selected_bundle(self.params, "chestnut") is not None and get_selected_bundle(self.params, "qcom") is None:
-          if self.params.get("ModelManager_DownloadRef") is None:
-            from openpilot.sunnypilot.models.model_name import DEFAULT_MODEL_REF
-            self.params.put("ModelManager_DownloadRef", DEFAULT_MODEL_REF)
-
-        self._process_download_requests()
+        if not process_pending_selection(self.params):
+          # The shared tick has confirmed fresh off-road state. Catalog
+          # validation can reset ordinary slots, so it belongs behind that gate.
+          validate_active_bundles(self.params, self.source_models)
+          if get_selected_bundle(self.params, "chestnut") is not None and get_selected_bundle(self.params, "qcom") is None:
+            if self.params.get("ModelManager_DownloadRef") is None:
+              from openpilot.sunnypilot.models.model_name import DEFAULT_MODEL_REF
+              self.params.put("ModelManager_DownloadRef", DEFAULT_MODEL_REF)
+          self._process_download_requests()
 
         if self.params.get("ModelManager_ClearCache"):
           self.clear_model_cache()
@@ -271,25 +308,49 @@ class ModelManagerSP:
         cloudlog.exception(f"Error in main thread: {str(e)}")
         rk.keep_time()
 
-  def clear_model_cache(self) -> None:
-    """
-    Clears the model cache directory of all files except those in the active model bundle.
-    """
-
+  def _protected_model_paths(self) -> set[Path]:
     # Get list of files used by both slots' selected bundles (either may become
     # the truly active bundle depending on hardware availability)
-    active_files = []
+    model_dir = Path(Paths.model_root())
+    protected = set()
     for source in ACTIVE_BUNDLE_KEYS:
       if selected_bundle := get_selected_bundle(self.params, source):
         for model in selected_bundle.models:
           if model.artifact.fileName:
-            active_files.append(model.artifact.fileName)
+            protected.add((model_dir / model.artifact.fileName).resolve())
+
+    # Registration normally lives outside the cache. Honor the actual manifest
+    # paths as well, including symlinks, rather than assuming that layout forever.
+    manifest = self.params.get('NavigationModelManifest')
+    if isinstance(manifest, bytes):
+      manifest = manifest.decode()
+    if isinstance(manifest, str) and manifest:
+      from openpilot.selfdrive.navigation.experimental_catalog import _json_file
+      manifest = Path(manifest).resolve(strict=True)
+      protected.add(manifest)
+      for entry in _json_file(manifest)['entries']:
+        for field in ('compiled_artifact', 'warp_artifact', 'compiler_metadata'):
+          name = entry[field]['path']
+          path = Path(name)
+          path = (path if path.is_absolute() else manifest.parent / path).resolve()
+          protected.add(path)
+          if field == 'compiler_metadata':
+            proof = _json_file(path).get('compiler_verification', {})
+            for record in proof.values():
+              if isinstance(record, dict) and isinstance(record.get('path'), str):
+                source = Path(record['path'])
+                protected.add((source if source.is_absolute() else path.parent / source).resolve())
+    return protected
+
+  def clear_model_cache(self) -> None:
+    """Remove unused cache files; selected fallback/native proof files survive."""
 
     # Remove all files except active ones
     model_dir = Paths.model_root()
     try:
+      protected = self._protected_model_paths()
       for filename in os.listdir(model_dir):
-        if filename not in active_files:
+        if (Path(model_dir) / filename).resolve() not in protected:
           file_path = os.path.join(model_dir, filename)
           if os.path.isfile(file_path):
             os.remove(file_path)

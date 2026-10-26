@@ -69,6 +69,9 @@ class TestSoftwareCompatibility(unittest.TestCase):
     self.root = Path(self.directory.name)
     self.catalog = json.loads(DEFAULT_CATALOG.read_bytes())
     self.entry = self.catalog['entries'][0]
+    # Generic inert format fixture, never the retired artifact or a production
+    # registry identity. Corrected precision binding is tested independently.
+    self.entry['id'] = 'inert-native-compatibility'
     self.entry['enabled'] = True
     self.metadata = {'schema_version': 1, 'source_onnx_sha256': SOURCE_ONNX_SHA256, 'tinygrad_ref': TINYGRAD_REF,
                      'target': self.entry['target'], 'output_slices': self.entry['contract']['output_slices'], 'camera_profile': profile()}
@@ -116,7 +119,7 @@ class TestSoftwareCompatibility(unittest.TestCase):
                                                                    'models': [{'artifact': {'fileName': 'small.sptg',
                                                                                            'downloadUri': {'sha256': digest(self.models / 'small.sptg')}}}]}))
     self.warp = ROOT / 'openpilot/sunnypilot/modeld_v2/models/big_driving_warp_1344x760_tinygrad.pkl'
-    self.approved = {'id': 'big-nav-v2', 'artifact_evidence_reviewed': True, 'software_contract_reviewed': True,
+    self.approved = {'id': 'inert-native-compatibility', 'artifact_evidence_reviewed': True, 'software_contract_reviewed': True,
                      'software_integration_reviewed': True, 'runtime_compatibility': 'unverified', 'activation_approved': False,
                      'sunnypilot_generation': None,
                      'action_contract': 'comma-nav-v2-20hz-lateral-acceleration-longitudinal-acceleration'}

@@ -11,6 +11,7 @@ import json
 
 from openpilot.selfdrive.navigation.experimental_catalog import SOURCE_ONNX_SHA256, _json, _json_file, load_experimental_model
 from openpilot.selfdrive.navigation.errors import NavigationModelDisabled
+from openpilot.selfdrive.navigation.candidate_identity import MODEL_ID, RETIRED_REASON, is_retired
 
 REGISTRY = Path(__file__).with_name('driving_models.json')
 REGISTRATION_ROOT = Path('/data/navigation-models')
@@ -22,18 +23,23 @@ def _text(value, default=''):
 
 
 def _candidate(params, candidate_id=None):
-  identifier = candidate_id if candidate_id is not None else _text(params.get('NavigationModelCandidate', return_default=True), 'big-nav-v2')
+  identifier = candidate_id if candidate_id is not None else _text(params.get('NavigationModelCandidate', return_default=True), MODEL_ID) or MODEL_ID
+  if is_retired(identifier):
+    raise NavigationModelDisabled(RETIRED_REASON)
   registry = _json_file(REGISTRY)
   if registry.get('schema_version') != 1:
     raise NavigationModelDisabled('Unsupported branch navigation model registry')
   matches = [entry for entry in registry.get('candidates', []) if entry.get('id') == identifier]
-  if len(matches) != 1:
+  if len(matches) != 1 or identifier != MODEL_ID:
     raise NavigationModelDisabled('Unknown branch navigation model candidate')
+  if is_retired(artifact_sha256=matches[0].get('artifact_sha256')):
+    raise NavigationModelDisabled(RETIRED_REASON)
   return matches[0]
 
 
 def list_candidates() -> list[dict]:
-  return [{'id': entry['id'], 'display_name': entry['display_name']} for entry in _json_file(REGISTRY).get('candidates', [])]
+  return [{'id': entry['id'], 'display_name': entry['display_name']} for entry in _json_file(REGISTRY).get('candidates', [])
+          if entry.get('id') == MODEL_ID and not is_retired(artifact_sha256=entry.get('artifact_sha256'))]
 
 
 def candidate_manifest(params, candidate_id: str) -> Path | None:
@@ -43,6 +49,7 @@ def candidate_manifest(params, candidate_id: str) -> Path | None:
   mismatched identity declarations, so a damaged selection is reported rather
   than silently replaced. A different candidate's package is never substituted.
   """
+  entry = _candidate(params, candidate_id)
   configured = _text(params.get('NavigationModelManifest'))
   if configured and Path(configured).is_file():
     records = _json_file(Path(configured)).get('entries', [])
@@ -50,8 +57,7 @@ def candidate_manifest(params, candidate_id: str) -> Path | None:
       raise NavigationModelDisabled('The configured navigation manifest has invalid entries')
     if any(record.get('id') == candidate_id for record in records):
       return Path(configured)
-  entry = _candidate(params, candidate_id)
-  filename = 'latest-registration.json' if candidate_id == 'big-nav-v2' else candidate_id + '-registration.json'
+  filename = candidate_id + '-registration.json'
   if Path(filename).name != filename:
     raise NavigationModelDisabled('Invalid registered navigation candidate identifier')
   receipt_path = REGISTRATION_ROOT / filename
@@ -287,6 +293,8 @@ def validate_admission(permit, params=None, *, allow_unselected_manifest=False) 
   params = params if params is not None else Params()
   if not isinstance(permit, DrivingPermit) or permit.seal is not _PERMIT_SEAL:
     raise NavigationModelDisabled('A branch-reviewed runtime permit is required')
+  if permit.model_id != MODEL_ID:
+    raise NavigationModelDisabled(RETIRED_REASON if is_retired(permit.model_id) else 'Unknown navigation runtime candidate')
   current = candidate_manifest(params, permit.model_id) if allow_unselected_manifest else Path(_text(params.get('NavigationModelManifest')))
   if current is None or current.resolve() != permit.manifest_path:
     raise NavigationModelDisabled('Navigation model manifest changed')

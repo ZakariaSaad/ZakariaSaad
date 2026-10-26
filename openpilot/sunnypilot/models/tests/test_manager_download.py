@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import http.server
 import os
+from pathlib import Path
 import tempfile
 import threading
 import time
@@ -22,6 +23,7 @@ from openpilot.cereal import custom
 from openpilot.common.test import OpenpilotTestCase
 from openpilot.selfdrive.test.helpers import http_server_context
 from openpilot.sunnypilot.models import manager as manager_module
+from openpilot.sunnypilot.models import selection as selection_module
 from openpilot.sunnypilot.models.fetcher import ModelFetcher, get_cached_bundles
 from openpilot.sunnypilot.models import helpers
 from openpilot.sunnypilot.models.helpers import (get_active_bundle, get_active_source, get_selected_bundle,
@@ -237,6 +239,83 @@ class TestManagerDownload(ManagerDownloadTestBase):
     self.manager._release_download_ref()
     self.manager.params.remove.assert_not_called()
 
+  def test_verified_download_is_published_atomically(self):
+    def body():
+      artifact = self.make_artifact()
+      path = Path(self.dest) / artifact.fileName
+      path.write_bytes(b'previous complete artifact')
+      self.manager.params.get.side_effect = lambda key: 'ref' if key == 'ModelManager_DownloadRef' else None
+      download = self.manager._download_file
+
+      async def check_temporary(url, temporary_path, model):
+        assert temporary_path != str(path)
+        assert path.read_bytes() == b'previous complete artifact'
+        await download(url, temporary_path, model)
+        assert path.read_bytes() == b'previous complete artifact'
+
+      with mock.patch.object(self.manager, '_download_file', side_effect=check_temporary):
+        asyncio.run(self.manager._process_artifact(artifact, self.dest))
+      assert path.read_bytes() == WHOLE_BODY
+      assert not list(Path(self.dest).glob('*.part'))
+    self.run_with_server(body)
+
+  def test_failed_hash_preserves_previous_artifact_and_cleans_temporary_bytes(self):
+    def body():
+      artifact = self.make_artifact()
+      artifact.downloadUri.sha256 = '0' * 64
+      path = Path(self.dest) / artifact.fileName
+      path.write_bytes(b'previous complete artifact')
+      with self.assertRaisesRegex(ValueError, 'Hash validation failed'):
+        asyncio.run(self.manager._process_artifact(artifact, self.dest))
+      assert path.read_bytes() == b'previous complete artifact'
+      assert not list(Path(self.dest).glob('*.part'))
+    self.run_with_server(body)
+
+  def test_network_failure_preserves_previous_artifact(self):
+    def body():
+      artifact = self.make_artifact()
+      path = Path(self.dest) / artifact.fileName
+      path.write_bytes(b'previous complete artifact')
+      DownloadHandler.fail_paths = {'/' + artifact.fileName: 503}
+      with self.assertRaises(requests.exceptions.HTTPError):
+        asyncio.run(self.manager._process_artifact(artifact, self.dest))
+      assert path.read_bytes() == b'previous complete artifact'
+      assert not list(Path(self.dest).glob('*.part'))
+    self.run_with_server(body)
+
+  def test_cancelled_transfer_preserves_previous_artifact_and_cleans_temporary_bytes(self):
+    def body():
+      artifact = self.make_artifact()
+      path = Path(self.dest) / artifact.fileName
+      path.write_bytes(b'previous complete artifact')
+      checks = 0
+
+      def get(key):
+        nonlocal checks
+        if key == 'ModelManager_DownloadRef':
+          checks += 1
+          return 'ref' if checks == 1 else None
+        return None
+
+      self.manager.params.get.side_effect = get
+      with self.assertRaises(manager_module.DownloadCancelled):
+        asyncio.run(self.manager._process_artifact(artifact, self.dest))
+      assert path.read_bytes() == b'previous complete artifact'
+      assert not list(Path(self.dest).glob('*.part'))
+    self.run_with_server(body)
+
+  def test_selected_artifact_is_not_overwritten_by_a_different_hash(self):
+    def body():
+      artifact = self.make_artifact()
+      path = Path(self.dest) / artifact.fileName
+      path.write_bytes(b'previous complete artifact')
+      with mock.patch.object(self.manager, '_protected_model_paths', return_value={path.resolve()}), \
+           self.assertRaisesRegex(ValueError, 'Refusing to overwrite a selected model artifact'):
+        asyncio.run(self.manager._process_artifact(artifact, self.dest))
+      assert path.read_bytes() == b'previous complete artifact'
+      assert not list(Path(self.dest).glob('*.part'))
+    self.run_with_server(body)
+
   def test_own_download_ref_is_released(self):
     self.manager.params.get.return_value = b"ref"
     self.manager._download_ref = b"ref"
@@ -282,12 +361,16 @@ class TestManagerDownload(ManagerDownloadTestBase):
       artifact = self.make_artifact()
       self._bundle.ref = "test-ref"
       self._bundle.minimumSelectorVersion = helpers.REQUIRED_JSON_VERSION
-      params, store = self._make_params_with_store()
-      self.manager.params = params
-      asyncio.run(self.manager._download_bundle(self._bundle, self.dest, "qcom"))
+      self.make_dummy_queue('test-ref')
+      params = self.manager.params
+      params.put_bool('IsOffroad', True, block=True)
+      params.put_bool('IsEngaged', False, block=True)
+      self.manager._download_ref = 'test-ref'
+      with mock.patch.object(selection_module, 'require_offroad'):
+        assert asyncio.run(self.manager._download_bundle(self._bundle, self.dest, "qcom"))
 
-      assert "ModelManager_ActiveBundle" in store, "qcom download must write the qcom slot"
-      assert "ModelManager_ActiveBundleChestnut" not in store, "qcom download must not touch the chestnut slot"
+      assert params.get("ModelManager_ActiveBundle"), "qcom download must write the qcom slot"
+      assert params.get("ModelManager_ActiveBundleChestnut") is None, "qcom download must not touch the chestnut slot"
       assert self.manager.selected_bundle.status == custom.ModelManagerSP.DownloadStatus.downloaded
       assert self.manager.active_bundle is not None and self.manager.active_bundle.ref == "test-ref"
       assert self.manager.active_bundle.status == custom.ModelManagerSP.DownloadStatus.downloaded
@@ -300,14 +383,100 @@ class TestManagerDownload(ManagerDownloadTestBase):
       self.make_artifact()
       self._bundle.ref = "big-ref"
       self._bundle.minimumSelectorVersion = helpers.REQUIRED_JSON_VERSION
-      params, store = self._make_params_with_store()
-      self.manager.params = params
-      asyncio.run(self.manager._download_bundle(self._bundle, self.dest, "chestnut"))
+      self.make_dummy_queue('big-ref')
+      params = self.manager.params
+      params.put_bool('IsOffroad', True, block=True)
+      params.put_bool('IsEngaged', False, block=True)
+      params.put_bool('NavigationModelDrivingEnabled', True, block=True)
+      params.put('NavigationModelCandidate', 'big-nav-v2-map-fp32', block=True)
+      params.put('ModelManager_ActiveBundle', {'preserve': 'ordinary-small'}, block=True)
+      self.manager._download_ref = 'big-ref'
+      with mock.patch.object(selection_module, 'require_offroad'):
+        assert asyncio.run(self.manager._download_bundle(self._bundle, self.dest, "chestnut"))
 
-      assert "ModelManager_ActiveBundleChestnut" in store, "chestnut download must write the chestnut slot"
-      assert "ModelManager_ActiveBundle" not in store, "chestnut download must not touch the qcom slot"
+      assert params.get("ModelManager_ActiveBundleChestnut"), "chestnut download must write the chestnut slot"
+      assert params.get("ModelManager_ActiveBundle") == {'preserve': 'ordinary-small'}
+      assert not params.get_bool('NavigationModelDrivingEnabled')
+      assert params.get('NavigationModelCandidate') is None
       assert self.manager.selected_bundle.status == custom.ModelManagerSP.DownloadStatus.downloaded
     self.run_with_server(body)
+
+  def test_pending_offroad_completion_keeps_download_request_for_retry(self):
+    self.make_dummy_queue('queued-ref')
+    with mock.patch.object(self.manager, 'download', return_value=False) as download:
+      self.manager._process_download_requests()
+    assert self.manager.params.get('ModelManager_DownloadRef') == 'queued-ref'
+    download.assert_called_once()
+
+  def test_completed_download_cannot_switch_models_on_road(self):
+    def body():
+      self.make_artifact()
+      self._bundle.ref = 'big-ref'
+      self._bundle.minimumSelectorVersion = helpers.REQUIRED_JSON_VERSION
+      self.make_dummy_queue('big-ref')
+      params = self.manager.params
+      params.put_bool('IsOffroad', False, block=True)
+      params.put_bool('NavigationModelDrivingEnabled', True, block=True)
+      params.put('NavigationModelCandidate', 'big-nav-v2-map-fp32', block=True)
+      previous = {'preserve': 'previous-big'}
+      params.put('ModelManager_ActiveBundleChestnut', previous, block=True)
+      self.manager._download_ref = 'big-ref'
+      with mock.patch.object(selection_module, 'require_offroad', side_effect=AssertionError('On-road fast guard must refuse')):
+        assert not asyncio.run(self.manager._download_bundle(self._bundle, self.dest, 'chestnut'))
+      assert params.get('ModelManager_ActiveBundleChestnut') == previous
+      assert params.get_bool('NavigationModelDrivingEnabled')
+      assert params.get('NavigationModelCandidate') == 'big-nav-v2-map-fp32'
+      assert params.get('ModelManager_DownloadRef') == 'big-ref'
+    self.run_with_server(body)
+
+  def test_failed_ordinary_download_keeps_existing_navigation_selection(self):
+    def body():
+      artifact = self.make_artifact()
+      artifact.downloadUri.sha256 = '0' * 64
+      self._bundle.ref = 'big-ref'
+      self._bundle.minimumSelectorVersion = helpers.REQUIRED_JSON_VERSION
+      self.make_dummy_queue('big-ref')
+      params = self.manager.params
+      params.put_bool('IsOffroad', True, block=True)
+      params.put_bool('NavigationModelDrivingEnabled', True, block=True)
+      params.put('NavigationModelCandidate', 'big-nav-v2-map-fp32', block=True)
+      previous = {'preserve': 'previous-big'}
+      params.put('ModelManager_ActiveBundleChestnut', previous, block=True)
+      self.manager._download_ref = 'big-ref'
+      with self.assertRaisesRegex(ValueError, 'Hash validation failed'):
+        asyncio.run(self.manager._download_bundle(self._bundle, self.dest, 'chestnut'))
+      assert params.get('ModelManager_ActiveBundleChestnut') == previous
+      assert params.get_bool('NavigationModelDrivingEnabled')
+      assert params.get('NavigationModelCandidate') == 'big-nav-v2-map-fp32'
+    self.run_with_server(body)
+
+  def test_newer_request_survives_stale_download_completion(self):
+    self.make_dummy_queue('old-ref', 'new-ref')
+    seen = []
+
+    def complete(bundle, *_args):
+      seen.append(bundle.ref)
+      if bundle.ref == 'old-ref':
+        self.manager.params.put('ModelManager_DownloadRef', 'new-ref', block=True)
+        return False
+      return True
+
+    with mock.patch.object(self.manager, 'download', side_effect=complete):
+      self.manager._process_download_requests()
+    assert seen == ['old-ref', 'new-ref']
+    assert self.manager.params.get('ModelManager_DownloadRef') is None
+
+  def make_dummy_queue(self, *refs):
+    from openpilot.common.params import Params
+    params = Params()
+    params.put('ModelManager_DownloadRef', refs[0], block=True)
+    self.manager.params = params
+    bundles = []
+    for ref in refs:
+      bundle = custom.ModelManagerSP.ModelBundle.new_message()
+      bundle.ref = ref
+      bundles.append(bundle)
+    self.manager.source_models = {'chestnut': bundles}
 
 
 class TestManagerImports(OpenpilotTestCase):

@@ -1,6 +1,13 @@
 # Nav Bigv2 software compatibility
 
-This is the current workflow for `ZakariaSaad/ZakariaSaad`, branch
+> **Historical / superseded:** This document records the completed original-Bigv2 file validation and fallback-parser work.
+> Its original-model selection/activation commands are no longer supported and
+> must not be used as current instructions. Use [SunnyLink model and EPS controls](sunnylink-model-and-eps-controls.md)
+> and [corrected artifact evidence](navigation-model-corrected-integration.md).
+> The original `big-nav-v2` is retired; useful evidence and technical findings below are retained.
+
+
+This records the completed validation workflow for `ZakariaSaad/ZakariaSaad`, branch
 `mvl-honda-eps-selector21-chestnut-v28`. The standalone navigation hardware
 framework and its service orchestration have been removed. This workflow reuses
 the successfully compiled and registered model. No model download, compilation,

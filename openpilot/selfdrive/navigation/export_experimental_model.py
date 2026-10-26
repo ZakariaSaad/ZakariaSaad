@@ -16,6 +16,7 @@ import tempfile
 from typing import Any
 
 from openpilot.common.git_inspection import GitInspectionError, read_only_git
+from openpilot.selfdrive.navigation.candidate_identity import MODEL_ID, RETIRED_REASON, is_retired
 from openpilot.selfdrive.navigation.experimental_catalog import (
   CONTRACT_SHA256, DEFAULT_CATALOG, SOURCE_ONNX_SHA256, TINYGRAD_REF, ExperimentalCatalogError,
   _dtype, _header, _json_file, _local_file, _model_contract, _require, _shape, _warp_contract,
@@ -112,8 +113,9 @@ def _verification_report(report: dict, artifact_sha256: str, compiler_sha256: st
 
 
 def validate_exported_verification(proof: dict, artifact_sha256: str, contract: dict, header: dict, *, anchor: Path | None = None,
-                                  artifact_path: Path | None = None, model_id: str = 'big-nav-v2') -> None:
+                                  artifact_path: Path | None = None, model_id: str = MODEL_ID) -> None:
   """Recheck exported provenance on every load; no report claim enables actuation."""
+  _require(not is_retired(model_id, artifact_sha256), RETIRED_REASON)
   _require(isinstance(proof, dict) and proof.get('scope') == 'source_reload_consistency_only', 'Unsupported compiler verification scope')
   anchor = anchor if anchor is not None else Path.cwd() / 'local-manifest.json'
   report_path, _ = _local_file(anchor, proof.get('report'), 'Verification report')
@@ -163,7 +165,7 @@ def build_metadata(header: dict, contract: dict, target: dict, proof: dict, *, c
 def export_experimental_model(artifact_path: str | Path, warp_path: str | Path, verification_path: str | Path,
                               source_onnx_path: str | Path | None, compiler_path: str | Path, tinygrad_root: str | Path,
                               output_manifest: str | Path, *, experimental: bool, portable: bool = False,
-                              camera_profile: dict | None = None, model_id: str = 'big-nav-v2',
+                              camera_profile: dict | None = None, model_id: str = MODEL_ID,
                               precision_implementation_path: str | Path | None = None) -> Path:
   """Export new JSON files after validation; never overwrite an existing manifest.
 
@@ -175,10 +177,11 @@ def export_experimental_model(artifact_path: str | Path, warp_path: str | Path, 
   report still binds the pinned source digest and actual compiled artifact.
   """
   try:
+    _require(not is_retired(model_id), RETIRED_REASON)
     catalog = copy.deepcopy(load_experimental_catalog(DEFAULT_CATALOG, experimental=experimental))
     entry = catalog['entries'][0]
     from openpilot.selfdrive.navigation import corrected_bigv2 as corrected
-    _require(model_id in ('big-nav-v2', corrected.MODEL_ID), 'Unknown existing navigation model identity')
+    _require(model_id == corrected.MODEL_ID, 'Unknown existing navigation model identity')
     entry['id'] = model_id
     if model_id == corrected.MODEL_ID:
       entry['selector21_bundle']['display_name'] = corrected.DISPLAY_NAME
@@ -188,6 +191,7 @@ def export_experimental_model(artifact_path: str | Path, warp_path: str | Path, 
              'Pinned public contract changed')
     artifact, warp = Path(artifact_path).resolve(strict=True), Path(warp_path).resolve(strict=True)
     artifact_record, warp_record = _record(artifact), _record(warp)
+    _require(not is_retired(artifact_sha256=artifact_record['sha256']), RETIRED_REASON)
     header = _header(artifact, entry['target'])
     _warp_contract(_header(warp, entry['target']))
     output = Path(output_manifest).resolve()
@@ -252,11 +256,14 @@ def main() -> None:
   parser = argparse.ArgumentParser(description=__doc__)
   for flag in ('artifact', 'warp-artifact', 'verification', 'source-onnx', 'compiler', 'tinygrad-root', 'output-manifest'):
     parser.add_argument('--' + flag, type=Path, required=True)
+  parser.add_argument('--precision-implementation', type=Path, required=True,
+                      help='Exact retained map-precision source associated with the corrected compiler report')
   parser.add_argument('--experimental', action='store_true', help='Explicitly acknowledge this diagnostic-only export')
   args = parser.parse_args()
   try:
     output = export_experimental_model(args.artifact, args.warp_artifact, args.verification, args.source_onnx,
-                                       args.compiler, args.tinygrad_root, args.output_manifest, experimental=args.experimental)
+                                       args.compiler, args.tinygrad_root, args.output_manifest, experimental=args.experimental,
+                                       precision_implementation_path=args.precision_implementation)
   except ExperimentalCatalogError as error:
     parser.exit(2, f'{error}\n')
   print(f'Exported local diagnostic manifest: {output}')

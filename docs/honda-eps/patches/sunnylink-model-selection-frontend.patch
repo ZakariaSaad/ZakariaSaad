@@ -1,0 +1,224 @@
+diff --git a/src/lib/stores/batchPush.svelte.ts b/src/lib/stores/batchPush.svelte.ts
+index 6e96cab..b5f7d98 100644
+--- a/src/lib/stores/batchPush.svelte.ts
++++ b/src/lib/stores/batchPush.svelte.ts
+@@ -24,6 +24,7 @@ export interface BatchEntry {
+ 	encodedValue: string;
+ 	paramType: string;
+ 	timestamp: number;
++	modelSelectionRevision?: string;
+ }
+ 
+ export interface ConflictEntry {
+@@ -151,7 +152,14 @@ class BatchPushStore {
+ 			previousValue: originalValue,
+ 			encodedValue: encoded,
+ 			paramType,
+-			timestamp: Date.now()
++			timestamp: Date.now(),
++			// Capture at explicit interaction time, before debounce/readback can
++			// observe another client changing the model choice.
++			modelSelectionRevision:
++				key === 'NavigationModelDrivingEnabled' &&
++				typeof deviceState.deviceValues[deviceId]?.ModelManager_SelectionRevision === 'string'
++					? (deviceState.deviceValues[deviceId]!.ModelManager_SelectionRevision as string)
++					: undefined
+ 		};
+ 		this.states[deviceId][key] = 'pending';
+ 		this.bump();
+@@ -253,6 +261,17 @@ class BatchPushStore {
+ 			}
+ 
+ 			const params = keys.map((k) => ({ key: k, value: entries[k]!.encodedValue }));
++			const modelRevision = entries.NavigationModelDrivingEnabled?.modelSelectionRevision;
++			if (modelRevision !== undefined) {
++				params.push({
++					key: 'ModelManager_SelectionRevision',
++					value: encodeParamValue({
++						key: 'ModelManager_SelectionRevision',
++						value: modelRevision,
++						type: 'String'
++					})!
++				});
++			}
+ 
+ 			// Fire the v0 POST — don't await the slow backend response.
+ 			// Optimistic confirm happens immediately below; errors roll the UI back
+diff --git a/src/routes/dashboard/models/+page.svelte b/src/routes/dashboard/models/+page.svelte
+index c61dcbc..1b9a849 100644
+--- a/src/routes/dashboard/models/+page.svelte
++++ b/src/routes/dashboard/models/+page.svelte
+@@ -74,6 +74,8 @@
+ 
+ 	const MODELS_CACHE_PREFIX = 'sunnylink_models_';
+ 	const MODELS_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
++	// Only a device response establishes a revision; browser caches cannot.
++	const modelSelectionRevisions = new Map<string, string | null>();
+ 
+ 	interface ModelsCacheEntry {
+ 		qcomModelList?: ModelBundle[];
+@@ -736,6 +738,22 @@
+ 			const token = await client.getIdToken();
+ 			if (!token) return;
+ 
++			// Device-provided model status and controls must refresh with the
++			// catalog, including while an asynchronous selection is pending.
++			const modelPanel = schemaState.schemas[did]?.panels?.find((p) => p.id === 'models');
++			const modelKeys = new Set<string>();
++			function collectModelKeys(items: import('$lib/types/schema').SchemaItem[] = []) {
++				for (const item of items) {
++					modelKeys.add(item.key);
++					collectModelKeys(item.sub_items);
++				}
++			}
++			collectModelKeys(modelPanel?.items);
++			for (const section of modelPanel?.sections ?? []) {
++				collectModelKeys(section.items);
++				for (const sub of section.sub_panels ?? []) collectModelKeys(sub.items);
++			}
++			for (const sub of modelPanel?.sub_panels ?? []) collectModelKeys(sub.items);
+ 			const models = await fetchSettingsAsync(
+ 				did,
+ 				[
+@@ -746,7 +764,9 @@
+ 					'ModelManager_DownloadRef',
+ 					'ModelManager_DownloadIndex',
+ 					'ModelManager_Favs',
+-					...MODEL_SETTINGS
++					'ModelManager_SelectionRevision',
++					...MODEL_SETTINGS,
++					...modelKeys
+ 				],
+ 				token
+ 			);
+@@ -770,6 +790,11 @@
+ 			}
+ 
+ 			if (models.items) {
++				const revisionItem = models.items.find((i) => i.key === 'ModelManager_SelectionRevision');
++				const revision = revisionItem ? decodeParamValue(revisionItem) : null;
++				if (revision !== null && typeof revision !== 'string')
++					throw new Error('Invalid model selection revision from device.');
++				modelSelectionRevisions.set(did, revision);
+ 				const activeJsonParam = models.items.find((i) => i.key === 'ModelManager_ActiveJson');
+ 				const activeBundleParam = models.items.find((i) => i.key === 'ModelManager_ActiveBundle');
+ 				const activeBundleChestnutParam =
+@@ -1045,6 +1070,27 @@
+ 		}
+ 	}
+ 
++	function modelSelectionRevision(deviceId: string) {
++		// Send the version displayed by this client, not a newly fetched version
++		// that would silently authorize replacing somebody else's newer choice.
++		if (!modelSelectionRevisions.has(deviceId))
++			throw new Error('Refresh models from the device before selecting.');
++		const revision = modelSelectionRevisions.get(deviceId);
++		// Older devices do not expose the optional revision protocol.
++		if (revision === null) return [];
++		return [
++			{
++				key: 'ModelManager_SelectionRevision',
++				value: encodeParamValue({
++					key: 'ModelManager_SelectionRevision',
++					value: revision,
++					type: 'String'
++				}),
++				is_compressed: false
++			}
++		];
++	}
++
+ 	async function pushModelToDevice(bundle: ModelBundle, type: 'qcom' | 'chestnut') {
+ 		if (!logtoClient) return;
+ 		if (!deviceState.selectedDeviceId) return;
+@@ -1087,7 +1133,7 @@
+ 
+ 			const activeParamKey =
+ 				type === 'chestnut' ? bigActiveBundleParam : 'ModelManager_ActiveBundle';
+-			const params = [];
++			const params = modelSelectionRevision(deviceState.selectedDeviceId);
+ 			if (bundle.short_name === 'default') {
+ 				params.push({
+ 					key: activeParamKey,
+@@ -1121,7 +1167,7 @@
+ 				});
+ 			}
+ 
+-			await Athenav0Client.POST('/settings/{deviceId}', {
++			const response = await Athenav0Client.POST('/settings/{deviceId}', {
+ 				params: {
+ 					path: {
+ 						deviceId: deviceState.selectedDeviceId
+@@ -1132,6 +1178,16 @@
+ 					Authorization: `Bearer ${await logtoClient.getIdToken()}`
+ 				}
+ 			});
++			if (response.error)
++				throw new Error('Device rejected model selection. Refresh to read its status.');
++			if (modelSelectionRevisions.get(deviceState.selectedDeviceId) !== null) {
++				// A queue acknowledgement is not an active-model acknowledgement.
++				// Retain the last device-reported model until readback confirms it.
++				selectedModelRef = undefined;
++				toast.info('Selection requested. Device model status will report preparation or failure.');
++				setTimeout(() => fetchModelsForDevice(true), 1500);
++				return;
++			}
+ 
+ 			// On success, update the current model and clear selection
+ 			if (bundle.short_name === 'default') {
+@@ -1168,26 +1224,8 @@
+ 	}
+ 
+ 	async function resetToDefaultModel(type: 'qcom' | 'chestnut') {
+-		// Optimistic UI: immediately show default model, close modal
+-		const previousModel =
+-			type === 'chestnut' ? currentBigModelShortName : currentSmallModelShortName;
+-		if (type === 'chestnut') {
+-			currentBigModelShortName = undefined;
+-		} else {
+-			currentSmallModelShortName = undefined;
+-		}
+ 		resetModalOpen = false;
+-
+-		try {
+-			await pushModelToDevice(type === 'chestnut' ? DEFAULT_BIG_MODEL : DEFAULT_SMALL_MODEL, type);
+-		} catch {
+-			// Rollback on failure
+-			if (type === 'chestnut') {
+-				currentBigModelShortName = previousModel;
+-			} else {
+-				currentSmallModelShortName = previousModel;
+-			}
+-		}
++		await pushModelToDevice(type === 'chestnut' ? DEFAULT_BIG_MODEL : DEFAULT_SMALL_MODEL, type);
+ 	}
+ 
+ 	async function clearModelsCache() {
+@@ -1237,14 +1275,16 @@
+ 			const token = await logtoClient.getIdToken();
+ 			if (!token) return;
+ 
+-			// Clear the download ref on the device to cancel download
+-			await Athenav0Client.POST('/settings/{deviceId}', {
++			// A delayed cancellation must not cancel a newer selection.
++			const revision = modelSelectionRevision(did);
++			const response = await Athenav0Client.POST('/settings/{deviceId}', {
+ 				params: {
+ 					path: {
+ 						deviceId: did
+ 					}
+ 				},
+ 				body: [
++					...revision,
+ 					{
+ 						key: 'ModelManager_DownloadRef',
+ 						value: encodeParamValue({
+@@ -1259,6 +1299,8 @@
+ 					Authorization: `Bearer ${token}`
+ 				}
+ 			});
++			if (response.error)
++				throw new Error('Device rejected cancellation. Refresh to read its status.');
+ 
+ 			downloadingRef = undefined;
+ 			downloadRefConfirmed = false;

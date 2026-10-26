@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from openpilot.common.params import Params, ParamKeyFlag
 from openpilot.common.test import OpenpilotTestCase
+from openpilot.selfdrive.navigation.corrected_bigv2 import MODEL_ID, DISPLAY_NAME
 
 
 class TestNavigationModelIdentity(OpenpilotTestCase):
@@ -11,13 +12,13 @@ class TestNavigationModelIdentity(OpenpilotTestCase):
     from openpilot.selfdrive.ui.sunnypilot import model_info
     params = Params()
     params.put_bool('NavigationModelDrivingEnabled', True, block=True)
-    params.put('NavigationModelCandidate', 'big-nav-v2', block=True)
+    params.put('NavigationModelCandidate', MODEL_ID, block=True)
     ordinary = params.get('ModelManager_ActiveBundleChestnut')
     with patch.object(ui_state, 'params', params):
-      params.put('NavigationModelRuntimeState', {'candidate_id': 'big-nav-v2', 'role': 'candidate', 'active_source': 'chestnut'}, block=True)
-      self.assertEqual(model_info.carrying_model(), ('chestnut', 'big-nav-v2', 'Nav Model Integration Bigv2'))
-      self.assertEqual(model_info.model_info()[1], 'Nav Model Integration Bigv2')
-      params.put('NavigationModelRuntimeState', {'candidate_id': 'big-nav-v2', 'role': 'ordinary_small', 'active_source': 'qcom'}, block=True)
+      params.put('NavigationModelRuntimeState', {'candidate_id': MODEL_ID, 'role': 'candidate', 'active_source': 'chestnut'}, block=True)
+      self.assertEqual(model_info.carrying_model(), ('chestnut', MODEL_ID, DISPLAY_NAME))
+      self.assertEqual(model_info.model_info()[1], DISPLAY_NAME)
+      params.put('NavigationModelRuntimeState', {'candidate_id': MODEL_ID, 'role': 'ordinary_small', 'active_source': 'qcom'}, block=True)
       self.assertEqual(model_info.carrying_model()[0], 'qcom')
       self.assertEqual(model_info.model_info()[1], model_info.default_model_name('qcom'))
       self.assertEqual(params.get('ModelManager_ActiveBundleChestnut'), ordinary)

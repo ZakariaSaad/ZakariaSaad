@@ -52,8 +52,8 @@ def _status(params, candidate_id=None) -> None:
 
 
 def _register(params, candidate_id):
-  # Import registration only for this operation: status/disable remain usable
-  # with system Python without importing messaging or model runtime packages.
+  # Import registration only for this operation. Status needs no messaging;
+  # selection changes use fresh off-road admission with installed system Python.
   from openpilot.selfdrive.navigation.preparation import prepare_existing_model
   require_offroad(params)
   return prepare_existing_model(params, is_offroad=True, model_id=candidate_id)
@@ -67,7 +67,7 @@ def main(argv=None, *, params=None) -> int:
   status.add_argument('model', nargs='?', choices=list(candidates), help='defaults to the selected navigation candidate')
   register = commands.add_parser('register', help='verify and register existing local files while off road; driving stays OFF')
   register.add_argument('model', choices=list(candidates))
-  select = commands.add_parser('select', help='select an installed local navigation candidate while off road; driving stays OFF')
+  select = commands.add_parser('select', help='prepare and select the approved corrected model while off road; request driving ON')
   select.add_argument('model', choices=list(candidates))
   enable = commands.add_parser('enable', help='explicitly request an approved, registered model while off road')
   enable.add_argument('model', choices=list(candidates))
@@ -84,12 +84,8 @@ def main(argv=None, *, params=None) -> int:
       print('Artifact SHA256: ' + receipt['artifact_sha256'])
       _status(params, args.model)
     elif args.command == 'select':
-      require_offroad(params)
-      status = candidate_status(params, candidate_id=args.model)
-      if not status.get('registered') or not status.get('installed'):
-        raise NavigationModelDisabled('Register the matching local candidate before selecting it: ' + status['reason'])
       select_candidate(params, args.model, offroad=True)
-      print(f"Selected {candidates[args.model]}. Navigation Model Driving remains OFF.")
+      print(f"Selected {candidates[args.model]}; Navigation Model Driving requested ON. This does not engage vehicle controls.")
     elif args.command == 'enable':
       set_driving_enabled(params, True, offroad=True, candidate_id=args.model)
       print(f'{candidates[args.model]} selected; Navigation Model Driving requested ON. This does not engage vehicle controls.')

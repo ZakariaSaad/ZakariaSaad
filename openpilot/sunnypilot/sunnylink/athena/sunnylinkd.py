@@ -55,6 +55,11 @@ BLOCKED_PARAMS = {
   "HasAcceptedTermsSP",
   "OnroadCycleRequested",      # Prevent remote cycle trigger
   "ParamsVersion",         # Device-managed version counter
+  "IsOffroad", "IsEngaged", "CarParams", "CarParamsPersistent", "CarParamsSP", "CarParamsSPPersistent",
+  "HondaEpsFirmwareVerifiedSha256", "HondaEpsFirmwareDriveConfig", "HondaEpsFirmwareStatus",
+  "NavigationModelCandidate", "NavigationModelManifest", "NavigationModelRuntimeState", "NavigationModelInputsEnabled",
+  "ModelManager_SelectionRequest", "ModelManager_SelectionState", "ModelManager_SelectionStatus",
+  "ModelManager_ActiveBundleUSBGPU", "ModelManager_BundleSlotsMigrated", "ModelRunnerTypeCache",
 }
 
 
@@ -178,12 +183,14 @@ def getParamsMetadata() -> str:
   runtime capabilities.
   """
   try:
+    from openpilot.sunnypilot.sunnylink import insight_eps
     schema = generate_schema()
-    schema["capabilities"] = generate_capabilities()
+    schema["capabilities"] = generate_capabilities(params)
     schema["capability_labels"] = CAPABILITY_LABELS
     schema["default_model"] = DEFAULT_MODEL
     schema["default_big_model"] = DEFAULT_BIG_MODEL
     schema["chestnut_active"] = params.get_bool("ChestnutActive")
+    insight_eps.annotate_schema(schema, params)
     raw = json.dumps(schema, separators=(",", ":")).encode("utf-8")
     return base64.b64encode(gzip.compress(raw)).decode("utf-8")
   except Exception:
@@ -193,6 +200,7 @@ def getParamsMetadata() -> str:
 
 @dispatcher.add_method
 def getParams(params_keys: list[str], compression: bool = False) -> str | dict[str, str]:
+  from openpilot.sunnypilot.sunnylink import insight_eps, model_selection
   params = Params()
   available_keys: list[str] = [k.decode('utf-8') for k in Params().all_keys()]
 
@@ -207,15 +215,23 @@ def getParams(params_keys: list[str], compression: bool = False) -> str | dict[s
       ParamKeyType.BYTES.value: b"",
     }
 
-    param_keys_validated = [key for key in params_keys if key in available_keys]
+    requested = list(params_keys)
+    if any(key.startswith(('ModelManager_', 'NavigationModel')) for key in requested):
+      requested.extend((model_selection.STATUS_KEY, model_selection.REVISION_KEY))
+    if any(key in insight_eps.SETTINGS for key in requested):
+      requested.append(insight_eps.STATUS)
+    param_keys_validated = [key for key in dict.fromkeys(requested) if key in available_keys]
     params_dict: dict[str, list[dict[str, str | bool | int]]] = {"params": []}
     for key in param_keys_validated:
-      value = get_param_as_byte(key)
+      value = get_param_as_byte(key, params=params)
       if value is None:
-        value = get_param_as_byte(key, get_default=True)
+        value = get_param_as_byte(key, params=params, get_default=True)
       if value is None:
         param_type = params.get_type(key)
         value = zero_values.get(param_type.value, b"")
+      if key == insight_eps.STATUS:
+        value = insight_eps.status(params)['description'].encode()
+      value = model_selection.project_get_param(params, key, value)
 
       params_dict["params"].append({
         "key": key,
@@ -235,7 +251,31 @@ def getParams(params_keys: list[str], compression: bool = False) -> str | dict[s
 
 @dispatcher.add_method
 def saveParams(params_to_update: dict[str, str], compression: bool = False) -> None:
-  for key, value in params_to_update.items():
+  from openpilot.sunnypilot.sunnylink import insight_eps, model_selection
+  from openpilot.sunnypilot.sunnylink.utils import _convert_param_to_type
+  from openpilot.selfdrive.navigation.errors import NavigationModelDisabled
+  device_params = Params()
+  # Critical writes use shared guarded interfaces; they are never raw Params
+  # writes. Refusals propagate to SunnyLink rather than reporting false success.
+  pending = {key: value for key, value in params_to_update.items() if key not in BLOCKED_PARAMS}
+  eps_keys = insight_eps.SETTINGS.intersection(pending)
+  model_keys = model_selection.WRITE_KEYS.intersection(pending)
+  if eps_keys and model_keys:
+    raise NavigationModelDisabled('Apply steering and model changes separately')
+  if eps_keys:
+    updates = {key: insight_eps.decode_update(key, pending.pop(key), compression) for key in eps_keys}
+    insight_eps.apply_settings(device_params, updates)
+  if model_keys:
+    updates = {}
+    for key in model_keys:
+      raw = base64.b64decode(pending.pop(key), validate=True)
+      if compression:
+        raw = gzip.decompress(raw)
+      if device_params.get_type(key) == ParamKeyType.BOOL and raw.lower() not in (b'true', b'false', b'1', b'0'):
+        raise NavigationModelDisabled('Navigation driving request must be a boolean')
+      updates[key] = _convert_param_to_type(raw, device_params.get_type(key))
+    model_selection.apply_remote_model_settings(device_params, updates)
+  for key, value in pending.items():
     # disallow modifications to blocked parameters
     if key in BLOCKED_PARAMS:
       cloudlog.warning(f"sunnylinkd.saveParams.blocked: Attempted to modify blocked parameter '{key}'")
