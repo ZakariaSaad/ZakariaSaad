@@ -1202,12 +1202,11 @@ class CarController(CarControllerBase, MadsCarController, GasInterceptorCarContr
               else:
                 wind_learn_speed = 1000
               wind_adjust = 1 + wind_brake_ms2 / wind_learn_speed
-              # windfactor is the one gas-side learner that was not protected near the set speed: at
-          # the governor the gas error is permanently positive (plan +0.7, car 0) and it climbed
-          # toward its 3.0 clip, which also pushes the Nidec brake threshold (brake_last - wind_brake)
-          # out to ~-2 m/s2 of plan before any brake is applied
-          if not set_speed_governed:
-            self.windfactor = np.clip(self.windfactor * (wind_adjust if (gas_error > 0) else 1.0/wind_adjust), 0.1, 3.0)
+              # Only learn from a valid, active Bosch acceleration observation.
+              # The set-speed guard must not escape these guards: gas_error and
+              # wind_adjust are undefined while disengaged, stopped, or overridden.
+              if not set_speed_governed:
+                self.windfactor = np.clip(self.windfactor * (wind_adjust if (gas_error > 0) else 1.0/wind_adjust), 0.1, 3.0)
             if gas_pedal_force <= 0.0: # don't reduce windfactor while braking, allow increases
               self.windfactor = max(self.windfactor, self.windfactor_before_brake)
             else:
