@@ -263,3 +263,18 @@ with the saved backup, then review the requested controller/model modes while
 off-road. Vehicle firmware confirmation is not imported from a different device's
 backup; the existing same-device confirmation is preserved by a normal branch
 switch. Do not select the opendbc dependency branch as device software.
+
+## Public LFS availability
+
+The first Git push's LFS hook requested upload credentials for SunnyPilot's
+Hugging Face store, which this environment does not have. All 295 LFS objects
+referenced by the completed branch were then checked through that store's public
+read-only batch API and HTTP download headers/bounded range requests. Every
+pinned object ID and size is available; no new object needs uploading. The 24 new
+UI assets were additionally downloaded and SHA256-verified as described above.
+Large ordinary model files were not redundantly downloaded or executed.
+
+Publication skips only the redundant local LFS upload hook for this push. The
+repository's LFS endpoint, pointer hashes, normal updater downloads and integrity
+checks remain unchanged. No missing asset, upload failure or hardware result is
+represented as successful verification.
