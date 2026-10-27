@@ -14,7 +14,7 @@ from opendbc.car.honda.interface import CarInterface
 from opendbc.car.structs import car
 from openpilot.common.basedir import BASEDIR
 from openpilot.selfdrive.controls.controlsd import Controls
-from openpilot.selfdrive.controls.lib.latcontrol_pid import LatControlPID
+from openpilot.sunnypilot.selfdrive.controls.lib.latcontrol_torque_v0 import LatControlTorque
 from openpilot.selfdrive.car.helpers import convert_to_capnp
 from openpilot.sunnypilot.selfdrive.car import interfaces
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.latcontrol_fw import LatControlFirmware
@@ -70,7 +70,7 @@ def test_firmware_setup_has_priority_over_torque_and_nn_selection(params, car_fa
   monkeypatch.setattr(interfaces, 'get_nn_model_path', lambda cp: ('', 'MOCK', False))
   monkeypatch.setattr(interfaces.STATSLOGSP, 'raw', Mock())
   interfaces.setup_interfaces(CI, params)
-  assert CP.lateralTuning.which() == 'pid'
+  assert CP.lateralTuning.which() == 'torque'
   assert get_drive_config(params, CP, CP_SP) is not None
 
 
@@ -90,7 +90,7 @@ def test_real_controlsd_constructor_selects_latched_geometry(native_controls, pa
   controls = native_controls(geometry=geometry)
   assert isinstance(controls.LaC, LatControlFirmware)
   assert controls.LaC.geometry_mode == geometry
-  assert controls.CP.lateralTuning.which() == 'pid'
+  assert controls.CP.lateralTuning.which() == 'torque'
   selected = controls.LaC
   params.put_bool('EnforceTorqueControl', True, block=True)
   params.put_bool('HondaEpsFirmwareEnabled', False, block=True)
@@ -100,9 +100,9 @@ def test_real_controlsd_constructor_selects_latched_geometry(native_controls, pa
   assert selected.geometry_mode == geometry
 
 
-def test_real_controlsd_constructor_retains_pid_fallback(native_controls):
+def test_real_controlsd_constructor_retains_sp_steer_torque_fallback(native_controls):
   controls = native_controls(enabled=False)
-  assert isinstance(controls.LaC, LatControlPID)
+  assert isinstance(controls.LaC, LatControlTorque)
 
 
 @pytest.mark.parametrize('response', [None, 'source', 'route32'])
@@ -280,3 +280,11 @@ def test_pid_schema_keeps_existing_ordinals_and_serializes_diagnostics():
     assert pid.epsFfWeight == pytest.approx(0.9)
     assert pid.commandDelay == pytest.approx(0.175)
   assert custom.CarParamsSP.schema.fields['flags'].proto.ordinal.explicit == 0
+
+
+def test_custom_constructor_never_initializes_inactive_ordinary_torque_or_nnlc(native_controls, monkeypatch):
+  def reject_ordinary(*args, **kwargs):
+    raise AssertionError("ordinary controller must not be instantiated in firmware mode")
+  monkeypatch.setattr('openpilot.selfdrive.controls.controlsd.LatControlTorque', reject_ordinary)
+  monkeypatch.setattr('openpilot.sunnypilot.selfdrive.controls.controlsd_ext.LatControlTorqueV0', reject_ordinary)
+  assert isinstance(native_controls().LaC, LatControlFirmware)

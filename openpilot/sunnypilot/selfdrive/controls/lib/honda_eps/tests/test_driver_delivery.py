@@ -8,6 +8,8 @@ import pytest
 from opendbc.can import CANParser
 from opendbc.car import Bus, structs
 from opendbc.car.honda.interface import CarInterface
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.transport import configure_firmware_transport
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import FirmwareDriveConfig
 from opendbc.car.honda.values import DBC
 from opendbc.car.vehicle_model import VehicleModel
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.driver_override import FirmwareDriverDelivery
@@ -97,6 +99,7 @@ def test_actual_mvl_carcontroller_clears_e4_command_and_request_on_override(para
   cp, sp = car_factory(native_sp=False)
   cp.openpilotLongitudinalControl = openpilot_longitudinal
   ci = CarInterface(cp, sp)
+  configure_firmware_transport(ci, FirmwareDriveConfig(response=response))
   cs, _ = ci.update([])
   cs.vEgo = 15.
   ci.CS.steer_control_active = True

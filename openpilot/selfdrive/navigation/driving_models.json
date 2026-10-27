@@ -20,9 +20,11 @@
       "compiler_revision": "b9aba01d3a25f0a6c86707fe3aa52b29dcb918de",
       "map_precision_implementation_sha256": "696d9c3b9949618d051ed6fafcfe69c7cd8bc0e2ae17ae0d94d7eeea8e174c4a",
       "map_precision_correction": "bigv2-map-fc2-fp32-through-gamma-v1",
-      "runtime_compatibility": "physical_compiler_verified",
-      "runtime_scope": "Physical AMD LLVM gfx1200 USB source/reload comparisons and working/overflow map fixtures passed for all six outputs. Live camera inference timing and driving behavior of this corrected artifact remain unmeasured.",
-      "software_review_scope": "Native Bigv2 input/output and recurrent contracts are unchanged. Corrected artifact, compiler, precision lowering, report and registration identities are pinned separately. Activation requires explicit authorization for this corrected artifact."
+      "runtime_compatibility": "reviewed_native_binary_abi_adapter",
+      "runtime_scope": "Physical AMD LLVM gfx1200 USB compilation/source-reload evidence remains pinned to tinygrad 69fd4d34d4430036378aba2b43f9d339cdd6ea73. Execution on sp-steer tinygrad 92b742f711c7d216fd3ed7a46a30a959e3c43bd4 uses the reviewed native-binary loader adapter: all 673 model and 7 warp program binaries, launch dimensions and argument indices are preserved; historical-native CPU roundtrips pass. Physical AMD execution on this newer runtime and driving stability remain unmeasured.",
+      "software_review_scope": "Native Bigv2 input/output and recurrent contracts are unchanged. Corrected artifact, compiler, precision lowering, report and registration identities are pinned separately. Activation requires explicit authorization for this corrected artifact.",
+      "compiler_tinygrad_ref": "69fd4d34d4430036378aba2b43f9d339cdd6ea73",
+      "execution_tinygrad_ref": "92b742f711c7d216fd3ed7a46a30a959e3c43bd4"
     }
   ]
 }

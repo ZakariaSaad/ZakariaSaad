@@ -17,7 +17,7 @@ from openpilot.common.hardware.hw import Paths
 import openpilot.cereal.messaging as messaging
 from opendbc.car.structs import car
 from openpilot.cereal.services import SERVICE_LIST
-from msgq.visionipc import VisionIpcServer, get_endpoint_name as vipc_get_endpoint_name
+from msgq.visionipc import VisionIpcClient, VisionIpcServer, get_endpoint_name as vipc_get_endpoint_name
 from opendbc.car.can_definitions import CanData
 from opendbc.car.car_helpers import get_car, interfaces
 from openpilot.common.params import Params
@@ -29,7 +29,6 @@ from openpilot.system.manager.process_config import managed_processes
 from openpilot.selfdrive.car.card import convert_to_capnp
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import prepare_drive_config
 from openpilot.selfdrive.test.process_replay.vision_meta import meta_from_camera_state, available_streams
-from openpilot.selfdrive.test.process_replay.migration import migrate_all
 from openpilot.selfdrive.test.process_replay.capture import ProcessOutputCapture
 from openpilot.tools.lib.logreader import LogIterable
 from openpilot.tools.lib.framereader import FrameReader
@@ -211,6 +210,7 @@ class ProcessContainer:
         stride, y_height, _, yuv_size = get_nv12_info(frame_size[0], frame_size[1])
         vipc_server.create_buffers_with_sizes(meta.stream, 2, frame_size[0], frame_size[1], yuv_size, stride, stride * y_height)
     vipc_server.start_listener()
+    VisionIpcClient.available_streams("camerad", block=True)
 
     self.vipc_server = vipc_server
     self.cfg.vision_pubs = [meta.camera_state for meta in streams_metas if meta.camera_state in self.cfg.vision_pubs]
@@ -486,7 +486,7 @@ CONFIGS = [
   ),
   ProcessConfig(
     proc_name="plannerd",
-    pubs=["modelV2", "carControl", "carState", "controlsState", "vehicleParameters", "radarState", "selfdriveState"],
+    pubs=["modelV2", "carControl", "carState", "controlsState", "radarState", "selfdriveState", "vehicleParameters"],
     subs=["longitudinalPlan", "driverAssistance"],
     ignore=["logMonoTime", "longitudinalPlan.processingDelay", "longitudinalPlan.solverExecutionTime"],
     init_callback=get_car_params_callback,
@@ -557,7 +557,7 @@ CONFIGS = [
   ProcessConfig(
     proc_name="modeld",
     pubs=["deviceState", "narrowRoadCameraState", "wideRoadCameraState", "extrinsicsCalibration", "lateralDelay",
-          "driverMonitoringState", "carState", "carControl"],
+          "driverMonitoringState", "carState", "carControl", "controlsState"],
     subs=["modelV2", "drivingModelData", "cameraOdometry"],
     ignore=["logMonoTime", "modelV2.frameDropPerc", "modelV2.modelExecutionTime", "drivingModelData.frameDropPerc", "drivingModelData.modelExecutionTime"],
     should_recv_callback=ModeldCameraSyncRcvCallback(),
@@ -642,6 +642,8 @@ def replay_process(
     cfgs = [cfg]
   else:
     cfgs = list(cfg)
+
+  from openpilot.selfdrive.test.process_replay.migration import migrate_all
 
   all_msgs = migrate_all(lr,
                          manager_states=True,

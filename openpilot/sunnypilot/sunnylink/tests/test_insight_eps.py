@@ -37,6 +37,7 @@ def identified(tmp_path, monkeypatch):
   CP = CarInterface.get_params(CAR.HONDA_INSIGHT, fingerprint, fw, False, False, False)
   CP_SP = convert_to_capnp(CarInterface.get_params_sp(CP, CAR.HONDA_INSIGHT, fingerprint, fw, False, False, False))
   CP.carFw = [{'ecu': 'eps', 'address': fw[0].address, 'fwVersion': fw[0].fwVersion, 'brand': 'honda'}]
+  CP.carVin = '19XZE4F50NE000001'
   params.put('CarParamsPersistent', CP.to_bytes(), block=True)
   params.put('CarParamsSPPersistent', CP_SP.to_bytes(), block=True)
   CP.clear_write_flag()
@@ -163,7 +164,11 @@ def test_actual_remote_metadata_contains_toggle_and_live_status(identified):
   schema = json.loads(gzip.decompress(base64.b64decode(sunnylinkd.getParamsMetadata())))
   steering = next(panel for panel in schema['panels'] if panel['id'] == 'steering')
   section = next(item for item in steering['sections'] if item['id'] == 'insight_eps')
-  toggle, info = section['items']
+  items = {item["key"]: item for item in section["items"]}
+  toggle, info = items[insight_eps.ENABLED], items[insight_eps.STATUS]
+  confirm = items[insight_eps.CONFIRM]
+  assert confirm["widget"] == "toggle" and "39990-TXM,A040-PTM-20261016b" in confirm["description"]
+  assert "not an ECU firmware readback" in confirm["description"]
   assert toggle['key'] == insight_eps.ENABLED and toggle['widget'] == 'toggle'
   assert toggle['title'] == 'Insight-specific EPS lateral controller'
   assert info['key'] == insight_eps.STATUS and info['widget'] == 'info' and info['blocked']
@@ -209,4 +214,140 @@ def test_backup_cannot_enable_without_existing_confirmation(identified, offroad)
   with pytest.raises(ValueError, match='installed-firmware confirmation'):
     manager._apply_config({insight_eps.ENABLED: encoded(True), 'HondaEpsFirmwareVerifiedSha256': encoded(FIRMWARE_SHA256)})
   assert not params.get_bool(insight_eps.ENABLED)
+  assert params.get('HondaEpsFirmwareVerifiedSha256') is None
+
+
+def test_explicit_firmware_recovery_records_owner_and_preserves_controller_settings(identified, offroad):
+  params, CP, CP_SP = identified.params, identified.CP, identified.CP_SP
+  params.remove('HondaEpsFirmwareVerifiedSha256')
+  before = {key: params.get(key) for key in insight_eps.SETTINGS | {DRIVE_KEY}}
+  result = insight_eps.confirm_installed_firmware(params, True)
+  assert result['eligible'] and not result['requested']
+  assert before == {key: params.get(key) for key in before}
+  receipt = params.get(insight_eps.ATTESTATION_KEY)
+  assert receipt['kind'] == 'owner_installation_attestation'
+  assert receipt['build'] == '39990-TXM,A040-PTM-20261016b'
+  assert receipt['firmware_sha256'] == FIRMWARE_SHA256
+  assert receipt['vehicle_identity'] == insight_eps.firmware_attestation(CP, CP_SP)['vehicle_identity']
+  assert 'not ECU firmware readback' in result['description']
+  assert not params.get_bool(insight_eps.CONFIRM)
+  params.put_bool(insight_eps.ENABLED, True, block=True)
+  assert prepare_drive_config(params, CP, CP_SP) is not None
+
+
+def test_existing_legacy_confirmation_is_preserved_without_fabricated_receipt(identified, offroad):
+  params = identified.params
+  assert insight_eps.confirm_installed_firmware(params, True)['eligible']
+  assert params.get(insight_eps.ATTESTATION_KEY) is None
+  assert params.get('HondaEpsFirmwareVerifiedSha256') == FIRMWARE_SHA256
+
+
+@pytest.mark.parametrize('value', [False, 1, 'true', None])
+def test_confirmation_requires_explicit_boolean(identified, offroad, value):
+  params = identified.params
+  params.remove('HondaEpsFirmwareVerifiedSha256')
+  with pytest.raises(ValueError, match='explicit owner confirmation'):
+    insight_eps.confirm_installed_firmware(params, value)
+  assert params.get(insight_eps.ATTESTATION_KEY) is None
+  assert params.get('HondaEpsFirmwareVerifiedSha256') is None
+
+
+def test_confirmation_rejects_wrong_vehicle_and_onroad_without_mutation(identified, offroad):
+  params = identified.params
+  params.remove('HondaEpsFirmwareVerifiedSha256')
+  CP = identified.CP
+  CP.carFingerprint = 'HONDA_CIVIC'
+  params.put('CarParamsPersistent', CP.to_bytes(), block=True)
+  with pytest.raises(ValueError, match='identified Honda Insight'):
+    insight_eps.confirm_installed_firmware(params, True)
+  params.put_bool('IsOffroad', False, block=True)
+  with pytest.raises(AssertionError):
+    insight_eps.confirm_installed_firmware(params, True)
+  assert params.get(insight_eps.ATTESTATION_KEY) is None
+  assert params.get('HondaEpsFirmwareVerifiedSha256') is None
+
+
+def test_attestation_cannot_follow_different_identified_vin(identified, offroad):
+  params, CP = identified.params, identified.CP
+  CP.carVin = '19XZE4F50NE000001'
+  params.put('CarParamsPersistent', CP.to_bytes(), block=True)
+  params.remove('HondaEpsFirmwareVerifiedSha256')
+  insight_eps.confirm_installed_firmware(params, True)
+  assert insight_eps.firmware_confirmed(params, CP, identified.CP_SP)
+  CP.carVin = '19XZE4F50NE000002'
+  assert not insight_eps.firmware_confirmed(params, CP, identified.CP_SP)
+  params.put_bool(insight_eps.ENABLED, True, block=True)
+  assert prepare_drive_config(params, CP, identified.CP_SP) is None
+
+
+def test_corrupt_new_attestation_cannot_fall_back_to_legacy_hash(identified):
+  params = identified.params
+  params.put(insight_eps.ATTESTATION_KEY, {'version': True}, block=True)
+  assert not insight_eps.status(params)['eligible']
+  from pathlib import Path
+  Path(params.get_param_path(insight_eps.ATTESTATION_KEY)).write_text('{broken')
+  assert not insight_eps.status(params)['eligible']
+
+
+def test_actual_rpc_owner_action_is_guarded_one_shot_not_a_raw_proof_write(identified, offroad):
+  params = identified.params
+  params.remove('HondaEpsFirmwareVerifiedSha256')
+  sunnylinkd.saveParams({insight_eps.CONFIRM: encoded(True)})
+  assert insight_eps.status(params)['eligible'] and not params.get_bool(insight_eps.ENABLED)
+  receipt = params.get(insight_eps.ATTESTATION_KEY)
+  assert base64.b64decode(sunnylinkd.getParams([insight_eps.CONFIRM])[insight_eps.CONFIRM]) == b'0'
+  sunnylinkd.saveParams({insight_eps.ATTESTATION_KEY: encoded('{}')})
+  assert params.get(insight_eps.ATTESTATION_KEY) == receipt
+  sunnylinkd.saveParams({insight_eps.ENABLED: encoded(True)})
+  assert params.get_bool(insight_eps.ENABLED)
+
+
+def test_rpc_cannot_combine_attestation_with_enable(identified, offroad):
+  params = identified.params
+  params.remove('HondaEpsFirmwareVerifiedSha256')
+  with pytest.raises(ValueError, match='separately'):
+    sunnylinkd.saveParams({insight_eps.CONFIRM: encoded(True), insight_eps.ENABLED: encoded(True)})
+  assert params.get(insight_eps.ATTESTATION_KEY) is None
+  assert params.get('HondaEpsFirmwareVerifiedSha256') is None
+  assert not params.get_bool(insight_eps.ENABLED)
+
+
+def test_backup_never_transfers_or_creates_owner_attestation(identified, offroad):
+  params = identified.params
+  params.remove('HondaEpsFirmwareVerifiedSha256')
+  manager = object.__new__(BackupManagerSP)
+  manager.params = params
+  manager._apply_config({insight_eps.CONFIRM: encoded(True), insight_eps.ATTESTATION_KEY: encoded('{}'),
+                         'HondaEpsFirmwareVerifiedSha256': encoded(FIRMWARE_SHA256)})
+  assert params.get(insight_eps.ATTESTATION_KEY) is None
+  assert params.get('HondaEpsFirmwareVerifiedSha256') is None
+  backupable = {key.decode() for key in params.all_keys(ParamKeyFlag.BACKUP)}
+  assert insight_eps.CONFIRM not in backupable and insight_eps.ATTESTATION_KEY not in backupable
+
+
+def test_confirmation_restores_missing_proof_if_offroad_is_lost_during_write(identified, monkeypatch):
+  params = identified.params
+  params.remove('HondaEpsFirmwareVerifiedSha256')
+  checks = []
+  def guard(_):
+    checks.append(True)
+    if len(checks) == 3:
+      raise ValueError('vehicle started')
+  monkeypatch.setattr(insight_eps, 'require_offroad', guard)
+  with pytest.raises(ValueError, match='vehicle started'):
+    insight_eps.confirm_installed_firmware(params, True)
+  assert params.get(insight_eps.ATTESTATION_KEY) is None
+  assert params.get('HondaEpsFirmwareVerifiedSha256') is None
+  assert not params.get_bool(insight_eps.ENABLED)
+
+
+@pytest.mark.parametrize('vin', ['', '00000000000000000', 'UNKNOWN', 'IIIIIIIIIIIIIIIII'])
+def test_new_owner_attestation_requires_individual_vehicle_identity(identified, offroad, vin):
+  params, CP = identified.params, identified.CP
+  CP.carVin = vin
+  params.put('CarParamsPersistent', CP.to_bytes(), block=True)
+  params.remove('HondaEpsFirmwareVerifiedSha256')
+  with pytest.raises(ValueError, match='identified vehicle VIN'):
+    insight_eps.confirm_installed_firmware(params, True)
+  assert params.get(insight_eps.ATTESTATION_KEY) is None
   assert params.get('HondaEpsFirmwareVerifiedSha256') is None

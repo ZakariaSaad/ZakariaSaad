@@ -1,17 +1,19 @@
 from openpilot.cereal import log
 from openpilot.common.params import Params, UnknownKeyName
-from openpilot.system.ui.widgets import Widget
-from openpilot.system.ui.widgets.list_view import multiple_button_item, toggle_item
-from openpilot.system.ui.widgets.scroller_tici import Scroller
+from openpilot.system.ui.widgets import Widget, DialogResult
 from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog
+from openpilot.system.ui.widgets.list_view import ListItem, multiple_button_item, toggle_item
+from openpilot.system.ui.widgets.scroller_tici import Scroller
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.multilang import tr, tr_noop
-from openpilot.system.ui.widgets import DialogResult
 from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.selfdrive.ui.layouts.settings.initial_cruise_speed import InitialCruiseSpeedControl
 
 if gui_app.sunnypilot_ui():
   from openpilot.system.ui.sunnypilot.widgets.list_view import toggle_item_sp as toggle_item
   from openpilot.system.ui.sunnypilot.widgets.list_view import multiple_button_item_sp as multiple_button_item
+  from openpilot.selfdrive.ui.sunnypilot.layouts.settings.initial_cruise_speed import initial_cruise_speed_item_sp as ListItem
+  from openpilot.selfdrive.ui.sunnypilot.layouts.settings.initial_cruise_speed import InitialCruiseSpeedControlSP as InitialCruiseSpeedControl
 
 PERSONALITY_TO_INT = log.LongitudinalPersonality.schema.enumerants
 
@@ -42,7 +44,7 @@ class TogglesLayout(Widget):
   def __init__(self):
     super().__init__()
     self._params = Params()
-    self._is_release = False  # self._params.get_bool("IsReleaseBranch")
+    self._is_release = False
 
     # param, title, desc, icon, needs_restart
     self._toggle_defs = {
@@ -52,12 +54,7 @@ class TogglesLayout(Widget):
         "chffr_wheel.png",
         True,
       ),
-      "ExperimentalMode": (
-        lambda: tr("Experimental Mode"),
-        "",
-        "experimental_white.png",
-        False,
-      ),
+      "ExperimentalMode": (lambda: tr("Experimental Mode"), "", "experimental_white.png", False),
       "DisengageOnAccelerator": (
         lambda: tr("Disengage on Accelerator Pedal"),
         DESCRIPTIONS["DisengageOnAccelerator"],
@@ -97,7 +94,7 @@ class TogglesLayout(Widget):
     }
 
     self._long_personality_setting = multiple_button_item(
-      lambda: tr("Driving Personality"),
+      lambda: tr("Following Distance"),
       lambda: tr(DESCRIPTIONS["LongitudinalPersonality"]),
       buttons=[lambda: tr("Aggressive"), lambda: tr("Standard"), lambda: tr("Relaxed")],
       button_width=300,
@@ -107,6 +104,14 @@ class TogglesLayout(Widget):
     )
 
     self._toggles = {}
+    self._initial_cruise_speed = ListItem(
+      title=lambda: tr("Initial Max Speed"),
+      description=lambda: tr("Max speed when engaging openpilot. If you are already driving faster, your current speed is used. " +
+                             "Resume restores the previous max speed. Changes apply the next time you engage."),
+      action_item=InitialCruiseSpeedControl(),
+      icon="speed_limit.png",
+    )
+    self._initial_cruise_speed.set_visible(lambda: ui_state.CP is not None and ui_state.has_longitudinal_control and not ui_state.CP.pcmCruise)
     self._locked_toggles = set()
     for param, (title, desc, icon, needs_restart) in self._toggle_defs.items():
       toggle = toggle_item(
@@ -138,6 +143,7 @@ class TogglesLayout(Widget):
       # insert longitudinal personality after NDOG toggle
       if param == "DisengageOnAccelerator":
         self._toggles["LongitudinalPersonality"] = self._long_personality_setting
+        self._toggles["InitialCruiseSpeedKph"] = self._initial_cruise_speed
 
     self._update_experimental_mode_icon()
     self._scroller = Scroller(list(self._toggles.values()), line_separator=True, spacing=0)
@@ -158,6 +164,7 @@ class TogglesLayout(Widget):
 
   def _update_toggles(self):
     ui_state.update_params()
+    self._initial_cruise_speed.action_item.refresh()
 
     e2e_description = tr(
       "sunnypilot defaults to driving in chill mode. Experimental mode enables alpha-level features that aren't ready for chill mode. " +
@@ -242,6 +249,9 @@ class TogglesLayout(Widget):
       return
 
     self._params.put_bool(param, state, block=True)
+    if param == "IsMetric":
+      self._update_toggles()
+
     if self._toggle_defs[param][3]:
       self._params.put_bool("OnroadCycleRequested", True, block=True)
 

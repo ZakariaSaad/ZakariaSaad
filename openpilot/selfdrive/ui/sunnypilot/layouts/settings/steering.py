@@ -11,7 +11,11 @@ from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.sunnypilot.widgets.list_view import toggle_item_sp, simple_button_item_sp, option_item_sp, LineSeparatorSP
 from openpilot.system.ui.widgets.scroller_tici import Scroller
-from openpilot.system.ui.widgets import Widget
+from openpilot.system.ui.widgets import Widget, DialogResult
+from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog, alert_dialog
+from openpilot.system.ui.lib.application import gui_app
+from openpilot.sunnypilot.sunnylink import insight_eps
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import FIRMWARE_BUILD
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.steering_sub_layouts.lane_change_settings import LaneChangeSettingsLayout
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.steering_sub_layouts.mads_settings import MadsSettingsLayout
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.steering_sub_layouts.torque_settings import TorqueSettingsLayout
@@ -97,7 +101,13 @@ class SteeringLayout(Widget):
       description=""
     )
 
+    self._insight_eps_toggle = toggle_item_sp(
+      title="Insight EPS controller", initial_state=ui_state.params.get_bool(insight_eps.ENABLED),
+      callback=self._on_insight_eps, description="Applies on the next drive; OFF uses ordinary sp-steer control.")
+    self._insight_eps_confirm = simple_button_item_sp("Confirm installed " + FIRMWARE_BUILD, callback=self._on_insight_confirm, button_width=1000)
     items = [
+      self._insight_eps_toggle,
+      self._insight_eps_confirm,
       self._mads_toggle,
       self._mads_settings_button,
       LineSeparatorSP(40),
@@ -114,11 +124,35 @@ class SteeringLayout(Widget):
     ]
     return items
 
+  def _on_insight_eps(self, enabled):
+    try:
+      insight_eps.apply_enabled(ui_state.params, enabled)
+    except Exception as error:
+      gui_app.push_widget(alert_dialog(str(error)))
+    self._insight_eps_toggle.action_item.set_state(ui_state.params.get_bool(insight_eps.ENABLED))
+
+  def _on_insight_confirm(self):
+    def confirmed(result):
+      if result == DialogResult.CONFIRM:
+        try:
+          insight_eps.confirm_installed_firmware(ui_state.params, True)
+        except Exception as error:
+          gui_app.push_widget(alert_dialog(str(error)))
+    text = ("I confirm that " + FIRMWARE_BUILD + " is already installed in this identified Insight. " +
+            "The old incorrect image reports the same part number. This is my installation attestation, " +
+            "not an ECU firmware readback. No flashing or controller activation occurs.")
+    gui_app.push_widget(ConfirmDialog(text, "I confirm", callback=confirmed))
+
   def _set_current_panel(self, panel: PanelType):
     self._current_panel = panel
 
   def _update_state(self):
     super()._update_state()
+
+    offroad = ui_state.is_offroad() and not ui_state.engaged
+    self._insight_eps_toggle.action_item.set_enabled(offroad)
+    self._insight_eps_confirm.action_item.set_enabled(offroad)
+    self._insight_eps_toggle.action_item.set_state(ui_state.params.get_bool(insight_eps.ENABLED))
 
     torque_allowed = ui_state.CP is not None and ui_state.CP.steerControlType != car.CarParams.SteerControlType.angle
     if ui_state.CP is not None:
@@ -157,3 +191,4 @@ class SteeringLayout(Widget):
   def show_event(self):
     self._set_current_panel(PanelType.STEERING)
     self._scroller.show_event()
+    self._insight_eps_toggle.set_description(insight_eps.status(ui_state.params)["description"])

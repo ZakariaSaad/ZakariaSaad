@@ -1,4 +1,17 @@
-"""Patch legacy target checkouts when sp-honda-dev downgrades across AGNOS."""
+"""Patch legacy target checkouts when the updater downgrades across AGNOS.
+
+The running updater flashes the target's (older) AGNOS in the background and
+launch_chffrplus.sh verifies and reboots into it before handing over to the
+target tree. If the device nevertheless boots the legacy tree on the newer
+AGNOS (verify failed, flash interrupted, manual swap), these patches let the
+legacy tree start its own updater instead of dying on the boot logo:
+
+- pyserial shim: AGNOS 19.x dropped pyserial but legacy trees and their
+  prebuilt updater zipapp still `import serial`
+- lazy casync import in agnos.py so `--verify` works without casync deps
+- `--swap` loop in launch so an updater UI exit without reboot still swaps
+- comma/agnos.json symlink for updaters that look at the newer path
+"""
 import os
 import shutil
 import subprocess
@@ -16,7 +29,7 @@ LEGACY_LAUNCH_OLD = """    if $AGNOS_PY --verify $MANIFEST; then
     fi
     $DIR/system/hardware/tici/updater $AGNOS_PY $MANIFEST"""
 
-LEGACY_LAUNCH_NEW = f"""    # {MARKER} (injected by sp-honda-dev updater)
+LEGACY_LAUNCH_NEW = f"""    # {MARKER} (injected by the updater of the previous branch)
     if ! python3 -c "import serial" 2> /dev/null; then
       export PYTHONPATH="$DIR/system/hardware/tici/pyserial_compat${{PYTHONPATH:+:$PYTHONPATH}}"
     fi
@@ -62,16 +75,24 @@ def apply_branch_switch_compat(basedir: str) -> None:
   if not AGNOS:
     return
 
-  cur_version = HARDWARE.get_os_version()
-  target_version = get_target_agnos_version(basedir)
-  if not is_agnos_downgrade(cur_version, target_version):
-    return
+  # best effort: a failed patch must not block the update itself
+  try:
+    cur_version = HARDWARE.get_os_version()
+    target_version = get_target_agnos_version(basedir)
+    if not is_agnos_downgrade(cur_version, target_version):
+      return
 
-  if not is_legacy_layout(basedir):
-    cloudlog.warning(f"{MARKER}: AGNOS downgrade to {target_version} but unrecognized layout under {basedir}")
-    return
+    if not is_legacy_layout(basedir):
+      cloudlog.warning(f"{MARKER}: AGNOS downgrade to {target_version} but unrecognized layout under {basedir}")
+      return
 
-  cloudlog.info(f"Applying {MARKER} patches under {basedir} ({cur_version} -> {target_version})")
+    cloudlog.info(f"Applying {MARKER} patches under {basedir} ({cur_version} -> {target_version})")
+    patch_legacy_tree(basedir)
+  except Exception:
+    cloudlog.exception(f"{MARKER}: failed to patch {basedir}")
+
+
+def patch_legacy_tree(basedir: str) -> None:
   _install_legacy_pyserial_shim(basedir)
   _ensure_comma_agnos_symlink(basedir)
   _patch_legacy_agnos_lazy_casync(basedir)

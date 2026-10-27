@@ -14,7 +14,7 @@ from openpilot.system.ui.widgets import Widget
 from openpilot.common.filter_simple import FirstOrderFilter
 
 # TODO: arc_bar_pts doesn't consider rounded end caps part of the angle span
-TORQUE_ANGLE_SPAN = 12.7  # degrees on the default 476 px camera view; narrower navigation views scale down
+TORQUE_ANGLE_SPAN = 12.7  # degrees on the default 476 px camera view; narrower views beside the navigation panel scale down
 
 DEBUG = False
 

@@ -35,15 +35,30 @@ def _record(path: Path) -> dict[str, str]:
   return {'path': str(path), 'sha256': _digest(path)}
 
 
-def _runtime_checkout(root: str | Path) -> None:
+# Compiler evidence is permanently bound to TINYGRAD_REF. This separate execution
+# revision uses the same native kernel-binary ABI with the upstream loader's
+# ProgramInfo/ParamArg adapter. Only the exact reviewed corrected artifact and its
+# camera warps are admitted; no arbitrary newer checkout inherits approval.
+EXECUTION_TINYGRAD_REF = '92b742f711c7d216fd3ed7a46a30a959e3c43bd4'
+_EXECUTION_ARTIFACTS = frozenset({
+  '4f4c215db8ad33f2fa074fb6075e2a48ae5c8d766e3c2f9842acf8094c1a919c',
+  'f1689356ff8e516f87e3d75f6b53e66953a11ee5a97e859b4808c9a16bfe671b',
+  '56cc9690e0e9fb719323d2c6646c1305e8bc6bbdfdc807724a605a0d0a37554b',
+})
+
+
+def _runtime_checkout(root: str | Path, *, artifact_sha256: str | None = None) -> str:
   root = Path(root).resolve(strict=True)
   def git(*args):
     try:
       return read_only_git(root, *args, timeout=10)
     except GitInspectionError as error:
       raise ExperimentalCatalogError(str(error)) from error
-  _require(git('rev-parse', 'HEAD') == TINYGRAD_REF, 'Local tinygrad checkout revision mismatch')
+  revision = git('rev-parse', 'HEAD')
+  compatible = revision == TINYGRAD_REF or (revision == EXECUTION_TINYGRAD_REF and artifact_sha256 in _EXECUTION_ARTIFACTS)
+  _require(compatible, 'Local tinygrad checkout revision mismatch for the exact reviewed native artifact')
   _require(not git('status', '--porcelain', '--untracked-files=all'), 'Local tinygrad checkout must be clean')
+  return revision
 
 
 def _source_file(anchor: Path, record: dict) -> None:
@@ -126,7 +141,7 @@ def validate_exported_verification(proof: dict, artifact_sha256: str, contract: 
   else:
     _source_file(anchor, source)
   runtime = Path(proof.get('tinygrad_root', ''))
-  _runtime_checkout(runtime if runtime.is_absolute() else anchor.parent / runtime)
+  _runtime_checkout(runtime if runtime.is_absolute() else anchor.parent / runtime, artifact_sha256=artifact_sha256)
   report = _json_file(report_path)
   _verification_report(report, artifact_sha256, compiler_sha, contract, header)
   from openpilot.selfdrive.navigation import corrected_bigv2 as corrected

@@ -96,7 +96,7 @@ class TestActivation(unittest.TestCase):
       self.assertTrue(status['artifact_evidence_reviewed'])
       self.assertTrue(status['software_compatible'])
       self.assertFalse(status['registered'])
-      self.assertEqual(status['runtime_compatibility'], 'physical_compiler_verified')
+      self.assertEqual(status['runtime_compatibility'], 'reviewed_native_binary_abi_adapter')
       self.assertIsNone(activation.authorize_runtime(params))
       self.assertFalse(params.get_bool('NavigationModelDrivingEnabled'))
       # Writing an enable flag cannot bypass the remaining admission checks.

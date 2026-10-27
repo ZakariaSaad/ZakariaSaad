@@ -401,7 +401,10 @@ def validate_software_compatibility(receipt_path: str | Path = DEFAULT_RECEIPT, 
             'independent_buffers': True, 'all_prediction_and_state_outputs_verified': True,
             'source_reload_verification_scope': 'Recorded synthetic seeds; not live inference timing',
             'compiler_sha256': proof['compiler']['sha256'], 'compiler_report_sha256': proof['report']['sha256'],
-            'tinygrad_ref': TINYGRAD_REF}
+            'tinygrad_ref': TINYGRAD_REF,
+            'compiler_tinygrad_ref': TINYGRAD_REF,
+            'execution_tinygrad_ref': read_only_git(root / 'tinygrad_repo', 'rev-parse', 'HEAD'),
+            'execution_scope': 'Native-binary compatibility adapter; no claim of a new physical AMD verification'}
   if native_ok:
     check('compiler_provenance_and_source_reload_evidence', compiler_proof)
   else:

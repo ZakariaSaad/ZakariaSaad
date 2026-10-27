@@ -61,17 +61,23 @@ class Controls(ControlsExt):
 
     self.LoC = LongControl(self.CP, self.CP_SP)
     self.VM = VehicleModel(self.CP)
+    # Select the latched custom law before constructing any ordinary torque/NNLC
+    # controller. Inactive ordinary settings and model files cannot block it.
+    firmware_lac = ControlsExt.initialize_firmware_lateral_control(self, self.CI, DT_CTRL)
     self.LaC: LatControl
-    if self.CP.steerControlType == car.CarParams.SteerControlType.angle:
-      self.LaC = LatControlAngle(self.CP, self.CP_SP, self.CI, DT_CTRL)
-    elif self.CP.steerControlType == car.CarParams.SteerControlType.curvature:
-      self.LaC = LatControlCurvature(self.CP, self.CP_SP, self.CI, DT_CTRL)
-    elif self.CP.lateralTuning.which() == 'pid':
-      self.LaC = LatControlPID(self.CP, self.CP_SP, self.CI, DT_CTRL)
-    elif self.CP.lateralTuning.which() == 'torque':
-      self.LaC = LatControlTorque(self.CP, self.CP_SP, self.CI, DT_CTRL)
+    if firmware_lac is not None:
+      self.LaC = firmware_lac
+    else:
+      if self.CP.steerControlType == car.CarParams.SteerControlType.angle:
+        self.LaC = LatControlAngle(self.CP, self.CP_SP, self.CI, DT_CTRL)
+      elif self.CP.steerControlType == car.CarParams.SteerControlType.curvature:
+        self.LaC = LatControlCurvature(self.CP, self.CP_SP, self.CI, DT_CTRL)
+      elif self.CP.lateralTuning.which() == 'pid':
+        self.LaC = LatControlPID(self.CP, self.CP_SP, self.CI, DT_CTRL)
+      elif self.CP.lateralTuning.which() == 'torque':
+        self.LaC = LatControlTorque(self.CP, self.CP_SP, self.CI, DT_CTRL)
 
-    self.LaC = ControlsExt.initialize_lateral_control(self, self.LaC, self.CI, DT_CTRL)
+      self.LaC = ControlsExt.initialize_lateral_control(self, self.LaC, self.CI, DT_CTRL)
 
   def update(self):
     self.sm.update(15)
@@ -99,7 +105,7 @@ class Controls(ControlsExt):
                                             CS.steeringAngleDeg - lp.angleOffsetDeg, "james")
 
     # Update Torque Params
-    if self.CP.lateralTuning.which() == 'torque':
+    if self.CP.lateralTuning.which() == 'torque' and not isinstance(self.LaC, LatControlFirmware):
       torque_params = self.sm['lateralTorqueParameters']
       if self.sm.all_checks(['lateralTorqueParameters']) and torque_params.useParams:
         self.LaC.update_torque_parameters(torque_params.latAccelFactorFiltered, torque_params.latAccelOffsetFiltered,
@@ -257,7 +263,7 @@ class Controls(ControlsExt):
       cs.lateralControlState.angleState = lac_log
     elif self.CP.steerControlType == car.CarParams.SteerControlType.curvature:
       cs.lateralControlState.curvatureState = lac_log
-    elif lat_tuning == 'pid':
+    elif isinstance(self.LaC, LatControlFirmware) or lat_tuning == 'pid':
       cs.lateralControlState.pidState = lac_log
     elif lat_tuning == 'torque':
       cs.lateralControlState.torqueState = lac_log

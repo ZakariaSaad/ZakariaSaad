@@ -10,8 +10,11 @@ from pathlib import Path
 
 from opendbc.car.honda.values import HondaFlags
 from opendbc.sunnypilot.car.honda.values_ext import HondaFlagsSP
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.transport import uses_supported_transport
 
 FIRMWARE_SHA256 = "7ba3743248d30758f8423bcb2a1c65f0d2d2d3563a830b8268bf448659b28a38"
+FIRMWARE_BUILD = "39990-TXM,A040-PTM-20261016b"
+ATTESTATION_KEY = "HondaEpsFirmwareAttestation"
 PROFILE = "insight_txm_a040_20261016b"
 DRIVE_KEY = "HondaEpsFirmwareDriveConfig"
 
@@ -29,15 +32,15 @@ def _eps_versions(CP) -> tuple[bytes, ...]:
 
 
 def is_supported_vehicle(CP, CP_SP) -> bool:
-  """Check the actual native PID/transport configuration, not overlapping flags."""
+  """Check the actual sp-steer torque transport, never deprecated CarParams maps."""
   if CP is None or CP_SP is None:
     return False
   flags = int(CP.flags)
   return (str(CP.brand) == "honda" and str(CP.carFingerprint) == "HONDA_INSIGHT" and
           bool(flags & HondaFlags.BOSCH) and not flags & (HondaFlags.NIDEC | HondaFlags.BOSCH_RADARLESS | HondaFlags.BOSCH_CANFD) and
           bool(int(CP_SP.flags) & HondaFlagsSP.EPS_MODIFIED) and
-          str(CP.steerControlType) == "torque" and CP.lateralTuning.which() == "pid" and
-          tuple(CP.lateralParams.torqueBP) == (0, 4096) and tuple(CP.lateralParams.torqueV) == (0, 4096) and
+          str(CP.steerControlType) == "torque" and CP.lateralTuning.which() == "torque" and
+          uses_supported_transport(CP, CP_SP) and
           bool(_eps_versions(CP)) and all(version == b"39990-TXM,A040" for version in _eps_versions(CP)))
 
 
@@ -49,9 +52,37 @@ def _vehicle_identity(CP, CP_SP) -> str:
     "platform_flags": int(CP.flags), "eps_modified": bool(int(CP_SP.flags) & HondaFlagsSP.EPS_MODIFIED),
     "eps": sorted(version.hex() for version in _eps_versions(CP)),
     "control_type": str(CP.steerControlType), "tuning": CP.lateralTuning.which(),
-    "torque_bp": list(CP.lateralParams.torqueBP), "torque_v": list(CP.lateralParams.torqueV),
+    "transport": "linear_4096" if uses_supported_transport(CP, CP_SP) else "unsupported",
   }
   return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+
+
+def valid_attestation_vin(vin) -> bool:
+  import re
+  return isinstance(vin, str) and re.fullmatch(r"[A-HJ-NPR-Z0-9]{17}", vin) is not None and len(set(vin)) > 1
+
+
+def firmware_attestation(CP, CP_SP) -> dict:
+  """Owner installation statement bound to this identified vehicle; no ECU readback."""
+  return {"version": 1, "kind": "owner_installation_attestation", "build": FIRMWARE_BUILD,
+          "firmware_sha256": FIRMWARE_SHA256, "vehicle_identity": _vehicle_identity(CP, CP_SP),
+          "vin": str(CP.carVin)}
+
+
+def firmware_confirmed(params, CP, CP_SP) -> bool:
+  if params.get("HondaEpsFirmwareVerifiedSha256") != FIRMWARE_SHA256:
+    return False
+  receipt = params.get(ATTESTATION_KEY)
+  if receipt is None:
+    # Preserve the valid pre-migration owner confirmation without inventing a
+    # receipt. Malformed newer JSON is not a legacy confirmation.
+    return not Path(params.get_param_path(ATTESTATION_KEY)).exists()
+  if CP is None or CP_SP is None or not isinstance(receipt, dict):
+    return False
+  expected = firmware_attestation(CP, CP_SP)
+  if set(receipt) != set(expected) or type(receipt.get("version")) is not int:
+    return False
+  return receipt == expected and valid_attestation_vin(receipt["vin"])
 
 
 def _validate_config(config: FirmwareDriveConfig) -> None:
@@ -113,7 +144,7 @@ def prepare_drive_config(params, CP, CP_SP) -> FirmwareDriveConfig | None:
     raise ValueError("Insight drive snapshot was lost after CarParams publication")
   config = None
   if (params.get_bool("HondaEpsFirmwareEnabled") and is_supported_vehicle(CP, CP_SP) and
-      params.get("HondaEpsFirmwareVerifiedSha256") == FIRMWARE_SHA256):
+      firmware_confirmed(params, CP, CP_SP)):
     config = FirmwareDriveConfig(geometry=params.get("HondaEpsFirmwareGeometry", return_default=True),
                                  response=params.get("HondaEpsFirmwareResponse", return_default=True))
     _validate_config(config)

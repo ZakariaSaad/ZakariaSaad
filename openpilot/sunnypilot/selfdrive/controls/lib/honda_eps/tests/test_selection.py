@@ -25,8 +25,9 @@ def test_supported_native_insight_and_separate_modified_flag(car_factory, native
   CP, CP_SP = car_factory(native_sp=native_sp)
   assert CP.flags & HondaFlags.BOSCH
   assert CP_SP.flags & HondaFlagsSP.EPS_MODIFIED
-  assert CP.lateralTuning.which() == 'pid'
-  assert list(CP.lateralParams.torqueV) == [0, 4096]
+  assert CP.lateralTuning.which() == 'torque'
+  from opendbc.car.honda.values import CarControllerParams
+  assert CarControllerParams(CP).STEER_MAX == 4096
   assert is_supported_vehicle(CP, CP_SP)
   CP_SP.flags = int(CP_SP.flags & ~HondaFlagsSP.EPS_MODIFIED)
   CP.flags |= int(HondaFlagsSP.EPS_MODIFIED)
@@ -45,19 +46,19 @@ def test_other_honda_platforms_rejected(car_factory, candidate):
   assert not is_supported_vehicle(*car_factory(candidate=candidate))
 
 
-def test_changed_transport_mapping_rejected(params, car_factory):
+def test_changed_transport_mapping_rejected(params, car_factory, monkeypatch):
   CP, CP_SP = car_factory()
   authorize(params)
-  CP.lateralParams.torqueV = [0, 3840]
+  monkeypatch.setattr("openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection.uses_supported_transport", lambda *a: False)
   assert not is_supported_vehicle(CP, CP_SP)
   assert prepare_drive_config(params, CP, CP_SP) is None
 
 
-@pytest.mark.parametrize('tuning', ['torque', 'angle'])
-def test_non_native_pid_configuration_rejected(car_factory, tuning):
+@pytest.mark.parametrize('tuning', ['pid', 'angle'])
+def test_non_native_torque_configuration_rejected(car_factory, tuning):
   CP, CP_SP = car_factory()
-  if tuning == 'torque':
-    CP.lateralTuning.init('torque')
+  if tuning == 'pid':
+    CP.lateralTuning.init('pid')
   else:
     CP.steerControlType = 'angle'
   assert not is_supported_vehicle(CP, CP_SP)

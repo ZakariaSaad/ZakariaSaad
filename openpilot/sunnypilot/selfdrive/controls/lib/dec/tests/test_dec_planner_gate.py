@@ -110,3 +110,28 @@ class TestDecPlannerGate(OpenpilotTestCase):
   def test_no_e2e_when_dec_holds_acc(self):
     # the regression
     assert self._source(True, True, 'acc') != LongitudinalPlanSource.e2e
+
+
+def test_upstream_accel_boost_is_bounded_and_dropped_on_acc_mode_transition():
+  planner = build_planner(True, 'blended')
+  sm = build_sm(True)
+  model = sm['modelV2'].as_builder()
+  model.action.desiredAcceleration = 0.0
+  sm['modelV2'] = model.as_reader()
+  sm['controlsState'].longControlState = 'pid'
+  for _ in range(50):
+    planner.update(sm)
+  assert planner.accel_boost.boost_eligible
+  state = sm['carState'].as_builder()
+  state.gasPressed = True
+  sm['carState'] = state.as_reader()
+  for _ in range(100):
+    planner.update(sm)
+  assert 0.0 < planner.accel_boost.total_boost <= .05
+  assert planner.mpc.source == LongitudinalPlanSource.e2e
+  assert planner.output_a_target <= .05
+  planner.dec = cast(DynamicExperimentalController, MockDec(True, 'acc'))
+  planner.update(sm)
+  assert planner.accel_boost.total_boost == 0.0
+  assert not planner.accel_boost.boost_eligible
+  assert planner.mpc.source != LongitudinalPlanSource.e2e

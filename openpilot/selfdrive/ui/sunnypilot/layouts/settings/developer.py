@@ -63,7 +63,7 @@ class DeveloperLayoutSP(DeveloperLayout):
                                                       tr("Fade the lane-centering correction out when a turn signal is active so it does not fight " +
                                                          "a lane change or turn."),
                                                       initial_state=bool(ui_state.params.get("LaneCenteringPauseOnSignal", return_default=True)),
-                                                      callback=self._on_slc_pause_on_signal)
+                                                      callback=self._on_splc_pause_on_signal)
 
     self.lane_center_offset_control = option_item_sp(tr("SPLC Center Offset"), "LaneCenterOffset", -30, 30,
                                                      tr("Shift the lane-centering target left or right of the lane center. The controller " +
@@ -83,7 +83,7 @@ class DeveloperLayoutSP(DeveloperLayout):
                         self.lane_center_offset_control, self.lane_centering_e2e_authority_control,]
 
   @staticmethod
-  def _on_slc_pause_on_signal(state):
+  def _on_splc_pause_on_signal(state):
     ui_state.params.put_bool("LaneCenteringPauseOnSignal", state)
 
   @staticmethod
@@ -137,7 +137,7 @@ class DeveloperLayoutSP(DeveloperLayout):
     self.enable_github_runner_toggle.set_visible(show_advanced and not self._is_release_branch)
     self.error_log_btn.set_visible(not self._is_release_branch)
 
-    # SLC sub-settings only apply while lane centering is enabled
+    # SPLC sub-settings only apply while lane centering is enabled
     lane_centering_on = ui_state.params.get_bool("LaneCentering")
     self.lane_centering_pause_toggle.action_item.set_enabled(lane_centering_on)
     self.lane_center_offset_control.action_item.set_enabled(lane_centering_on)

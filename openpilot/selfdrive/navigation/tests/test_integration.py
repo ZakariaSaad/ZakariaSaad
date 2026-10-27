@@ -16,7 +16,7 @@ from openpilot.system.manager.process import ensure_running
 from openpilot.system.manager.process_config import managed_processes
 from openpilot.system.updated.updated import Updater
 
-BRANCH = 'mvl-honda-eps-selector21-chestnut-v28'
+BRANCHES = ('mvl-honda-eps-selector21-chestnut-v28', 'mvl-sp-steer-eps-nav')
 
 
 class TestNavigationIntegration(OpenpilotTestCase):
@@ -100,14 +100,14 @@ class TestNavigationIntegration(OpenpilotTestCase):
 
   def test_installed_branch_tracking_and_commit_detection(self):
     params = Params()
-    for device in ('mici', 'tizi', 'tici'):
-      with self.subTest(device=device), patch('openpilot.system.updated.updated.HARDWARE.get_device_type', return_value=device), \
-           patch.object(Updater, 'get_branch', return_value=BRANCH):
+    for branch, device in ((branch, device) for branch in BRANCHES for device in ('mici', 'tizi', 'tici')):
+      with self.subTest(branch=branch, device=device), patch('openpilot.system.updated.updated.HARDWARE.get_device_type', return_value=device), \
+           patch.object(Updater, 'get_branch', return_value=branch):
         updater = Updater()
-        self.assertEqual(updater.target_branch, BRANCH)
-        params.put('UpdaterTargetBranch', BRANCH, block=True)
-        self.assertEqual(Updater().target_branch, BRANCH)
-        updater.branches[BRANCH] = '1' * 40
+        self.assertEqual(updater.target_branch, branch)
+        params.put('UpdaterTargetBranch', branch, block=True)
+        self.assertEqual(Updater().target_branch, branch)
+        updater.branches[branch] = '1' * 40
         with patch('openpilot.system.updated.updated.os.path.isdir', return_value=True), \
              patch.object(Updater, 'get_commit_hash', return_value='0' * 40):
           self.assertTrue(updater.update_available)

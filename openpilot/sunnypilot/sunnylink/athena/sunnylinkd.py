@@ -56,7 +56,7 @@ BLOCKED_PARAMS = {
   "OnroadCycleRequested",      # Prevent remote cycle trigger
   "ParamsVersion",         # Device-managed version counter
   "IsOffroad", "IsEngaged", "CarParams", "CarParamsPersistent", "CarParamsSP", "CarParamsSPPersistent",
-  "HondaEpsFirmwareVerifiedSha256", "HondaEpsFirmwareDriveConfig", "HondaEpsFirmwareStatus",
+  "HondaEpsFirmwareVerifiedSha256", "HondaEpsFirmwareAttestation", "HondaEpsFirmwareDriveConfig", "HondaEpsFirmwareStatus",
   "NavigationModelCandidate", "NavigationModelManifest", "NavigationModelRuntimeState", "NavigationModelInputsEnabled",
   "ModelManager_SelectionRequest", "ModelManager_SelectionState", "ModelManager_SelectionStatus",
   "ModelManager_ActiveBundleUSBGPU", "ModelManager_BundleSlotsMigrated", "ModelRunnerTypeCache",
@@ -218,7 +218,7 @@ def getParams(params_keys: list[str], compression: bool = False) -> str | dict[s
     requested = list(params_keys)
     if any(key.startswith(('ModelManager_', 'NavigationModel')) for key in requested):
       requested.extend((model_selection.STATUS_KEY, model_selection.REVISION_KEY))
-    if any(key in insight_eps.SETTINGS for key in requested):
+    if any(key in insight_eps.WRITE_KEYS for key in requested):
       requested.append(insight_eps.STATUS)
     param_keys_validated = [key for key in dict.fromkeys(requested) if key in available_keys]
     params_dict: dict[str, list[dict[str, str | bool | int]]] = {"params": []}
@@ -229,6 +229,8 @@ def getParams(params_keys: list[str], compression: bool = False) -> str | dict[s
       if value is None:
         param_type = params.get_type(key)
         value = zero_values.get(param_type.value, b"")
+      if key == insight_eps.CONFIRM:
+        value = b"0"  # one-shot owner action, never restored as a saved setting
       if key == insight_eps.STATUS:
         value = insight_eps.status(params)['description'].encode()
       value = model_selection.project_get_param(params, key, value)
@@ -258,13 +260,18 @@ def saveParams(params_to_update: dict[str, str], compression: bool = False) -> N
   # Critical writes use shared guarded interfaces; they are never raw Params
   # writes. Refusals propagate to SunnyLink rather than reporting false success.
   pending = {key: value for key, value in params_to_update.items() if key not in BLOCKED_PARAMS}
-  eps_keys = insight_eps.SETTINGS.intersection(pending)
+  eps_keys = insight_eps.WRITE_KEYS.intersection(pending)
   model_keys = model_selection.WRITE_KEYS.intersection(pending)
   if eps_keys and model_keys:
     raise NavigationModelDisabled('Apply steering and model changes separately')
   if eps_keys:
     updates = {key: insight_eps.decode_update(key, pending.pop(key), compression) for key in eps_keys}
-    insight_eps.apply_settings(device_params, updates)
+    if insight_eps.CONFIRM in updates:
+      if len(updates) != 1:
+        raise ValueError("Confirm installed firmware separately from changing controller settings")
+      insight_eps.confirm_installed_firmware(device_params, updates[insight_eps.CONFIRM])
+    else:
+      insight_eps.apply_settings(device_params, updates)
   if model_keys:
     updates = {}
     for key in model_keys:

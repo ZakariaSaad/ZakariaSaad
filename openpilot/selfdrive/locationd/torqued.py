@@ -14,6 +14,7 @@ from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.locationd.helpers import PointBuckets, ParameterEstimator, PoseCalibrator, Pose
 from openpilot.sunnypilot.livedelay.helpers import get_lat_delay
 from openpilot.sunnypilot.selfdrive.locationd.torqued_ext import TorqueEstimatorExt
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import drive_config_for_model
 
 HISTORY = 5  # secs
 POINTS_PER_BUCKET = 1500
@@ -54,7 +55,7 @@ class TorqueBuckets(PointBuckets):
 
 
 class TorqueEstimator(ParameterEstimator, TorqueEstimatorExt):
-  def __init__(self, CP, decimated=False, track_all_points=False):
+  def __init__(self, CP, decimated=False, track_all_points=False, firmware_mode=False):
     ParameterEstimator.__init__(self)
     TorqueEstimatorExt.__init__(self, CP)
     self.CP = CP
@@ -105,8 +106,10 @@ class TorqueEstimator(ParameterEstimator, TorqueEstimatorExt):
     # try to restore cached params
     params = Params()
     self.params = params
-    params_cache = params.get("CarParamsPrevRoute")
-    torque_cache = params.get("LiveTorqueParameters")
+    # Firmware output is in a different command domain. Keep ordinary-mode
+    # learned parameters untouched, including malformed-cache cleanup.
+    params_cache = None if firmware_mode else params.get("CarParamsPrevRoute")
+    torque_cache = None if firmware_mode else params.get("LiveTorqueParameters")
     if params_cache is not None and torque_cache is not None:
       try:
         with log.Event.from_bytes(torque_cache) as log_evt:
@@ -261,24 +264,28 @@ def main(demo=False):
   sm = messaging.SubMaster(['carControl', 'carOutput', 'carState', 'extrinsicsCalibration', 'deviceMotion', 'lateralDelay'], poll='deviceMotion')
 
   params = Params()
-  estimator = TorqueEstimator(messaging.log_from_bytes(params.get("CarParams", block=True), car.CarParams))
+  CP = messaging.log_from_bytes(params.get("CarParams", block=True), car.CarParams)
+  firmware_mode = drive_config_for_model(params, CP) is not None
+  estimator = TorqueEstimator(CP, firmware_mode=firmware_mode)
 
   while True:
     sm.update()
-    if sm.all_checks():
+    if not firmware_mode and sm.all_checks():
       for which in sm.updated.keys():
         if sm.updated[which]:
           t = sm.logMonoTime[which] * 1e-9
           estimator.handle_log(t, which, sm[which])
 
     TorqueEstimatorExt.update_use_params(estimator)
+    if firmware_mode:
+      estimator.use_params = False
 
     # 4Hz driven by deviceMotion
     if sm.frame % 5 == 0:
       pm.send('lateralTorqueParameters', estimator.get_msg(valid=sm.all_checks(), with_points=DEBUG))
 
     # Cache points every 60 seconds while onroad
-    if sm.frame % 240 == 0:
+    if not firmware_mode and sm.frame % 240 == 0:
       msg = estimator.get_msg(valid=sm.all_checks(), with_points=True)
       params.put("LiveTorqueParameters", msg.to_bytes())
 

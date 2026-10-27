@@ -1,0 +1,265 @@
+{
+  "source_revision": "18106a1ddf26366236961b28509e6fa677bec6ef",
+  "upstream_revision": "0f5085fc3f713da58d236ed3822b9d27bc0e9917",
+  "integration_branch": "mvl-sp-steer-eps-nav",
+  "kind": "isolated recorded prediction-consumer process replay",
+  "fixture": {
+    "vehicle": "HONDA_INSIGHT",
+    "input": "one existing user-supplied full-rate rlog segment",
+    "window_seconds": 60,
+    "recorded_modelV2_messages": 1178,
+    "private_recording_committed": false
+  },
+  "method": [
+    "Decode with each checkout's openpilot.tools.lib.logreader.LogReader and matching cereal schema.",
+    "Execute official process_replay.replay_process with random OpenpilotPrefix and fake-event synchronization, separately for plannerd and controlsd.",
+    "Include recorded supplemental SunnyPilot state, GPS and vehicleParameters subscriptions; retain official process triggers.",
+    "Rebuild current CarParams/CarParamsSP through the checkout's actual CarInterface using recorded CAN fingerprint and firmware family list, then publish through prepare_drive_config before CarParams on custom branches.",
+    "The recording used fixed fingerprinting: stock replay would discard its recorded firmware list and leave the custom controller ineligible. The offline initialization callback explicitly preserves those recorded fields.",
+    "Custom-mode trials populate the reviewed firmware confirmation only inside the temporary replay Params namespace; this is a fixture assumption, not ECU firmware proof or a physical-device change.",
+    "Start each process from the same empty process/learned state and replay the continuous segment without resetting at individual frames.",
+    "Inspect every floating-point output field for finiteness and compare matched command/plan values across branches."
+  ],
+  "results": [
+    {
+      "process": "plannerd",
+      "label": "source-recorded-fw",
+      "eps_requested": false,
+      "window_s": 60.0,
+      "model_input_count": 1178,
+      "transport": "official process_replay isolated random OpenpilotPrefix; no card/pandad/sendcan",
+      "inference_executed": false,
+      "status": "passed",
+      "output_counts": {
+        "longitudinalPlan": 1178,
+        "driverAssistance": 1178
+      },
+      "invalid_output_fields": [],
+      "numeric_values_checked": 77748,
+      "valid_counts": {
+        "longitudinalPlan": 1170,
+        "driverAssistance": 1170
+      },
+      "acceleration_range": [
+        -1.892485499382019,
+        1.598655343055725
+      ],
+      "elapsed_s": 10.241
+    },
+    {
+      "process": "plannerd",
+      "label": "migrated-recorded-fw",
+      "eps_requested": false,
+      "window_s": 60.0,
+      "model_input_count": 1178,
+      "transport": "official process_replay isolated random OpenpilotPrefix; no card/pandad/sendcan",
+      "inference_executed": false,
+      "status": "passed",
+      "output_counts": {
+        "longitudinalPlan": 1178,
+        "driverAssistance": 1178
+      },
+      "invalid_output_fields": [],
+      "numeric_values_checked": 78926,
+      "valid_counts": {
+        "longitudinalPlan": 1170,
+        "driverAssistance": 1170
+      },
+      "acceleration_range": [
+        -1.892485499382019,
+        1.598655343055725
+      ],
+      "elapsed_s": 5.226
+    },
+    {
+      "process": "controlsd",
+      "label": "source-custom",
+      "eps_requested": true,
+      "window_s": 60.0,
+      "model_input_count": 1178,
+      "transport": "official process_replay isolated random OpenpilotPrefix; no card/pandad/sendcan",
+      "inference_executed": false,
+      "status": "passed",
+      "output_counts": {
+        "carControl": 5971,
+        "controlsState": 5971
+      },
+      "invalid_output_fields": [],
+      "numeric_values_checked": 394086,
+      "valid_counts": {
+        "carControl": 5971,
+        "controlsState": 5971
+      },
+      "lat_active_count": 3686,
+      "long_active_count": 3611,
+      "torque_peak": 0.21207153797149658,
+      "controller_log_types": {
+        "pidState": 5971
+      },
+      "elapsed_s": 13.784
+    },
+    {
+      "process": "controlsd",
+      "label": "migrated-custom",
+      "eps_requested": true,
+      "window_s": 60.0,
+      "model_input_count": 1178,
+      "transport": "official process_replay isolated random OpenpilotPrefix; no card/pandad/sendcan",
+      "inference_executed": false,
+      "status": "passed",
+      "output_counts": {
+        "carControl": 5971,
+        "controlsState": 5971
+      },
+      "invalid_output_fields": [],
+      "numeric_values_checked": 394086,
+      "valid_counts": {
+        "carControl": 5971,
+        "controlsState": 5971
+      },
+      "lat_active_count": 3686,
+      "long_active_count": 3611,
+      "torque_peak": 0.2120715230703354,
+      "controller_log_types": {
+        "pidState": 5971
+      },
+      "elapsed_s": 15.099
+    },
+    {
+      "process": "controlsd",
+      "label": "upstream-recorded-fw",
+      "eps_requested": false,
+      "window_s": 60.0,
+      "model_input_count": 1178,
+      "transport": "official process_replay isolated random OpenpilotPrefix; no card/pandad/sendcan",
+      "inference_executed": false,
+      "status": "passed",
+      "output_counts": {
+        "carControl": 5971,
+        "controlsState": 5971
+      },
+      "invalid_output_fields": [],
+      "numeric_values_checked": 370202,
+      "valid_counts": {
+        "carControl": 5971,
+        "controlsState": 5971
+      },
+      "lat_active_count": 3686,
+      "long_active_count": 3611,
+      "torque_peak": 1.0,
+      "controller_log_types": {
+        "torqueState": 5971
+      },
+      "elapsed_s": 13.718
+    },
+    {
+      "process": "controlsd",
+      "label": "migrated-recorded-fw",
+      "eps_requested": false,
+      "window_s": 60.0,
+      "model_input_count": 1178,
+      "transport": "official process_replay isolated random OpenpilotPrefix; no card/pandad/sendcan",
+      "inference_executed": false,
+      "status": "passed",
+      "output_counts": {
+        "carControl": 5971,
+        "controlsState": 5971
+      },
+      "invalid_output_fields": [],
+      "numeric_values_checked": 370202,
+      "valid_counts": {
+        "carControl": 5971,
+        "controlsState": 5971
+      },
+      "lat_active_count": 3686,
+      "long_active_count": 3611,
+      "torque_peak": 1.0,
+      "controller_log_types": {
+        "torqueState": 5971
+      },
+      "elapsed_s": 13.157
+    }
+  ],
+  "source_custom_and_longitudinal_comparison": {
+    "controlsd": {
+      "source_count": 5971,
+      "migrated_count": 5971,
+      "fields": {
+        "actuators.torque": {
+          "max_abs_delta": 3.725290298461914e-08,
+          "identical": false
+        },
+        "actuators.accel": {
+          "max_abs_delta": 0.0,
+          "identical": true
+        },
+        "actuators.curvature": {
+          "max_abs_delta": 2.3283064365386963e-10,
+          "identical": false
+        },
+        "latActive": {
+          "max_abs_delta": 0.0,
+          "identical": true
+        },
+        "longActive": {
+          "max_abs_delta": 0.0,
+          "identical": true
+        }
+      }
+    },
+    "plannerd": {
+      "source_count": 1178,
+      "migrated_count": 1178,
+      "fields": {
+        "aTarget": {
+          "max_abs_delta": 0.0,
+          "identical": true
+        },
+        "shouldStop": {
+          "max_abs_delta": 0.0,
+          "identical": true
+        },
+        "speeds": {
+          "max_abs_delta": 0.0,
+          "identical": true
+        },
+        "accels": {
+          "max_abs_delta": 0.0,
+          "identical": true
+        },
+        "jerks": {
+          "max_abs_delta": 0.0,
+          "identical": true
+        }
+      }
+    }
+  },
+  "upstream_ordinary_controller_comparison": {
+    "torque": {
+      "max_abs_delta": 0.0,
+      "identical": true
+    },
+    "accel": {
+      "max_abs_delta": 0.0,
+      "identical": true
+    },
+    "curvature": {
+      "max_abs_delta": 0.0,
+      "identical": true
+    },
+    "latActive": {
+      "identical": true
+    },
+    "longActive": {
+      "identical": true
+    }
+  },
+  "limitations": [
+    "Recorded model predictions are consumed; corrected Bigv2 inference, native AMD execution, map pixels and camera warping are not executed in this replay.",
+    "This is not closed-loop vehicle simulation. Only plannerd/controlsd run in isolated replay namespaces; card, pandad and CAN transmission never run.",
+    "The custom controller matches source command values to float32-scale roundoff; the ordinary controller command values match pinned sp-steer exactly for this fixture.",
+    "Longitudinal plan speeds/accelerations/jerks/aTarget/shouldStop match the source exactly for this fixture; that does not establish bit-for-bit equivalence for every possible scenario.",
+    "Eight of1178 planner publications are invalid in both branches due to recorded-input timing/availability; none contains nonfinite numerical output.",
+    "Host replay elapsed times are not comma4 real-time performance measurements or proof of vehicle safety."
+  ]
+}

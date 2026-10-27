@@ -1,6 +1,6 @@
 """SunnyLink settings for the existing drive-latched Insight EPS controller.
 
-This module never verifies firmware, flashes hardware, rewrites calibration or
+This module never reads back firmware, flashes hardware, rewrites calibration or
 changes an active drive snapshot. It only admits owner settings off road.
 """
 import base64
@@ -10,13 +10,16 @@ from openpilot.cereal import custom, messaging
 from opendbc.car.structs import car
 from openpilot.selfdrive.navigation.offroad import require_offroad
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import (
-  DRIVE_KEY, FIRMWARE_SHA256, FirmwareDriveConfig, _validate_config, get_drive_config, is_supported_vehicle,
+  ATTESTATION_KEY, DRIVE_KEY, FIRMWARE_BUILD, FIRMWARE_SHA256, FirmwareDriveConfig, _validate_config,
+  firmware_attestation, firmware_confirmed, get_drive_config, is_supported_vehicle, valid_attestation_vin,
 )
 
 ENABLED = "HondaEpsFirmwareEnabled"
 STATUS = "HondaEpsFirmwareStatus"
+CONFIRM = "HondaEpsFirmwareConfirmInstalled"
 SETTINGS = frozenset((ENABLED, "HondaEpsFirmwareGeometry", "HondaEpsFirmwareResponse"))
-PROTECTED = frozenset(("HondaEpsFirmwareVerifiedSha256", DRIVE_KEY, STATUS))
+WRITE_KEYS = SETTINGS | frozenset((CONFIRM,))
+PROTECTED = frozenset(("HondaEpsFirmwareVerifiedSha256", ATTESTATION_KEY, DRIVE_KEY, STATUS))
 
 
 def _car_params(params):
@@ -40,14 +43,14 @@ def _eligibility(params, updates=None):
     CP, CP_SP = _car_params(params)
     supported = is_supported_vehicle(CP, CP_SP)
     if not supported:
-      blockers.append("Requires the identified Honda Insight Bosch TXM-A040 modified EPS, native PID steering and 4096 command range. " +
-                      "If ordinary torque/NN steering is selected, turn that option off and let the next drive identify the native configuration.")
+      blockers.append("Requires the identified Honda Insight Bosch TXM-A040 modified EPS and compatible sp-steer 4096 torque transport. " +
+                      "Let the next drive identify the supported configuration.")
   except ValueError as error:
     supported = False
     blockers.append(str(error))
-  if params.get("HondaEpsFirmwareVerifiedSha256") != FIRMWARE_SHA256:
+  if not firmware_confirmed(params, CP, CP_SP):
     blockers.append("The existing installed-firmware confirmation is missing or does not match the reviewed TXM-A040 image. " +
-                    "This toggle cannot confirm or flash firmware.")
+                    "Use the explicit owner-confirmation action only if " + FIRMWARE_BUILD + " is already installed. No firmware is flashed.")
   config = FirmwareDriveConfig(
     geometry=updates.get("HondaEpsFirmwareGeometry", params.get("HondaEpsFirmwareGeometry", return_default=True)),
     response=updates.get("HondaEpsFirmwareResponse", params.get("HondaEpsFirmwareResponse", return_default=True)),
@@ -87,6 +90,8 @@ def status(params) -> dict:
                                       ("NeuralNetworkLateralControl", "Neural Network Lateral Control")) if params.get_bool(key)]
   if ordinary:
     description += " Stored ordinary options (" + ", ".join(ordinary) + ") are preserved; Insight EPS takes priority when admitted."
+  if firmware_confirmed(params, CP, CP_SP):
+    description += " Installed build: " + FIRMWARE_BUILD + "; owner installation attestation, not ECU firmware readback."
   description += f" Calibration: geometry={config.geometry}, response={config.response}."
   return {"supported": supported, "eligible": not blockers, "requested": requested, "effective": effective is True,
           "latched": latched, "pending": not offroad and latched is not None and requested != latched,
@@ -104,13 +109,13 @@ def annotate_schema(schema, params):
 
 
 def decode_update(key: str, encoded: str, compression=False):
-  if key not in SETTINGS:
+  if key not in WRITE_KEYS:
     raise ValueError("Unsupported Insight EPS setting")
   raw = base64.b64decode(encoded, validate=True)
   if compression:
     raw = gzip.decompress(raw)
   value = raw.decode("utf-8")
-  if key == ENABLED:
+  if key in (ENABLED, CONFIRM):
     if value.lower() not in ("true", "false", "1", "0"):
       raise ValueError("Insight EPS enable must be true or false")
     return value.lower() in ("true", "1")
@@ -155,3 +160,39 @@ def apply_settings(params, updates: dict) -> dict:
 
 def apply_enabled(params, enabled: bool) -> dict:
   return apply_settings(params, {ENABLED: enabled})
+
+
+def confirm_installed_firmware(params, confirmed: bool) -> dict:
+  """Explicit UI recovery only: never called by migration, boot, or backup restore."""
+  if confirmed is not True:
+    raise ValueError("An explicit owner confirmation of " + FIRMWARE_BUILD + " is required")
+  require_offroad(params)
+  CP, CP_SP = _car_params(params)
+  if not is_supported_vehicle(CP, CP_SP):
+    raise ValueError("Firmware attestation requires the identified Honda Insight TXM-A040 modified EPS and supported transport")
+  # Preserve valid legacy proof first; new statements need a real vehicle
+  # identity so moving this comma to another same-platform Insight cannot reuse it.
+  if firmware_confirmed(params, CP, CP_SP):
+    return status(params)
+  if not valid_attestation_vin(str(CP.carVin)):
+    raise ValueError("A valid identified vehicle VIN is required for a new owner attestation; let SunnyPilot identify this Insight first")
+  receipt = firmware_attestation(CP, CP_SP)
+  old_receipt, old_hash = params.get(ATTESTATION_KEY), params.get("HondaEpsFirmwareVerifiedSha256")
+  require_offroad(params)
+  latest_CP, latest_SP = _car_params(params)
+  if firmware_attestation(latest_CP, latest_SP) != receipt:
+    raise ValueError("Vehicle identification changed during owner confirmation")
+  try:
+    params.put(ATTESTATION_KEY, receipt, block=True)
+    if params.get(ATTESTATION_KEY) != receipt:
+      raise OSError("Could not persist owner firmware attestation")
+    require_offroad(params)
+    params.put("HondaEpsFirmwareVerifiedSha256", FIRMWARE_SHA256, block=True)
+    if not firmware_confirmed(params, CP, CP_SP):
+      raise OSError("Could not persist installed-firmware confirmation")
+  except Exception:
+    # The record cannot leave a newly confirmed hash with mismatched identity.
+    for key, value in (("HondaEpsFirmwareVerifiedSha256", old_hash), (ATTESTATION_KEY, old_receipt)):
+      params.remove(key) if value is None else params.put(key, value, block=True)
+    raise
+  return status(params)

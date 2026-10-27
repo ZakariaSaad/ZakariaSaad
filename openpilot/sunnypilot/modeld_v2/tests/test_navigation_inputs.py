@@ -175,7 +175,11 @@ class TestNavigationModelInputs(OpenpilotTestCase):
     calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)]
     # Check the unconditional main-startup guard, separately from the additional
     # post-warmup check inside the asynchronous big-model loader.
-    guards = [node.lineno for node in main.body if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+    # Startup's try/finally now clears ChestnutLoading on every exit. Its direct
+    # body is unconditional on successful startup; nested loader functions and
+    # conditional branches must not satisfy this publication guard assertion.
+    startup = [*main.body, *(statement for node in main.body if isinstance(node, ast.Try) for statement in node.body)]
+    guards = [node.lineno for node in startup if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
               and isinstance(node.value.func, ast.Name) and node.value.func.id == '_reject_navigation_publication']
     publishers = [node.lineno for node in calls if node.func.id == 'PubMaster']
     self.assertEqual(len(guards), 1)

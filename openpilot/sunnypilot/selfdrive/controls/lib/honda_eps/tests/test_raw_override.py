@@ -19,6 +19,7 @@ from openpilot.selfdrive.car import card as card_module
 from openpilot.selfdrive.car.helpers import convert_to_capnp
 from openpilot.selfdrive.pandad import can_list_to_can_capnp
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.driver_override import apply_firmware_driver_threshold
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.transport import configure_firmware_transport
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.latcontrol_fw import LatControlFirmware
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import FIRMWARE_SHA256, prepare_drive_config
 
@@ -42,6 +43,7 @@ def test_packed_insight_scoped_threshold_cuts_opposing_request(params, car_facto
   config = configure(params, cp, sp, response, enabled)
   assert (config is not None) == enabled
   ci = CarInterface(cp, sp)
+  configure_firmware_transport(ci, config)
   ci.CC.param_writer.put_many = Mock()
   controller = LatControlFirmware(cp, sp, ci, .01, response_profile=response)
   vm = VehicleModel(cp)
@@ -82,11 +84,11 @@ def test_packed_insight_scoped_threshold_cuts_opposing_request(params, car_facto
   assert e4['STEER_TORQUE_REQUEST'] == 1.
   assert controller.core.output * direction < 0.
 
-  # The parser's native threshold stays 1200. Only an admitted firmware drive
-  # publishes the requested James threshold, retaining strict > at 2400.
+  # Ordinary mode retains the upstream learner; the admitted custom mode
+  # uses the fixed James threshold already in CarState, retaining strict >.
   for magnitude in (1199, 1200, 1201, 2000, 2399, 2400, 2401, 3000, 2400, 1200, 0):
     state, e4, native_pressed = tick(direction * magnitude)
-    assert native_pressed == (magnitude > 1200)
+    assert native_pressed == (magnitude > (2400 if enabled else 1200))
     pressed = magnitude > (2400 if enabled else 1200)
     assert state.steeringTorque == direction * magnitude
     assert bool(state.steeringPressed) == pressed

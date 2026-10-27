@@ -25,8 +25,6 @@ class AlphaLongConfirmPage(NavScroller):
       GreyBigButton("", "WARNING: alpha longitudinal control may disable Automatic Emergency Braking (AEB)"),
       GreyBigButton("", "On this car, openpilot defaults to the stock system's built-in ACC."),
       GreyBigButton("", "Enabling this will switch to openpilot longitudinal control."),
-      GreyBigButton("", "Using Experimental mode is recommended with openpilot longitudinal control alpha."),
-      GreyBigButton("", "Changing this setting will restart openpilot if the car is powered on."),
       accept,
     ])
 
@@ -65,41 +63,61 @@ class DeveloperLayoutMici(NavScroller):
 
     txt_ssh = gui_app.texture("icons_mici/settings/developer/ssh.png", 56, 64)
     github_username = ui_state.params.get("GithubUsername") or ""
-    self._ssh_keys_btn = BigButton("SSH keys", "Not set" if not github_username else github_username, icon=txt_ssh)
+    self._ssh_keys_btn = BigButton("SSH keys", "Not set" if not github_username else github_username, icon=txt_ssh,
+                                   description="Grant SSH access to all public keys in your GitHub settings. Only enter your own username.")
     self._ssh_keys_btn.set_click_callback(ssh_keys_callback)
 
     # adb, ssh, ssh keys, debug mode, joystick debug mode, longitudinal maneuver mode, ip address
     # ******** Main Scroller ********
-    self._adb_toggle = BigCircleParamControl(gui_app.texture("icons_mici/adb_short.png", 82, 82), "AdbEnabled", icon_offset=(0, 12))
-    self._ssh_toggle = BigCircleParamControl(gui_app.texture("icons_mici/ssh_short.png", 82, 82), "SshEnabled", icon_offset=(0, 12))
-    self._joystick_toggle = BigToggle("joystick debug mode",
-                                      initial_state=ui_state.params.get_bool("JoystickDebugMode"),
-                                      toggle_callback=self._on_joystick_debug_mode)
-    self._long_maneuver_toggle = BigToggle("longitudinal maneuver mode",
-                                           initial_state=ui_state.params.get_bool("LongitudinalManeuverMode"),
-                                           toggle_callback=self._on_long_maneuver_mode)
-    self._lat_maneuver_toggle = BigToggle("lateral maneuver mode",
-                                          initial_state=ui_state.params.get_bool("LateralManeuverMode"),
-                                          toggle_callback=self._on_lat_maneuver_mode)
-    self._alpha_long_toggle = BigToggle("alpha longitudinal",
-                                        initial_state=ui_state.params.get_bool("AlphaLongitudinalEnabled"),
-                                        toggle_callback=self._on_alpha_long_enabled)
-    self._navigation_toggle = BigParamControl("navigation (alpha)", "NavigationEnabled")
+    self._adb_toggle = BigCircleParamControl(gui_app.texture("icons_mici/adb_short.png", 82, 82), "AdbEnabled", icon_offset=(0, 12),
+                                             description="Use Android Debug Bridge (ADB) over USB or the network.", title="enable ADB")
+    self._ssh_toggle = BigCircleParamControl(gui_app.texture("icons_mici/ssh_short.png", 82, 82), "SshEnabled", icon_offset=(0, 12),
+                                             description="Access the device remotely using your SSH keys.", title="enable SSH")
+    self._joystick_toggle = BigToggle("joystick debug\nmode", initial_state=ui_state.params.get_bool("JoystickDebugMode"),
+                                      toggle_callback=self._on_joystick_debug_mode, description="Control the car with a joystick for debugging.")
+    self._long_maneuver_toggle = BigToggle("longitudinal maneuver mode", initial_state=ui_state.params.get_bool("LongitudinalManeuverMode"),
+                                           toggle_callback=self._on_long_maneuver_mode,
+                                           description="Run longitudinal maneuvers for testing gas and brake control.")
+    self._lat_maneuver_toggle = BigToggle("lateral maneuver mode", initial_state=ui_state.params.get_bool("LateralManeuverMode"),
+                                          toggle_callback=self._on_lat_maneuver_mode,
+                                          description="Run lateral maneuvers for testing steering control.")
+    self._alpha_long_toggle = BigToggle("alpha longitudinal", initial_state=ui_state.params.get_bool("AlphaLongitudinalEnabled"),
+                                        toggle_callback=self._on_alpha_long_enabled,
+                                        description="Use alpha openpilot longitudinal control instead of stock ACC. This may disable Automatic Emergency " +
+                                                    "Braking (AEB).")
+    self._navigation_toggle = BigParamControl("navigation (alpha)", "NavigationEnabled",
+                                              description="Turn-by-turn navigation with a route map. Set a destination from comma connect.")
     self._debug_mode_toggle = BigParamControl("ui debug mode", "ShowDebugInfo",
-                                              toggle_callback=lambda checked: (gui_app.set_show_touches(checked),
-                                                                               gui_app.set_show_fps(checked)))
+                                              toggle_callback=lambda checked: (gui_app.set_show_touches(checked), gui_app.set_show_fps(checked)),
+                                              description="Show touch locations and the UI frame rate.")
     self._lane_centering_toggle = BigParamControl("SPLC (StarPilot Lane Centering)", "LaneCentering",
-                                                  toggle_callback=self._update_lane_centering_settings_enabled)
+                                                  toggle_callback=self._update_lane_centering_settings_enabled,
+                                                  description="Experimentally bias the model command toward the detected lane center. Requires two " +
+                                                              "confident lane lines and remains subject to normal curvature and jerk limits.")
     self._lane_centering_pause_toggle = BigToggle("SPLC pause on signal",
                                                   initial_state=bool(ui_state.params.get("LaneCenteringPauseOnSignal", return_default=True)),
-                                                  toggle_callback=self._on_lane_centering_pause_on_signal)
+                                                  toggle_callback=self._on_lane_centering_pause_on_signal,
+                                                  description="Fade the lane-centering correction out when a turn signal is active so it does not " +
+                                                              "fight a lane change or turn.")
     # explicit font sizes: at the defaults these labels wrap enough to hide the selected-value line
     self._lane_center_offset_toggle = BigMultiToggle("SPLC center offset", list(LANE_CENTER_OFFSET_LABELS),
-                                                     select_callback=self._on_lane_center_offset, font_size=40)
+                                                     select_callback=self._on_lane_center_offset, font_size=40,
+                                                     description="Shift the lane-centering target left or right of the lane center. The controller " +
+                                                                 "automatically reduces the offset when the detected lane is narrow.")
     self._lane_centering_e2e_authority_toggle = BigMultiToggle("SPLC e2e override", list(LANE_CENTERING_E2E_AUTHORITY_LABELS),
-                                                               select_callback=self._on_lane_centering_e2e_authority, font_size=40)
+                                                               select_callback=self._on_lane_centering_e2e_authority, font_size=40,
+                                                               description="How strongly a confident end-to-end model path can override lane " +
+                                                                           "centering when it deliberately departs the lane center. 100% gives the " +
+                                                                           "model full authority; 0% disables break-in.")
+
+    insight_eps_button = BigButton("Insight EPS controller", "settings and installed-build confirmation")
+    def open_insight_eps():
+      from openpilot.selfdrive.ui.sunnypilot.mici.layouts.insight_eps import InsightEpsLayout
+      gui_app.push_widget(InsightEpsLayout())
+    insight_eps_button.set_click_callback(open_insight_eps)
 
     self._scroller.add_widgets([
+      insight_eps_button,
       self._adb_toggle,
       self._ssh_toggle,
       self._ssh_keys_btn,
@@ -222,7 +240,6 @@ class DeveloperLayoutMici(NavScroller):
 
   def _on_lat_maneuver_mode(self, state: bool):
     ui_state.params.put_bool("LateralManeuverMode", state, block=True)
-    ui_state.params.put_bool("ExperimentalMode", False, block=True)
     ui_state.params.put_bool("JoystickDebugMode", False, block=True)
     self._joystick_toggle.set_checked(False)
     ui_state.params.put_bool("LongitudinalManeuverMode", False, block=True)

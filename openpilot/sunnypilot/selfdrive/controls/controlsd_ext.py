@@ -39,7 +39,7 @@ class ControlsExt(ModelStateBase):
     self.sm_services_ext = ['radarState', 'selfdriveStateSP']
     self.pm_services_ext = ['carControlSP']
 
-  def initialize_lateral_control(self, lac, CI, dt):
+  def initialize_firmware_lateral_control(self, CI, dt):
     firmware_config = get_drive_config(self.params, self.CP, self.CP_SP)
     if firmware_config is not None:
       from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.latcontrol_fw import LatControlFirmware
@@ -47,6 +47,9 @@ class ControlsExt(ModelStateBase):
       # engage with model timing for a controller that failed initialization.
       return LatControlFirmware(self.CP, self.CP_SP, CI, dt, geometry_mode=firmware_config.geometry,
                                 response_profile=firmware_config.response)
+    return None
+
+  def initialize_lateral_control(self, lac, CI, dt):
     enforce_torque_control = self.params.get_bool("EnforceTorqueControl")
     torque_versions = self.params.get("TorqueControlTune")
     if not enforce_torque_control:

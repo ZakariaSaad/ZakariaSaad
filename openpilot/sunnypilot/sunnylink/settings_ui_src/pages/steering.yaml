@@ -27,6 +27,17 @@ sections:
       - type: capability
         field: honda_eps_requested
         equals: true
+  - key: HondaEpsFirmwareConfirmInstalled
+    widget: toggle
+    title: I confirm corrected TXM-A040 firmware is already installed
+    description: I attest that this identified Insight already has 39990-TXM,A040-PTM-20261016b installed. This records my installation statement, not an ECU firmware readback. It does not flash firmware or enable the controller. Do not confirm from the part number alone.
+    details: Use only to recover a missing installation confirmation after reinstall. The original incorrect image reports the same part number. The confirmation is vehicle-bound and excluded from settings backups. After confirmation, enable Insight EPS separately. This one-shot control returns to OFF.
+    enablement:
+    - $ref: '#/macros/offroad'
+    - type: not_engaged
+    - type: capability
+      field: honda_eps_supported
+      equals: true
   - key: HondaEpsFirmwareStatus
     widget: info
     title: Insight EPS requested and effective status
@@ -293,7 +304,7 @@ sections:
       spot.
     enablement:
     - type: capability
-      field: enable_bsm
+      field: has_bsm
       equals: true
     - type: param_compare
       key: AutoLaneChangeTimer

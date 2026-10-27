@@ -15,6 +15,7 @@ from openpilot.common.realtime import config_realtime_process
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose, fft_next_good_size, parabolic_peak_interp
 from openpilot.sunnypilot.livedelay.lagd_toggle import LagdToggle
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import drive_config_for_model
 
 BLOCK_SIZE = 100
 BLOCK_NUM = 50
@@ -396,8 +397,9 @@ def main():
   params = Params()
   CP = messaging.log_from_bytes(params.get("CarParams", block=True), car.CarParams)
 
+  firmware_mode = drive_config_for_model(params, CP) is not None
   lag_learner = LateralLagEstimator(CP, 1. / SERVICE_LIST['deviceMotion'].frequency)
-  if (initial_lag_params := retrieve_initial_lag(params, CP)) is not None:
+  if not firmware_mode and (initial_lag_params := retrieve_initial_lag(params, CP)) is not None:
     lag, valid_blocks = initial_lag_params
     lag_learner.reset(lag, valid_blocks)
 
@@ -405,7 +407,7 @@ def main():
 
   while True:
     sm.update()
-    if sm.all_checks():
+    if not firmware_mode and sm.all_checks():
       for which in sorted(sm.updated.keys(), key=lambda x: sm.logMonoTime[x]):
         if sm.updated[which]:
           t = sm.logMonoTime[which] * 1e-9
@@ -419,8 +421,8 @@ def main():
       lag_msg_dat = lag_msg.to_bytes()
       pm.send('lateralDelay', lag_msg_dat)
 
-      if sm.frame % 1200 == 0: # cache every 60 seconds
+      if not firmware_mode and sm.frame % 1200 == 0: # cache every 60 seconds
         params.put("LiveDelay", lag_msg_dat)
 
-      if sm.frame % 60 == 0:  # read from and write to params every 3 seconds
+      if not firmware_mode and sm.frame % 60 == 0:  # read from and write to params every 3 seconds
         lagd_toggle.update(lag_msg)

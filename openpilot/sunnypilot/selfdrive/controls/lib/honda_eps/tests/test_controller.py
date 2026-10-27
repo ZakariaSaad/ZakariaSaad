@@ -16,10 +16,8 @@ def car():
   cp.brand = "honda"
   cp.carFingerprint = "HONDA_INSIGHT"
   cp.flags = int(HondaFlags.BOSCH)
-  cp.lateralTuning.init("pid")
+  cp.lateralTuning.init("torque")
   cp.steerControlType = "torque"
-  cp.lateralParams.torqueBP = [0, 4096]
-  cp.lateralParams.torqueV = [0, 4096]
   cp.carFw = [{"ecu": "eps", "fwVersion": b"39990-TXM,A040"}]
   cp.steerLimitTimer = .2
   sp = custom.CarParamsSP.new_message(flags=int(HondaFlagsSP.EPS_MODIFIED))
@@ -51,8 +49,8 @@ def test_native_initialization_uses_corrected_profile_without_mutating_carparams
   assert control.core.ff.cal.e4_per_output == 3840.
 
 
-@pytest.mark.parametrize("change", ("stock", "wrong_car", "wrong_eps", "wrong_scale", "torque_tuning"))
-def test_unsupported_initialization_rejected(change):
+@pytest.mark.parametrize("change", ("stock", "wrong_car", "wrong_eps", "wrong_scale", "pid_tuning"))
+def test_unsupported_initialization_rejected(change, monkeypatch):
   cp, sp = car()
   if change == "stock":
     sp.flags = 0
@@ -61,9 +59,9 @@ def test_unsupported_initialization_rejected(change):
   elif change == "wrong_eps":
     cp.carFw[0].fwVersion = b"39990-TXM,A030"
   elif change == "wrong_scale":
-    cp.lateralParams.torqueV = [0, 3840]
+    monkeypatch.setattr("openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection.uses_supported_transport", lambda *a: False)
   else:
-    cp.lateralTuning.init("torque")
+    cp.lateralTuning.init("pid")
   with pytest.raises(ValueError):
     LatControlFirmware(cp, sp, None, .01)
 

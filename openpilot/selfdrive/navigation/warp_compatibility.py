@@ -174,7 +174,9 @@ def validate_existing_warp(warp_path: str | Path, *, camera_width: int = 1344, c
     layout = camera_layout(width, height)
     path = Path(warp_path).resolve(strict=True)
     runtime = Path(tinygrad_root) if tinygrad_root is not None else Path(BASEDIR) / 'tinygrad_repo'
-    _require(read_only_git(runtime, 'rev-parse', 'HEAD') == TINYGRAD_REF, 'Warp requires the pinned tinygrad runtime')
+    from openpilot.selfdrive.navigation.export_experimental_model import EXECUTION_TINYGRAD_REF
+    _require(read_only_git(runtime, 'rev-parse', 'HEAD') in (TINYGRAD_REF, EXECUTION_TINYGRAD_REF),
+             'Warp requires the pinned tinygrad runtime or its reviewed native execution adapter')
     _require(not read_only_git(runtime, 'status', '--porcelain', '--untracked-files=all'), 'Warp requires a clean tinygrad runtime')
     source_bindings = {}
     for name, expected in _REVIEWED_SOURCES.items():
