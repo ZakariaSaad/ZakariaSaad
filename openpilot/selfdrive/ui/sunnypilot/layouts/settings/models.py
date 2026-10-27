@@ -385,7 +385,7 @@ class ModelsLayout(Widget):
       return []
     roots = [TreeNode("Default", {'display_name': default_model_name(source)})]
     for candidate in navigation:
-      state = tr("installed local, navigation aware") if candidate.get('installed') else tr("local files checked on selection")
+      state = tr("installed local, navigation aware") if candidate.get('installed') else tr("download and verify on selection")
       state += tr("; enables navigation driving after verification")
       roots.append(TreeNode(NAVIGATION_PREFIX + candidate['id'], {'display_name': f"{candidate['display_name']} ({state})"}))
     folders_list = [TreeFolder("", roots)]

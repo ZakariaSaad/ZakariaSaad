@@ -29,6 +29,7 @@ PACKAGE_ROOT = Path('/data/navigation-models')
 COMPILER = CHECKOUT / 'openpilot/sunnypilot/modeld_v2/compile_modeld_v2.py'
 DEFAULT_WARP = installed_warp_path(1344, 760)
 PRECISION_IMPLEMENTATION = CHECKOUT / 'openpilot/sunnypilot/modeld_v2/nav_map_precision.py'
+RELEASE_NOTICES = CHECKOUT / 'docs/honda-eps/navigation-model-release-notices.md'
 
 
 def _offroad(params, is_offroad):
@@ -98,6 +99,31 @@ def _compiler_source(root, expected):
   raise ExperimentalCatalogError('The retained report requires different compiler source; preserve the artifact and send the report for source review')
 
 
+def _release_sources(directory):
+  """Accept only pinned provenance primitives, never foreign path instructions.
+
+  The downloader separately authenticates the complete archive and bounds its
+  extraction. These checks also protect direct callers and a changed staging
+  file. Uploaded manifest/registration paths are not used for installation.
+  """
+  directory = Path(directory).resolve(strict=True)
+  pins = {'compiler-report.json': corrected.REPORT_SHA256,
+          'compiler-source.py': corrected.COMPILER_SHA256,
+          'map-precision-source.py': corrected.IMPLEMENTATION_SHA256,
+          'manifest.json.metadata.json': corrected.METADATA_SHA256}
+  sources = {}
+  for name in (*pins, 'camera-warp.sptg'):
+    path = directory / name
+    _require(path.is_file() and not path.is_symlink() and path.resolve().parent == directory,
+             'Released provenance must be a regular file: ' + name)
+    if name in pins:
+      _require(_digest(path) == pins[name], 'Released provenance differs from reviewed bytes: ' + name)
+    sources[name] = path
+  # validate_existing_warp below binds the camera warp to its approved digest,
+  # native bounds, camera geometry and saved NumPy reference.
+  return sources
+
+
 def _publish_selection(params, model_id, manifest):
   """Publish both pointers with readback; retain the old pair on failed writes."""
   previous = {key: params.get(key) for key in ('NavigationModelCandidate', 'NavigationModelManifest')}
@@ -129,7 +155,8 @@ def _publish_selection(params, model_id, manifest):
 
 
 def prepare_existing_model(params=None, *, is_offroad: bool, model_dir=MODEL_DIR, package_root=PACKAGE_ROOT,
-                           verification=None, model_id: str = corrected.MODEL_ID, publish_selection: bool = True) -> dict:
+                           verification=None, model_id: str = corrected.MODEL_ID, publish_selection: bool = True,
+                           sidecars_dir=None) -> dict:
   """Verify existing corrected bytes and retain their immutable local package.
 
   Shared model selection uses publish_selection=False: preparation never changes
@@ -156,18 +183,22 @@ def prepare_existing_model(params=None, *, is_offroad: bool, model_dir=MODEL_DIR
     artifact = directory / (basename + '.sptg')
     _require(artifact.is_file(), f'Existing {basename}.sptg is missing; this workflow never downloads or recompiles it')
     _, artifact_sha = _local_file(artifact, {'path': str(artifact), 'sha256': corrected.ARTIFACT_SHA256}, 'Existing Bigv2 artifact')
-    report = _report_file(directory, verification, basename=basename)
+    released = _release_sources(sidecars_dir) if sidecars_dir is not None else None
+    _require(released is None or verification is None, 'Choose released provenance or an explicit compiler report, not both')
+    report = released['compiler-report.json'] if released else _report_file(directory, verification, basename=basename)
     report_data = _json_file(report)
     _require(report_data.get('artifact_sha256') == artifact_sha, 'Compiler report refers to different Bigv2 artifact bytes')
-    compiler = _compiler_source(root, corrected.COMPILER_SHA256)
+    compiler = released['compiler-source.py'] if released else _compiler_source(root, corrected.COMPILER_SHA256)
     compiler_sha = _digest(compiler)
     _require(report_data.get('compiler_sha256') == compiler_sha,
              'The retained report requires different compiler source; preserve the artifact and send the report for source review')
     _require(_digest(report) == corrected.REPORT_SHA256, 'Corrected compiler report differs from the reviewed evidence')
-    precision_sources = [PRECISION_IMPLEMENTATION, *sorted(root.glob(model_id + '-*/map-precision-source.py'))]
+    precision_sources = ([released['map-precision-source.py']] if released else
+                         [PRECISION_IMPLEMENTATION, *sorted(root.glob(model_id + '-*/map-precision-source.py'))])
     precision = next((path for path in precision_sources if path.is_file() and _digest(path) == corrected.IMPLEMENTATION_SHA256), None)
     _require(precision is not None, 'Corrected compiler map precision implementation source changed')
-    profile = validate_existing_warp(DEFAULT_WARP)
+    warp = released['camera-warp.sptg'] if released else DEFAULT_WARP
+    profile = validate_existing_warp(warp)
     profile.pop('path', None)  # The copied warp's byte identity is the durable binding.
     identity = {'schema': 1, 'artifact_sha256': artifact_sha, 'artifact_path': str(artifact),
                 'report_sha256': _digest(report), 'compiler_sha256': compiler_sha,
@@ -176,13 +207,17 @@ def prepare_existing_model(params=None, *, is_offroad: bool, model_dir=MODEL_DIR
     package_id = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     package = root / (model_id + '-' + package_id)
     if not package.exists():
-      needed = DEFAULT_WARP.stat().st_size + compiler.stat().st_size + report.stat().st_size + precision.stat().st_size + (2 << 20)
+      sources = [(compiler, 'compiler-source.py'), (report, 'compiler-report.json'),
+                 (warp, 'camera-warp.sptg'), (precision, 'map-precision-source.py')]
+      if released:
+        _require(RELEASE_NOTICES.is_file(), 'Released model redistribution notices are missing from this checkout')
+        sources.append((RELEASE_NOTICES, 'REDISTRIBUTION-NOTICES.md'))
+      needed = sum(path.stat().st_size for path, _ in sources) + (2 << 20)
       _require(shutil.disk_usage(root).free >= needed,
                f'Existing-model registration needs {needed} free bytes for warp/provenance; model weights are not copied')
       stage = Path(tempfile.mkdtemp(dir=root, prefix='.prepare-existing-'))
       try:
-        for original, name in ((compiler, 'compiler-source.py'), (report, 'compiler-report.json'),
-                               (DEFAULT_WARP, 'camera-warp.sptg'), (precision, 'map-precision-source.py')):
+        for original, name in sources:
           shutil.copyfile(original, stage / name)
         _require(_digest(stage / 'compiler-source.py') == compiler_sha and _digest(stage / 'compiler-report.json') == identity['report_sha256']
                  and _digest(stage / 'camera-warp.sptg') == profile['artifact_sha256'], 'Source files changed during preparation')

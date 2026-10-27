@@ -113,12 +113,12 @@ class TestNavigationModelUI(OpenpilotTestCase):
           rows = gui_app.get_active_widget()._scroller.items
           self.assertEqual(len(rows), 2)
           self.assertEqual(rows[1].text, DISPLAY_NAME)
-          self.assertIn('local files checked on selection', rows[1].value)
+          self.assertIn('download and verify on selection', rows[1].value)
           self.assertTrue(rows[1].enabled)
         else:
           rows = layout._source_folders(set(), 'chestnut')[0].nodes
           self.assertEqual([row.ref for row in rows], ['Default', selection.NAV_REF])
-          self.assertIn('local files checked on selection', rows[1].data['display_name'])
+          self.assertIn('download and verify on selection', rows[1].data['display_name'])
         self.draw(gui_app.get_active_widget())
     self.assert_preserved()
 

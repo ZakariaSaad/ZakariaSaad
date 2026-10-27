@@ -36,16 +36,31 @@ not erase those ordinary preferences or the firmware confirmation.
 
 ## Corrected Bigv2 and ordinary models
 
-In SunnyLink, open **Models → Big Models → Installed local navigation models**,
-choose **Nav Model Integration Bigv2 — FP32 map correction (installed local)**,
-then **Activate**. On the comma, use **Settings → Models → Big Models** and
-choose the corrected FP32 model. Both paths submit the same guarded request.
+In SunnyLink, open **Models → Big Models → Navigation models**, choose
+**Nav Model Integration Bigv2 — FP32 map correction**, then **Activate**. Its
+availability reads **installed local** when present, or **downloadable**. On the
+comma, use **Settings → Models → Big Models** and choose the corrected FP32 model.
+Both paths submit the same guarded request.
 
-Explicit selection reuses `/data/nav-bigv2/bigv2-amd-map-fp32.sptg`, checks the
-approved identity, provenance, compatible warp and ordinary small-model fallback,
-and performs file-only preparation if registration is missing. Once preparation
-succeeds off road, it selects the corrected native navigation loader and requests
-**Navigation Model Driving ON**. Selecting a model never engages controls.
+Selection first checks `/data/nav-bigv2/bigv2-amd-map-fp32.sptg`. If its SHA256
+matches the approved artifact, it is reused without redownloading or duplicating
+the model. Otherwise, the manager downloads the published model and required
+sidecars into temporary files, checks their pinned sizes and SHA256 values, and
+installs complete verified files atomically. Required local preparation and
+registration happen automatically while off road. **Activate** therefore covers
+**Download → Verify → Install → Select**; no SSH, manual receipt editing or
+compilation is needed.
+
+The existing SunnyLink download progress and cancellation controls track the
+request. **Model selection status** explains preparation, failure or cancellation.
+A partial, cancelled or superseded download cannot replace the verified installed
+model or activate a different selection. Wait until the requested switch completes
+before starting a drive.
+
+Before committing selection, the device checks approved identity, compiler
+provenance, compatible warp and the ordinary small-model fallback. It then selects
+the native navigation loader and requests **Navigation Model Driving ON**. Selecting
+a model never engages controls.
 
 To return to Mountain Dew, choose the **Mountain Dew Model v3** default entry in **Models → Big Models**,
 or another ordinary big model, and activate it. The comma labels the default
@@ -92,35 +107,32 @@ retired original Bigv2. The pre-cleanup source rollback point is
 `086fd710f3ea3b5c1088003a1d7e1132f96c2cfe`; reverting source would also restore its
 older selection semantics, so prefer the ordinary-model recovery above.
 
-## Installed-local availability and optional publication
+## Published assets and portable installation
 
-Corrected Bigv2 currently supports **installed-local reuse only**. If the file is
-absent, the entry says **local file required; download unavailable**, and admission
-refuses it. No download URL is fabricated. The required artifact SHA256 is:
+Both assets were downloaded independently from the
+[published release](https://github.com/ZakariaSaad/ZakariaSaad/releases/tag/nav-bigv2-map-fp32-sidecars)
+and verified by hashing their bytes:
 
-`4f4c215db8ad33f2fa074fb6075e2a48ae5c8d766e3c2f9842acf8094c1a919c`
+| Asset | Size | SHA256 |
+| --- | --- | --- |
+| [bigv2-amd-map-fp32.sptg](https://github.com/ZakariaSaad/ZakariaSaad/releases/download/nav-bigv2-map-fp32-sidecars/bigv2-amd-map-fp32.sptg) | 810,439,301 bytes | `4f4c215db8ad33f2fa074fb6075e2a48ae5c8d766e3c2f9842acf8094c1a919c` |
+| [bigv2-sidecars-from-comma.zip](https://github.com/ZakariaSaad/ZakariaSaad/releases/download/nav-bigv2-map-fp32-sidecars/bigv2-sidecars-from-comma.zip) | 3,279,412 bytes | `ebe109ce6352e8d144b60b623c047320b923d6493921f860e48f0efd32a291de` |
 
-The full corrected binary was not available in this development workspace. The
-prepared `nav-bigv2-map-fp32-release-sidecars.zip` contains the reviewed report,
-native warp, source/provenance, metadata and licenses, **not** the model. Archive
-SHA256: `176f714e646e45318a44d493a9fbaf1a0af3dc53f7dabc9dbc853b97cf3771fa`.
+This ZIP is the owner's device-created registration package. It differs from the
+earlier workspace ZIP and has its own checksum. It contains the camera warp,
+compiler report, compiler/lowering source, metadata, manifest and registration
+receipt. The installer verifies the approved component hashes and provenance.
+It does not trust copied absolute paths, the old receipt's registration claims or
+any activation flag from the archive. It generates the local manifest and receipt
+for this installation using the existing reviewed exporter and admission checks.
 
-Optional one-time publication, separate from using the installed model:
-
-1. In WinSCP, connect using SFTP to **10.0.0.134**, user **comma**, with your existing
-   SSH authentication. Copy only
-   `/data/nav-bigv2/bigv2-amd-map-fp32.sptg` to your Windows laptop.
-2. Open [your GitHub Releases page](https://github.com/ZakariaSaad/ZakariaSaad/releases)
-   in a browser. Create/edit the intended release and upload that model file and
-   the provided sidecar ZIP as assets. Do not commit the large binary to source.
-3. Provide the actual asset URLs. Download support remains incomplete until the
-   downloaded model checksum is verified and the downloader/catalog is bound to
-   the verified model and sidecars. Uploading alone does not add download support.
-
-Keep the supplied comma/tinygrad MIT notices and SunnyPilot's distinct custom
-license/acknowledgments with the release. The bundle is not wholly under an
-unqualified MIT license. No credentials, private routes or firmware files belong
-in the release. This publication step requires no JSON editing or compilation.
+The original ZIP lacks license notices. The accompanying
+[complete release notices](navigation-model-release-notices.md) supply comma's
+MIT license, tinygrad's MIT license, and SunnyPilot's separate custom license and
+acknowledgments. The published release description now includes the complete
+notices, and new registration packages retain a copy. The published model and ZIP bytes are unchanged;
+adding notices does not change their approved hashes. The entire package must
+not be represented as covered by one unqualified MIT license.
 
 ## Hosted SunnyLink limitations
 
@@ -138,8 +150,9 @@ The [prepared frontend patch](patches/README.txt) adds observed-revision checkin
 dynamic status polling and non-optimistic queued model acknowledgments. It needs
 deployment by the maintainers of `sunnypilot/sunnylink-frontend`; updating this car
 branch does not deploy it. No hosted deployment or live website/device session
-was performed here. Installed-local selection and the EPS schema do not depend
-on deploying that patch; strict stale-client detection does.
+was performed here. The download/selection flow and EPS schema use the existing
+hosted interface and do not depend on deploying that patch; strict stale-client
+detection does. This download integration does not modify or deploy that patch.
 
 The corrected model remains experimental. Compiler/source-reload evidence does
 not establish real-world numerical stability. Non-finite-output rejection and
@@ -147,7 +160,32 @@ the existing single-active-model small fallback remain in place, including its
 previously observed first-invocation delay. Controller algorithms, MVL tuning,
 Panda safety, firmware, Chestnut runtime and updater are unchanged by this cleanup.
 
-## Focused verification of this cleanup
+## Download integration verification
+
+- Independently downloaded both public assets and verified their exact byte
+  sizes and SHA256 values above. Existing data-only validators accepted the
+  native tensor contracts, protected FP32 kernel/initializer bytes, compiler
+  provenance, pinned tinygrad revision and saved warp NumPy comparison.
+- Isolated installation with the real model and ZIP rebuilt registration and
+  preserved the approved metadata hash after staging files were removed. The
+  existing model's inode and selection parameters were preserved; registered
+  reuse made zero HTTP requests. HTTP transport replayed the downloaded ZIP and
+  off-road messaging was mocked; no GPU ran.
+- **275 focused tests and 36 subtests passed**. One existing optional external
+  network test was skipped; both actual release downloads were checked separately.
+  Coverage includes download size/hash failures, HTTP errors/timeouts,
+  cancellation, atomic publication, registration, fallback admission, model
+  switching, persistent choices and cache protection.
+- Both rendered Models layouts: **9 tests and 32 subtests passed** under Xvfb
+  with networking disabled. Generated schema matches YAML; all **10** schema
+  checks, Ruff and Git whitespace checks pass.
+- Verified the unpatched hosted frontend's Activate, polling and Cancel protocol.
+  No hosted frontend changes, model recompilation or physical-device actions.
+
+## Earlier UI-cleanup verification history
+
+These results describe the earlier UI cleanup in commit `99c175065`; they are not
+the current download integration test results.
 
 - Combined host regressions: **423 passed, 128 subtests passed, 2 skipped**.
   Skips are the existing optional external-network download test and a generic

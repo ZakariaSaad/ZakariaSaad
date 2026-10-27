@@ -48,19 +48,24 @@ def test_device_catalog_projection_preserves_upstream_bytes_and_has_no_fake_runt
   assert projected['bundles'][0] == before['ModelManager_ModelsCache_Chestnut']['bundles'][0]
   nav = projected['bundles'][-1]
   assert nav['ref'] == bridge.NAV_REF and nav['artifact_sha256'] == bridge.ARTIFACT_SHA256
-  assert nav['models'] == [] and 'generation' not in nav and not nav['download_available']
+  assert nav['models'] == [] and 'generation' not in nav and nav['download_available']
+  assert nav['release_assets'] == [
+    {'url': bridge.MODEL_URL, 'sha256': bridge.ARTIFACT_SHA256, 'size': 810439301},
+    {'url': bridge.SIDECAR_URL, 'sha256': 'ebe109ce6352e8d144b60b623c047320b923d6493921f860e48f0efd32a291de', 'size': 3279412},
+  ]
   assert nav['runtime'] == 'native-navigation' and 'installed local' in nav['display_name']
   projected_urls = json.loads(bridge.project_get_param(params, 'ModelManager_ActiveJson', json.dumps(before['ModelManager_ActiveJson']).encode()))
   assert projected_urls == {'qcom': before['ModelManager_ActiveJson']['qcom'], 'chestnut': ''}
   assert params.values == before
 
 
-def test_missing_binary_is_not_advertised_as_downloadable():
+def test_missing_binary_is_advertised_as_downloadable_without_ordinary_model_parts():
   with patch.object(bridge, 'ARTIFACT') as artifact:
     artifact.is_file.return_value = False
     entry = bridge.local_bundle()
-  assert 'local file required' in entry['display_name']
-  assert entry['download_available'] is False and entry['models'] == []
+  assert 'downloadable' in entry['display_name']
+  assert entry['download_available'] is True and entry['models'] == []
+  assert entry['overrides']['folder'] == 'Navigation models'
 
 
 def test_retired_and_duplicate_navigation_entries_removed_only_from_response(params):
@@ -183,7 +188,11 @@ def rpc_device(tmp_path, monkeypatch, params):
   for key, value in params.values.items():
     native.put(key, value, block=True)
   from openpilot.sunnypilot.sunnylink.athena import sunnylinkd
+  from openpilot.selfdrive.navigation import download
   monkeypatch.setattr(sunnylinkd, 'params', native)
+  # These RPC tests exercise queue/admission publication; streamed installer
+  # bytes and registration are covered separately by the download/preparation tests.
+  monkeypatch.setattr(download, 'prepare_downloaded_model', lambda *args, **kwargs: None)
   return SimpleNamespace(params=native, rpc=sunnylinkd, root=tmp_path)
 
 
@@ -218,6 +227,9 @@ def test_actual_rpc_nav_selection_is_pending_until_shared_admission_completes(rp
   before = {key: p.get(key) for key in ('ModelManager_ActiveBundle', 'ModelManager_ActiveBundleChestnut')}
   rpc.saveParams({'ModelManager_DownloadRef': wire(bridge.NAV_REF)})
   assert selection.selection_status(p)['state'] == 'pending'
+  # The existing hosted frontend polls this ref and sends an empty ref to
+  # cancel. It must remain visible until admission commits the new selection.
+  assert rpc_value(rpc.getParams(['ModelManager_DownloadRef']), 'ModelManager_DownloadRef') == bridge.NAV_REF
   assert not p.get_bool('NavigationModelDrivingEnabled')
   with patch.object(selection, 'candidate_status', return_value={'registered': True}), \
        patch.object(selection, 'admit_candidate', return_value=permit) as admit, \
@@ -227,10 +239,24 @@ def test_actual_rpc_nav_selection_is_pending_until_shared_admission_completes(rp
   validate.assert_called_once_with(permit, p, allow_unselected_manifest=True)
   assert p.get_bool('NavigationModelDrivingEnabled')
   assert p.get('NavigationModelManifest') == str(manifest)
+  assert p.get('ModelManager_DownloadRef') is None
   assert before == {key: p.get(key) for key in before}
   response = rpc.getParams(['ModelManager_ActiveBundleChestnut'])
   assert json.loads(rpc_value(response, 'ModelManager_ActiveBundleChestnut'))['ref'] == bridge.NAV_REF
   assert 'requested' in rpc_value(response, bridge.STATUS_KEY).lower()
+
+
+def test_current_hosted_cancel_clears_native_download_request_and_keeps_selected_model(rpc_device, offroad):
+  p, rpc = rpc_device.params, rpc_device.rpc
+  before = {key: p.get(key) for key in selection.SELECTION_KEYS}
+  rpc.saveParams({'ModelManager_DownloadRef': wire(bridge.NAV_REF)})
+  assert p.get('ModelManager_DownloadRef') == bridge.NAV_REF
+  rpc.saveParams({'ModelManager_DownloadRef': wire('')})
+  response = rpc.getParams(['ModelManager_DownloadRef', 'ModelManager_ActiveBundleChestnut'])
+  assert rpc_value(response, 'ModelManager_DownloadRef') == ''
+  assert p.get(selection.REQUEST_KEY) is None
+  assert rpc_value(response, bridge.STATUS_KEY).startswith('Cancelled:')
+  assert before == {key: p.get(key) for key in before}
 
 
 def test_actual_rpc_admission_failure_preserves_previous_selection(rpc_device, offroad):

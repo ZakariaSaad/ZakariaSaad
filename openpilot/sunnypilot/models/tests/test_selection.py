@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from openpilot.common.params import Params, ParamKeyFlag
-from openpilot.selfdrive.navigation import preparation
+from openpilot.selfdrive.navigation import preparation, download
 from openpilot.selfdrive.navigation.errors import NavigationModelDisabled
 from openpilot.sunnypilot.models import selection
 
@@ -45,10 +45,16 @@ def device(tmp_path, monkeypatch):
   monkeypatch.setattr(selection, 'admit_candidate', admit)
   monkeypatch.setattr(selection, 'validate_admission', validate)
   monkeypatch.setattr(preparation, 'prepare_existing_model', prepare)
+  def install(params, *, current, progress, registration):
+    assert current()
+    if not registration.get('registered'):
+      prepare(params, is_offroad=True, model_id=selection.MODEL_ID, publish_selection=False)
+  installer = Mock(side_effect=install)
+  monkeypatch.setattr(download, 'prepare_downloaded_model', installer)
   monkeypatch.setattr(selection, '_default_ready', defaults)
   monkeypatch.setattr(selection, '_ordinary_bundle', lambda _params, _source, ref: {'ref': ref, 'runner': 'tinygrad'})
   return SimpleNamespace(params=params, root=tmp_path, permit=permit, guard=guard, inspect=inspect,
-                         admit=admit, validate=validate, prepare=prepare, defaults=defaults)
+                         admit=admit, validate=validate, prepare=prepare, defaults=defaults, installer=installer)
 
 
 def request(device, ref=selection.NAV_REF, source='chestnut', **kwargs):
@@ -94,6 +100,44 @@ def test_explicit_corrected_selection_prepares_before_publishing_and_requests_on
 def test_existing_corrected_registration_is_reused_without_repreparation(device):
   enable_existing(device)
   device.prepare.assert_not_called()
+
+
+def test_navigation_ref_stays_visible_to_existing_frontend_until_install_and_commit(device):
+  request(device)
+  assert device.params.get('ModelManager_DownloadRef') == selection.NAV_REF
+  def installing(params, *, current, progress, registration):
+    assert current() and params.get('ModelManager_DownloadRef') == selection.NAV_REF
+    progress('downloading', 'Downloading corrected Bigv2: 40%')
+    assert selection.selection_status(params)['message'].endswith('40%')
+  device.installer.side_effect = installing
+  selection.process_pending_selection(device.params)
+  assert device.params.get('ModelManager_DownloadRef') is None
+  assert device.params.get_bool('NavigationModelDrivingEnabled')
+
+
+def test_explicit_off_cancels_download_ref_and_prevents_late_activation(device):
+  request(device)
+  def installing(params, **kwargs):
+    selection.request_navigation_disabled(params)
+    assert not kwargs['current']()
+    kwargs['progress']('downloading', 'Stale progress must not replace OFF')
+  device.installer.side_effect = installing
+  selection.process_pending_selection(device.params)
+  assert device.params.get('ModelManager_DownloadRef') is None
+  assert not device.params.get_bool('NavigationModelDrivingEnabled')
+  assert 'OFF' in selection.selection_status(device.params)['message']
+
+
+def test_automatic_retired_migration_uses_local_preparation_only(device):
+  device.params.put('NavigationModelCandidate', selection.RETIRED_MODEL_ID, block=True)
+  device.params.put_bool('NavigationModelDrivingEnabled', True, block=True)
+  device.inspect.return_value = {'registered': False}
+  device.prepare.side_effect = NavigationModelDisabled('Corrected local model is missing')
+  selection.process_pending_selection(device.params)
+  device.installer.assert_not_called()
+  assert not device.params.get_bool('NavigationModelDrivingEnabled')
+  assert device.params.get('ModelManager_DownloadRef') is None
+  assert 'missing' in selection.selection_status(device.params)['message']
 
 
 @pytest.mark.parametrize('failure_stage', ['prepare', 'admit', 'validate'])

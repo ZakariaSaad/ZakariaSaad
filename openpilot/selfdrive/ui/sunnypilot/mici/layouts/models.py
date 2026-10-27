@@ -227,7 +227,7 @@ class ModelsLayoutMici(NavScroller):
     folder_buttons.append(default_btn)
 
     for candidate in navigation:
-      value = tr("installed local · navigation aware") if candidate.get('installed') else tr("local files checked on selection")
+      value = tr("installed local · navigation aware") if candidate.get('installed') else tr("download and verify on selection")
       value += tr(" · enables navigation driving after verification")
       button = BigButton(candidate['display_name'], value=value, font_size=36)
       button.set_enabled(lambda: ui_state.is_offroad() and not self._model_selection_running())

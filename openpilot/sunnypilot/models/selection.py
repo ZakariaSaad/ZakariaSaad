@@ -141,7 +141,7 @@ def request_model_selection(params, *, source, ref, offroad, origin='device_ui',
     previous = {key: copy.deepcopy(params.get(key)) for key in (REQUEST_KEY, STATE_KEY, 'ModelManager_DownloadRef')}
     try:
       _put(params, REQUEST_KEY, request)
-      _put(params, 'ModelManager_DownloadRef', None if ref in (NAV_REF, DEFAULT_REF) else ref)
+      _put(params, 'ModelManager_DownloadRef', None if ref == DEFAULT_REF else ref)
       _state(params, request, 'pending', 'Selection pending; the previous model remains selected until preparation succeeds.')
     except Exception as error:
       failures = []
@@ -185,6 +185,8 @@ def request_navigation_disabled(params, *, offroad=True, origin='device_ui', exp
     # download requested separately. Never alter NavigationEnabled (map display).
     if request.get('ref') == NAV_REF:
       _put(params, REQUEST_KEY, None)
+      if params.get('ModelManager_DownloadRef') == NAV_REF:
+        _put(params, 'ModelManager_DownloadRef', None)
     _put(params, 'NavigationModelDrivingEnabled', False)
     _state(params, {'id': uuid.uuid4().hex, 'ref': _selected_ref(params), 'source': 'chestnut'},
            'selected', 'Navigation driving is OFF; ordinary model selections are preserved.')
@@ -258,7 +260,9 @@ def _commit(params, request, changes, permit=None):
         _state(params, request, 'failed', f'{error}; {rollback_error}')
         raise
       _state(params, request, 'failed', str(error))
-      params.remove(REQUEST_KEY)
+      _put(params, REQUEST_KEY, None)
+      if params.get('ModelManager_DownloadRef') == request['ref']:
+        _put(params, 'ModelManager_DownloadRef', None)
       raise
 
 
@@ -327,9 +331,26 @@ def process_pending_selection(params):
     _state(params, request, 'preparing', 'Checking existing model files; previous selection remains in use.')
   try:
     if request['ref'] == NAV_REF:
-      if not candidate_status(params, candidate_id=MODEL_ID).get('registered'):
-        from openpilot.selfdrive.navigation.preparation import prepare_existing_model
-        prepare_existing_model(params, is_offroad=True, model_id=MODEL_ID, publish_selection=False)
+      registered = candidate_status(params, candidate_id=MODEL_ID)
+      if registered.get('approved') is False:
+        raise NavigationModelDisabled('Explicit user authorization for Navigation Model Driving is still required')
+      if request.get('origin') == 'retired_bigv2_migration':
+        # Updating an old saved ID is not consent to a large download. Retain
+        # the previous local-only migration and leave navigation OFF on failure.
+        if not registered.get('registered'):
+          from openpilot.selfdrive.navigation.preparation import prepare_existing_model
+          prepare_existing_model(params, is_offroad=True, model_id=MODEL_ID, publish_selection=False)
+      else:
+        from openpilot.selfdrive.navigation.download import prepare_downloaded_model
+        def progress(state, message):
+          with _lock(params):
+            if _current(params, request):
+              _state(params, request, state, message)
+        with _lock(params):
+          if not _current(params, request):
+            return True
+          _put(params, 'ModelManager_DownloadRef', NAV_REF)
+        prepare_downloaded_model(params, current=lambda: _current(params, request), progress=progress, registration=registered)
       permit = admit_candidate(params, candidate_id=MODEL_ID)
       changes = {'NavigationModelManifest': str(permit.manifest_path), 'NavigationModelCandidate': MODEL_ID,
                  'NavigationModelDrivingEnabled': bool(request.get('enable', True))}
@@ -349,7 +370,9 @@ def process_pending_selection(params):
     with _lock(params):
       if _current(params, request):
         if _record(params, REQUEST_KEY).get('phase') != 'committing':
-          params.remove(REQUEST_KEY)
+          _put(params, REQUEST_KEY, None)
+          if params.get('ModelManager_DownloadRef') == request['ref']:
+            _put(params, 'ModelManager_DownloadRef', None)
         _state(params, request, 'failed', str(error))
     return True
   return True
@@ -404,6 +427,8 @@ def select_navigation_now(params, *, enabled, offroad):
     request = _record(params, REQUEST_KEY)
     if request.get('id') == queued['request_id'] and request.get('phase') != 'committing':
       _put(params, REQUEST_KEY, None)
+      if params.get('ModelManager_DownloadRef') == request['ref']:
+        _put(params, 'ModelManager_DownloadRef', None)
       _state(params, request, 'cancelled', 'Selection did not complete; previous model settings preserved. Select again while off road.')
     raise NavigationModelDisabled(state['message'])
 

@@ -288,6 +288,7 @@ class TestCorrectedNavigationManage(unittest.TestCase):
   def test_enable_corrected_cannot_bypass_its_approval(self):
     from openpilot.sunnypilot.models import selection
     with patch.object(selection, 'candidate_status', return_value={'registered': True}), \
+         patch('openpilot.selfdrive.navigation.download.prepare_downloaded_model'), \
          patch.object(selection, 'admit_candidate', side_effect=NavigationModelDisabled('Explicit user authorization is required')):
       result, output = self.invoke('enable', self.ID)
     self.assertEqual(result, 1)

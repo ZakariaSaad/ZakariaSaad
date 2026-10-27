@@ -11,6 +11,7 @@ from pathlib import Path
 from openpilot.selfdrive.navigation.corrected_bigv2 import ARTIFACT_SHA256, DISPLAY_NAME, MODEL_ID
 from openpilot.selfdrive.navigation.candidate_identity import is_retired_bundle, RETIRED_ARTIFACT_SHA256
 from openpilot.selfdrive.navigation.errors import NavigationModelDisabled
+from openpilot.selfdrive.navigation.download import MODEL_URL, MODEL_SIZE, SIDECAR_URL, SIDECAR_SHA256, SIDECAR_SIZE
 
 NAV_REF = 'navigation:' + MODEL_ID
 RETIRED_ID = 'big-nav-v2'
@@ -46,13 +47,15 @@ def _selection():
 
 def local_bundle() -> dict:
   """A truthful frontend-only entry, never parsed by the ordinary model loader."""
-  availability = 'installed local' if ARTIFACT.is_file() else 'local file required; download unavailable'
+  availability = 'installed local' if ARTIFACT.is_file() else 'downloadable'
   return {'short_name': 'NAV-BIG-V2-MAP-FP32', 'display_name': f'{DISPLAY_NAME} ({availability})',
           'ref': NAV_REF, 'is_big': True, 'is_20hz': True, 'environment': 'AMD LLVM gfx1200 USB',
           'runner': 'tinygrad', 'minimum_selector_version': '21', 'models': [],
-          'overrides': {'folder': 'Installed local navigation models'},
+          'overrides': {'folder': 'Navigation models'},
           'navigation_model_id': MODEL_ID, 'artifact_sha256': ARTIFACT_SHA256,
-          'runtime': 'native-navigation', 'download_available': False}
+          'runtime': 'native-navigation', 'download_available': True,
+          'release_assets': [{'url': MODEL_URL, 'sha256': ARTIFACT_SHA256, 'size': MODEL_SIZE},
+                             {'url': SIDECAR_URL, 'sha256': SIDECAR_SHA256, 'size': SIDECAR_SIZE}]}
 
 
 def _retired(bundle):

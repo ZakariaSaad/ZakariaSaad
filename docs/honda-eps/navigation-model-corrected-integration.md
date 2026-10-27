@@ -13,16 +13,18 @@ registration-first, separate-SSH-enable workflow.
 
 Update the same installed `mvl-honda-eps-selector21-chestnut-v28` branch through
 **Settings → Software** and restart when prompted. In SunnyLink, open **Models →
-Big Models → Installed local navigation models**, choose the corrected FP32 model
-and **Activate**. The equivalent comma menu is **Settings → Models → Big Models**.
+Big Models → Navigation models**, choose the corrected FP32 model and **Activate**.
+The entry identifies itself as **installed local** or **downloadable**. The equivalent comma menu is **Settings → Models → Big Models**.
 
-Explicit selection reuses the installed `.sptg`, performs any missing file-only
-registration, verifies approved provenance/warp/fallback, and requests Navigation
-Model Driving ON after admission succeeds genuinely off road and disengaged.
-No separate receipt preparation, compilation, GPU diagnostic, hidden parameter
-edit or new approval is needed. Existing registration is preserved; the model
-is not copied or downloaded. A failed request leaves the prior valid selection
-and reports its exact blocker.
+Explicit selection reuses an installed `.sptg` whose SHA256 matches the approved
+artifact. If needed, it downloads and verifies the published model and sidecars,
+installs complete files atomically, and performs missing local registration.
+The existing SunnyLink progress/cancel controls track this request. It verifies
+approved provenance/warp/fallback and requests Navigation Model Driving ON only
+after admission succeeds off road and disengaged. No separate receipt preparation,
+compilation, GPU diagnostic, hidden parameter edit or new approval is needed.
+Existing valid registration is reused. A failed, cancelled or superseded request
+preserves the prior valid selection and reports its reason.
 
 Selecting **Mountain Dew Model v3 (Default)** or another ordinary big model
 withdraws navigation driving after that replacement is ready. **Models →
@@ -40,9 +42,22 @@ Existing files used by automatic preparation:
 The corrected package remains separate under
 `/data/navigation-models/big-nav-v2-map-fp32-…/`; its receipt is
 `/data/navigation-models/big-nav-v2-map-fp32-registration.json`. No old model,
-report, warp or source ONNX is automatically deleted. Downloadable distribution
-is incomplete until the actual corrected binary is hosted and verified; local
-reuse is already supported.
+report, warp or source ONNX is automatically deleted. Published distribution is
+available through the existing Models interface; full URLs, verified sizes/hashes
+and cancellation/recovery instructions are in the
+[controls guide](sunnylink-model-and-eps-controls.md#published-assets-and-portable-installation).
+
+The device-created sidecar archive has SHA256
+`ebe109ce6352e8d144b60b623c047320b923d6493921f860e48f0efd32a291de`
+and size 3,279,412 bytes. Its copied absolute paths and receipt claims do not
+authorize installation or activation. The installer verifies the pinned contents
+and regenerates local manifest/registration paths. The published model is
+810,439,301 bytes. Both assets retain their exact published bytes.
+
+The sidecar ZIP contains no license texts. The accompanying
+[release notices](navigation-model-release-notices.md) provide full comma MIT,
+tinygrad MIT and SunnyPilot custom notices and acknowledgments for redistribution
+and the installed package.
 
 ## Evidence and identities
 
@@ -68,8 +83,9 @@ residual boundary. The external input/output and recurrent contracts are unchang
 | Unchanged camera warp | `f1689356ff8e516f87e3d75f6b53e66953a11ee5a97e859b4808c9a16bfe671b` |
 | Unchanged source ONNX | `1d18c42ea4cd95c8bffab4635844b78b8e2d4e25b9de44a9c5ac2e0961371a2e` |
 
-The artifact's actual local bytes are checked during registration; they were not
-available in this development environment. The metadata pin is derived from the
+The published artifact was independently downloaded and its complete bytes
+matched the approved SHA256 above. Installation and registration check those bytes
+again. The metadata pin is derived from the
 reviewed report, existing camera profile and native contract using the actual
 exporter's deterministic format. Registration checks the bytes it writes against
 that pin. It also binds the report's protected native kernel and initializer
@@ -112,9 +128,12 @@ passed 79 tests and 76 subtests, including synthetic CPU:LLVM publication/fallba
 behavior, finite-output rejection, off-road admission and CLI persistence.
 These are historical results, not new AMD execution in this cleanup.
 
-Current shared-selection/SunnyLink checks cover real RPC and persistent Params,
+The earlier UI cleanup (`99c175065`) also covered real RPC and persistent Params,
 registration/admission before commit, failed-selection recovery, stale queued jobs,
 ordinary switching, explicit OFF persistence, retired candidate handling and
-active-file protection. See the current change's test report for run counts.
+active-file protection. Current download tests cover pinned assets, cancellation,
+atomic installation, local reuse and portable registration; see the current
+change's test report for run counts.
 The [prepared hosted frontend patch](patches/README.txt) remains a separate
-maintainer deployment; local branch updates do not deploy sunnylink.ai.
+maintainer deployment. This download integration uses existing hosted interfaces
+and does not modify or deploy that patch.

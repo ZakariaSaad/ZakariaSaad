@@ -1,4 +1,4 @@
-"""Manage the registered local navigation model; no model execution or downloads.
+"""Manage the approved navigation model; selection reuses or downloads verified files.
 
 Run as comma with installed system Python, e.g. ``python3 -B -m
 openpilot.selfdrive.navigation.manage status``. Both Settings and this CLI use
@@ -69,7 +69,7 @@ def main(argv=None, *, params=None) -> int:
   register.add_argument('model', choices=list(candidates))
   select = commands.add_parser('select', help='prepare and select the approved corrected model while off road; request driving ON')
   select.add_argument('model', choices=list(candidates))
-  enable = commands.add_parser('enable', help='explicitly request an approved, registered model while off road')
+  enable = commands.add_parser('enable', help='reuse or download and prepare the approved model while off road')
   enable.add_argument('model', choices=list(candidates))
   commands.add_parser('disable', help='withdraw navigation driving permission; ordinary model selections are preserved')
   args = parser.parse_args(argv)
