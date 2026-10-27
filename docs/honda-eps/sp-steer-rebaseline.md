@@ -1,5 +1,11 @@
 # sp-steer continuation: preservation inventory
 
+**Longitudinal follow-up:** the owner subsequently requested exact upstream
+longitudinal behavior. The retained ACC/Experimental/DEC modes described in the
+initial migration are now removed. [The current longitudinal review](sp-steer-longitudinal.md)
+supersedes those initial choices and records the new verification. The test counts
+and source-versus-old-planner replay below remain historical migration evidence.
+
 Pinned custom source: `18106a1ddf26366236961b28509e6fa677bec6ef` on
 `mvl-honda-eps-selector21-chestnut-v28`.
 Pinned MVL upstream: `0f5085fc3f713da58d236ed3822b9d27bc0e9917` on `sp-steer`.
@@ -52,7 +58,7 @@ controller/runtime reports.
 | Navigation destination delivery | Retain coordinate checks and optional legacy labels; reconcile newer API entrypoints | `system/athena/athenad.py`, navd/tiles; Athena/navigation integration tests |
 | Maps, maneuvers and route-generation consistency | Retain producer identity, monotonic route fencing, timestamp/frame association and independent neutral map/maneuver defaults | `navigation/{navd,mapsd,generation,model_inputs,temporal}.py`; route-generation/map-generation/maneuver/input/temporal tests |
 | Navigation display and daemon lifecycle | Retain zero-timestamp rejection, alert priority and independent map enable; adopt newer UI descriptions/layouts | `ui/mici/onroad/navigation.py`, road view, UI state, process config; rendered UI and daemon integration tests |
-| MVL stopping/stop-and-go/braking and E2E/ACC selection | Preserve explicit existing modes and DEC; reconcile upstream acceleration improvements only in their applicable mode | Both longitudinal planners, DEC, settings/schema; longitudinal maneuvers/DEC/following-distance tests |
+| MVL stopping/stop-and-go/braking | Follow-up adopts exact sp-steer longitudinal behavior and removes the legacy ACC/Experimental/DEC selection | Both longitudinal planners, MPC/LongControl/AccelBoost, settings/schema; upstream maneuver and Bigv2-to-planner tests |
 | Lane centering, lane changes, MADS and monitoring | Adopt compatible upstream improvements while retaining existing settings/capabilities | lane-centering, controlsd, MADS, monitoring and settings; existing focused control tests |
 | Updater, release and AGNOS transition | Adopt upstream compatibility improvements intentionally; keep same repository and new branch tracking | `system/updated/`, launcher, release/build files; branch-switch compatibility tests |
 | Numerical investigation/replay tooling | Retain opt-in offline tools and evidence; do not install obsolete diagnostic services | `tools/navigation_*`, `tools/replay/nav_*`; offline/numerical replay tests |
@@ -88,10 +94,9 @@ an update never creates the confirmation automatically. New device/vehicle
 restores must use an explicit owner statement instead of importing another
 vehicle's proof.
 
-The UI integration preserves Experimental Mode and Dynamic Experimental Control
-as explicit supported longitudinal modes while also retaining sp-steer's new
-Initial Max Speed control, updated descriptions, alert/network rendering and
-navigation panel layout. The map panel keeps the custom zero-timestamp rejection.
+The current UI follows sp-steer's removal of Experimental Mode and Dynamic
+Experimental Control, while retaining Initial Max Speed, updated descriptions,
+alert/network rendering and the navigation panel layout. The map panel keeps the custom zero-timestamp rejection.
 The branch-switch input says **enter branch name**, not a hardcoded upstream
 repository name; updater repository tracking is not rewritten by that label.
 
@@ -216,10 +221,10 @@ single-active fallback and driver safeguards remain in force. No broad new
 hardware validation workflow is required or installed.
 
 [The control review](sp-steer-controls.md) documents the full ON/OFF steering
-paths and intentional upstream behavior changes. In particular, E2E acceleration
-boost is bounded and gated by the retained modes, and configurable Initial Max
-Speed (default 40 km/h) replaces the old 120 km/h Experimental-mode initial
-setpoint. These intentional changes are not described as bit-for-bit preservation
+paths and intentional upstream behavior changes. The later longitudinal
+follow-up removes the retained mode gates and adopts the exact upstream
+acceleration-boost behavior. Configurable Initial Max Speed remains 40 km/h by
+default; see the current longitudinal review linked above. These intentional changes are not described as bit-for-bit preservation
 for every possible drive.
 
 ## Install, preserve settings, and roll back

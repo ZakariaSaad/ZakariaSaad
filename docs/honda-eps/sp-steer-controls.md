@@ -47,25 +47,27 @@ controller-local.
 The firmware calibration, `core.py`, `latcontrol_fw.py`, `geometry.py`,
 `response.py` and `timing.py` are unchanged from the pinned working branch.
 
-## Longitudinal reconciliation
+## Longitudinal baseline
 
-sp-steer removes ACC/Experimental/DEC selection and always includes the model's
-acceleration candidate. This migration deliberately retains the working fork's
-ACC/Experimental/DEC selection, throttle-probability/coasting limits, turn
-acceleration limits, stop combination, gap-button mode switching, and related
-UI/events. The old planner's braking/acceleration constants and longitudinal
-MPC/LongControl algorithms remain.
+Following the owner's longitudinal follow-up, the planner now follows pinned MVL
+`sp-steer` exactly. The main/SunnyPilot planners, MPC, LongControl, AccelBoost,
+plannerd, SelfdriveD and SunnyPilot selfdrive events match
+`0f5085fc3f713da58d236ed3822b9d27bc0e9917` byte-for-byte. The earlier migration's
+retained ACC/Experimental/DEC selection is superseded and removed, including its
+settings, UI, gap-button mode switch and implementation.
 
-Two upstream planner improvements are adopted deliberately:
+The model acceleration/stop candidate now always participates alongside MPC and
+cruise. The minimum acceleration candidate wins; stop requests are combined, and
+the upstream acceleration limits and stopping controller remain effective. The
+upstream cruise target, jerk limiting and acceleration boost are used without the
+old mode gate, throttle-probability/coasting limits or steering-angle turn cap.
+A qualifying accelerator override can add up to 0.05 m/s² per override and 0.2 m/s²
+total; upstream low-speed/braking scaling and disengagement reset remain. These
+are intentional upstream behavior changes, not preservation of the old planner.
 
-- Stock longitudinal operation initializes MPC from measured ego speed and
-  acceleration instead of a simulated openpilot acceleration target.
-- Upstream `AccelBoost` applies only when the existing E2E gate admits the model
-  candidate. A qualifying driver accelerator override can add up to 0.05 m/s²
-  per override and 0.2 m/s² total; it scales out during braking/low speed and
-  resets on disengagement or leaving E2E. It cannot bypass MPC/cruise minima or
-  stop requests. This is a documented behavior change, not bit-for-bit planner
-  preservation.
+See [the current longitudinal review](sp-steer-longitudinal.md) for file parity,
+setting cleanup, Bigv2 publication/consumption tests and exact upstream replay.
+The steering adaptation documented above is unchanged.
 
 Upstream's configurable **Initial Cruise Speed** replaces the old hardcoded
 120 km/h Experimental-mode initial setpoint. The new default is 40 km/h; initial
@@ -97,9 +99,10 @@ It now tests the actual upstream Civic torque path and retains separate PID
 coverage with an explicit PID fixture, rather than reading the inactive tuning
 union. This changes a stale test assumption, not vehicle tuning.
 
-Longitudinal simulation retains both ACC and E2E coverage, pitch/throttle
-scenarios, stopping and starting maneuvers, following-distance tests, and the
-DEC gate assertions. Native Honda safety tests exercise the new dependency's
+Longitudinal simulation uses the upstream mode-free fixtures, including
+following distance and stopping/starting. New regressions exercise real native
+Bigv2 output parsing/publication into the planner, legacy-setting immunity,
+acceleration bounds, boost scaling/reset and the common fallback interface. Native Honda safety tests exercise the new dependency's
 unchanged safety implementation on CPU. See the migration report for final
 counts and any inherited failures. These are software tests with synthetic
 inputs; no CAN transmission, vehicle access, GPU inference or on-road safety

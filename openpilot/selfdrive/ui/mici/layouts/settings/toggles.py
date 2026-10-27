@@ -1,41 +1,13 @@
-from collections.abc import Callable
-
 from openpilot.cereal import log
 
 from openpilot.system.ui.widgets.scroller import NavScroller
-from openpilot.selfdrive.ui.mici.widgets.button import BigToggle, BigParamControl, BigMultiParamToggle, GreyBigButton
-from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationCircleButton
+from openpilot.selfdrive.ui.mici.widgets.button import BigToggle, BigParamControl, BigMultiParamToggle
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.selfdrive.ui.layouts.settings.common import restart_needed_callback
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.mici.layouts.settings.initial_cruise_speed import InitialCruiseSpeedButton
 
 PERSONALITY_TO_INT = log.LongitudinalPersonality.schema.enumerants
-
-
-class ExperimentalModeConfirmPage(NavScroller):
-  def __init__(self, on_confirm: Callable[[], None]):
-    super().__init__()
-
-    accept = BigConfirmationCircleButton("enable\nexperimental mode",
-                                         gui_app.texture("icons_mici/setup/driver_monitoring/dm_check.png", 64, 64),
-                                         lambda: self.dismiss(on_confirm))
-
-    self._scroller.add_widgets([
-      GreyBigButton("enabling\nexperimental mode", "scroll to continue",
-                    gui_app.texture("icons_mici/setup/warning.png", 64, 64)),
-      GreyBigButton("", "openpilot defaults to driving in chill mode."),
-      GreyBigButton("", "Experimental mode enables alpha-level features that aren't ready for chill mode."),
-      GreyBigButton("End-to-End Longitudinal Control"),
-      GreyBigButton("", "Let the driving model control the gas and brakes."),
-      GreyBigButton("", "openpilot will drive as it thinks a human would, including stopping for red lights and stop signs."),
-      GreyBigButton("", "The set speed will only act as an upper bound."),
-      GreyBigButton("", "This is an alpha quality feature; mistakes should be expected."),
-      GreyBigButton("New Driving Visualization"),
-      GreyBigButton("", "The path will change colors to communicate acceleration intent."),
-      GreyBigButton("", "Red for braking, green for acceleration, and gray for coasting."),
-      accept,
-    ])
 
 
 class TogglesLayoutMici(NavScroller):
@@ -47,8 +19,6 @@ class TogglesLayoutMici(NavScroller):
                                                                "Aggressive follows closer, with firmer gas and braking.\n" +
                                                                "Relaxed leaves more space.\n" +
                                                                "Use the steering wheel distance button on supported cars.")
-    self._experimental_btn = BigToggle("experimental mode", initial_state=ui_state.params.get_bool("ExperimentalMode"),
-                                       toggle_callback=self._on_experimental_mode)
     self._initial_cruise_speed = InitialCruiseSpeedButton()
     self._initial_cruise_speed.set_visible(lambda: ui_state.CP is not None and ui_state.has_longitudinal_control and not ui_state.CP.pcmCruise)
     is_metric_toggle = BigToggle("use metric units", initial_state=ui_state.params.get_bool("IsMetric"), toggle_callback=self._on_metric_toggle)
@@ -70,7 +40,6 @@ class TogglesLayoutMici(NavScroller):
 
     self._scroller.add_widgets([
       self._personality_toggle,
-      self._experimental_btn,
       self._initial_cruise_speed,
       is_metric_toggle,
       ldw_toggle,
@@ -82,7 +51,6 @@ class TogglesLayoutMici(NavScroller):
 
     # Toggle lists
     self._refresh_toggles = (
-      ("ExperimentalMode", self._experimental_btn),
       ("IsMetric", is_metric_toggle),
       ("IsLdwEnabled", ldw_toggle),
       ("AlwaysOnDM", always_on_dm_toggle),
@@ -124,25 +92,7 @@ class TogglesLayoutMici(NavScroller):
 
     if ui_state.CP is not None:
       self._personality_toggle.set_visible(ui_state.has_longitudinal_control)
-      self._experimental_btn.set_visible(ui_state.has_longitudinal_control)
-      if not ui_state.has_longitudinal_control:
-        self._experimental_btn.set_checked(False)
-        ui_state.params.remove("ExperimentalMode")
 
     # Refresh toggles from params to mirror external changes
     for key, item in self._refresh_toggles:
       item.set_checked(ui_state.params.get_bool(key))
-
-  def _on_experimental_mode(self, state: bool):
-    if state and not ui_state.params.get_bool("ExperimentalModeConfirmed"):
-      # Don't show enabled state until confirm
-      self._experimental_btn.set_checked(False)
-
-      def on_confirm():
-        ui_state.params.put_bool("ExperimentalModeConfirmed", True)
-        ui_state.params.put_bool("ExperimentalMode", True)
-        self._experimental_btn.set_checked(True)
-
-      gui_app.push_widget(ExperimentalModeConfirmPage(on_confirm))
-    else:
-      ui_state.params.put_bool("ExperimentalMode", state)

@@ -1,6 +1,8 @@
 """Rendered owner-confirmation controls; backend admission is tested separately."""
+import importlib
 import os
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -68,12 +70,13 @@ def test_mici_rejection_restores_requested_toggle_and_shows_error(gui):
     draw(app.get_active_widget())
 
 
-def test_mici_toggles_keep_explicit_e2e_and_upstream_initial_max_speed(gui):
+def test_mici_toggles_use_upstream_longitudinal_controls_without_legacy_modes(gui):
   from openpilot.selfdrive.ui.mici.layouts.settings.toggles import TogglesLayoutMici
   app, _ = gui
   page = TogglesLayoutMici()
   app.push_widget(page)
-  assert page._experimental_btn in page._scroller.items
+  assert not hasattr(page, "_experimental_btn")
+  assert all(key not in {"ExperimentalMode", "DynamicExperimentalControl"} for key, _ in page._refresh_toggles)
   assert page._initial_cruise_speed in page._scroller.items
   draw(page)
 
@@ -91,14 +94,34 @@ def test_tici_steering_uses_same_guarded_owner_settings(gui):
     enable.assert_called_once_with(params, True)
 
 
-def test_tici_toggles_keep_experimental_mode_and_upstream_initial_speed(gui):
+def test_tici_toggles_use_upstream_longitudinal_controls_without_legacy_modes(gui):
   from openpilot.selfdrive.ui.layouts.settings.toggles import TogglesLayout
   app, _ = gui
   page = TogglesLayout()
   app.push_widget(page)
-  assert 'ExperimentalMode' in page._toggles
+  assert 'ExperimentalMode' not in page._toggles
+  assert 'DynamicExperimentalControl' not in page._toggles
   assert 'InitialCruiseSpeedKph' in page._toggles
   draw(page)
+
+
+@pytest.mark.parametrize('layout', ['onroad', 'mici.onroad'])
+def test_camera_choice_uses_longitudinal_capability_without_deprecated_mode_state(gui, layout):
+  from opendbc.car import structs
+  module = importlib.import_module(f'openpilot.selfdrive.ui.{layout}.augmented_road_view')
+  view = SimpleNamespace(available_streams=[module.NARROW_ROAD_CAM, module.WIDE_CAM],
+                         stream_type=module.NARROW_ROAD_CAM, switch_stream=Mock())
+  # The current wire contract has no active experimentalMode setting. Maps and
+  # navigation driving are independent of this ordinary camera selection path.
+  cp = structs.CarParams.new_message(openpilotLongitudinalControl=True)
+  messages = {'carParams': cp, 'carState': structs.CarState.new_message(vEgo=0.)}
+  module.AugmentedRoadView._switch_stream_if_needed(view, messages)
+  view.switch_stream.assert_called_once_with(module.WIDE_CAM)
+  view.switch_stream.reset_mock()
+  view.stream_type = module.WIDE_CAM
+  cp.openpilotLongitudinalControl = False
+  module.AugmentedRoadView._switch_stream_if_needed(view, messages)
+  view.switch_stream.assert_called_once_with(module.NARROW_ROAD_CAM)
 
 
 def test_mici_developer_renders_new_descriptions_and_guarded_eps_entry(gui):

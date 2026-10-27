@@ -1,0 +1,247 @@
+{
+  "authoritative_upstream": "0f5085fc3f713da58d236ed3822b9d27bc0e9917",
+  "candidate_parent": "bc4af6400ff555a6d39eb7980714307347ba3d11",
+  "branch": "mvl-sp-steer-eps-nav",
+  "kind": "isolated full-segment longitudinal and controller replay",
+  "fixture": {
+    "vehicle": "HONDA_INSIGHT",
+    "source": "existing user-supplied full-rate rlog segment",
+    "window_seconds": 60,
+    "recorded_modelV2_frames": 1178,
+    "raw_recordings_committed": false
+  },
+  "method": [
+    "Decode each checkout with its own LogReader and matching cereal schemas.",
+    "Use official replay_process with separate random OpenpilotPrefix and fake-event synchronization; run only plannerd or controlsd, never card/pandad/sendcan.",
+    "Initialize actual CarInterface/CarParams from recorded CAN fingerprint and firmware-family list, retaining recorded fields discarded by the stock fixed-fingerprint callback.",
+    "For custom mode, admit the reviewed firmware installation fixture into temporary replay Params and publish the actual drive latch before CarParams; this is a fixture assumption, not physical firmware verification.",
+    "Replay continuously from the same empty process and learned state; do not reset within the segment.",
+    "Compare all longitudinalPlan body fields and Event.valid except host-duration fields solverExecutionTime and processingDelay; compare all carControl body fields and Event.valid with no exclusions.",
+    "The two controlsd references were recorded in the preceding task from the same pinned upstream and candidate-parent source on the same input. These controller source paths have no changes in this longitudinal update."
+  ],
+  "source_parity": {
+    "openpilot/selfdrive/controls/lib/longitudinal_planner.py": {
+      "matches_upstream": true,
+      "sha256": "064eda5604fe21c8e0276f702c5fff4fe6b9032a005411b1d671d096aea3566c"
+    },
+    "openpilot/sunnypilot/selfdrive/controls/lib/longitudinal_planner.py": {
+      "matches_upstream": true,
+      "sha256": "845ca607c8fc2a2f019e321a6caf175fa2c872a564ee9ebddc11c20a850844da"
+    },
+    "openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/long_mpc.py": {
+      "matches_upstream": true,
+      "sha256": "63b03a511d8e0a955f6abc3ef010e79e8304d5ee9fe13637741f9c13e0ca92d5"
+    },
+    "openpilot/selfdrive/controls/lib/longcontrol.py": {
+      "matches_upstream": true,
+      "sha256": "fed627d936b8f3166ad6b6af9e63561b8747bab46bdb0fb493164f9ca1ea73b4"
+    },
+    "openpilot/selfdrive/controls/lib/accel_boost.py": {
+      "matches_upstream": true,
+      "sha256": "4a2d7b722e5b696451b4dfec16e625d5298442bd4254f4a152eb772578ad913b"
+    },
+    "openpilot/selfdrive/controls/plannerd.py": {
+      "matches_upstream": true,
+      "sha256": "35773c6f035f6f3d4c1e7227f332ef62b6d5d8855a02667934b47d4b3447e654"
+    },
+    "openpilot/selfdrive/selfdrived/selfdrived.py": {
+      "matches_upstream": true,
+      "sha256": "a4e0e83b654e927e66f757a529cfc916f4d23a65da0dee4f5aa5be4b50f66ed4"
+    },
+    "openpilot/sunnypilot/selfdrive/selfdrived/events.py": {
+      "matches_upstream": true,
+      "sha256": "9363ea16839388a81fb2ee8a3de1f4c8891bb97827b69f448204f859d02149bc"
+    },
+    "openpilot/selfdrive/car/cruise.py": {
+      "matches_upstream": true,
+      "sha256": "ab72f69cf1307477d042621c7820e30503de6dda5583bcfed8cb81631d01f6ef"
+    }
+  },
+  "runs": [
+    {
+      "process": "plannerd",
+      "label": "upstream",
+      "eps_requested": false,
+      "window_s": 60.0,
+      "model_input_count": 1178,
+      "transport": "official process_replay isolated random OpenpilotPrefix; no card/pandad/sendcan",
+      "inference_executed": false,
+      "status": "passed",
+      "output_counts": {
+        "longitudinalPlan": 1178,
+        "driverAssistance": 1178
+      },
+      "invalid_output_fields": [],
+      "numeric_values_checked": 78926,
+      "valid_counts": {
+        "longitudinalPlan": 1176,
+        "driverAssistance": 1176
+      },
+      "acceleration_range": [
+        -1.892485499382019,
+        1.598655343055725
+      ],
+      "elapsed_s": 5.031
+    },
+    {
+      "process": "plannerd",
+      "label": "aligned-ordinary",
+      "eps_requested": false,
+      "window_s": 60.0,
+      "model_input_count": 1178,
+      "transport": "official process_replay isolated random OpenpilotPrefix; no card/pandad/sendcan",
+      "inference_executed": false,
+      "status": "passed",
+      "output_counts": {
+        "longitudinalPlan": 1178,
+        "driverAssistance": 1178
+      },
+      "invalid_output_fields": [],
+      "numeric_values_checked": 78926,
+      "valid_counts": {
+        "longitudinalPlan": 1176,
+        "driverAssistance": 1176
+      },
+      "acceleration_range": [
+        -1.892485499382019,
+        1.598655343055725
+      ],
+      "elapsed_s": 35.094
+    },
+    {
+      "process": "plannerd",
+      "label": "aligned-custom",
+      "eps_requested": true,
+      "window_s": 60.0,
+      "model_input_count": 1178,
+      "transport": "official process_replay isolated random OpenpilotPrefix; no card/pandad/sendcan",
+      "inference_executed": false,
+      "status": "passed",
+      "output_counts": {
+        "longitudinalPlan": 1178,
+        "driverAssistance": 1178
+      },
+      "invalid_output_fields": [],
+      "numeric_values_checked": 78926,
+      "valid_counts": {
+        "longitudinalPlan": 1176,
+        "driverAssistance": 1176
+      },
+      "acceleration_range": [
+        -1.892485499382019,
+        1.598655343055725
+      ],
+      "elapsed_s": 30.183
+    },
+    {
+      "process": "controlsd",
+      "label": "aligned-ordinary",
+      "eps_requested": false,
+      "window_s": 60.0,
+      "model_input_count": 1178,
+      "transport": "official process_replay isolated random OpenpilotPrefix; no card/pandad/sendcan",
+      "inference_executed": false,
+      "status": "passed",
+      "output_counts": {
+        "carControl": 5971,
+        "controlsState": 5971
+      },
+      "invalid_output_fields": [],
+      "numeric_values_checked": 370202,
+      "valid_counts": {
+        "carControl": 5971,
+        "controlsState": 5971
+      },
+      "lat_active_count": 3686,
+      "long_active_count": 3611,
+      "torque_peak": 1.0,
+      "controller_log_types": {
+        "torqueState": 5971
+      },
+      "elapsed_s": 49.894
+    },
+    {
+      "process": "controlsd",
+      "label": "aligned-custom",
+      "eps_requested": true,
+      "window_s": 60.0,
+      "model_input_count": 1178,
+      "transport": "official process_replay isolated random OpenpilotPrefix; no card/pandad/sendcan",
+      "inference_executed": false,
+      "status": "passed",
+      "output_counts": {
+        "carControl": 5971,
+        "controlsState": 5971
+      },
+      "invalid_output_fields": [],
+      "numeric_values_checked": 394086,
+      "valid_counts": {
+        "carControl": 5971,
+        "controlsState": 5971
+      },
+      "lat_active_count": 3686,
+      "long_active_count": 3611,
+      "torque_peak": 0.2120715230703354,
+      "controller_log_types": {
+        "pidState": 5971
+      },
+      "elapsed_s": 49.881
+    }
+  ],
+  "comparison": {
+    "planner_upstream_vs_eps_off": {
+      "messages": 1178,
+      "identical_except_excluded_timing": true,
+      "excluded_fields": [
+        "solverExecutionTime",
+        "processingDelay"
+      ],
+      "mismatches": {},
+      "max_numeric_delta": 0,
+      "fields_checked": 19
+    },
+    "planner_upstream_vs_eps_on": {
+      "messages": 1178,
+      "identical_except_excluded_timing": true,
+      "excluded_fields": [
+        "solverExecutionTime",
+        "processingDelay"
+      ],
+      "mismatches": {},
+      "max_numeric_delta": 0,
+      "fields_checked": 19
+    },
+    "ordinary_controller_vs_upstream": {
+      "messages": 5971,
+      "identical_except_excluded_timing": true,
+      "excluded_fields": [],
+      "mismatches": {},
+      "max_numeric_delta": 0,
+      "fields_checked": 20
+    },
+    "custom_controller_vs_previous_branch": {
+      "messages": 5971,
+      "identical_except_excluded_timing": true,
+      "excluded_fields": [],
+      "mismatches": {},
+      "max_numeric_delta": 0,
+      "fields_checked": 20
+    }
+  },
+  "untouched_upstream_baseline": {
+    "native_mpc_build": "passed",
+    "longitudinal_simulations_and_following_distance": {
+      "passed": 11,
+      "skipped": 2,
+      "subtests_passed": 23
+    },
+    "tracked_source_unchanged": true
+  },
+  "limitations": [
+    "Recorded model predictions are consumed. No Bigv2/ordinary GPU inference, map rendering or camera warp execution occurs in this replay.",
+    "Planner/actuator consumption is isolated and non-actuating; no live messaging namespace, vehicle controls or CAN transmitter is used.",
+    "Two planner publications are invalid from recorded-input startup/timing in both upstream and candidate, and all numeric outputs are finite.",
+    "This is one recorded sequence, not proof of numerical model stability or closed-loop vehicle safety.",
+    "Replay elapsed durations reflect concurrent host jobs, not comma4 real-time performance."
+  ]
+}

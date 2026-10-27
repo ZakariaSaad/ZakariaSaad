@@ -295,9 +295,6 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"PairingProvider", {PERSISTENT, STRING}},
     {"Version", {PERSISTENT, STRING}},
 
-    {"ExperimentalMode", {PERSISTENT | BACKUP, BOOL}},
-    {"ExperimentalModeConfirmed", {PERSISTENT | BACKUP, BOOL}},
-    {"DynamicExperimentalControl", {PERSISTENT | BACKUP, BOOL, "0"}},
     // --- sunnypilot params --- //
     {"ApiCache_DriveStats", {PERSISTENT, JSON}},
     {"AutoLaneChangeBsmDelay", {PERSISTENT | BACKUP, BOOL, "0"}},
