@@ -229,7 +229,7 @@ class TestNavigationAdmission(OpenpilotTestCase):
       self.assertEqual(reader.context.map_source_ns, client.timestamp_sof)
       self.assertEqual(inputs['navigation'][15], 1.)
 
-      params.values['NavigationModelDrivingEnabled'] = False
+      params.values['ModelManager_ActiveBundleChestnut'] = {'ref': 'ordinary-big'}
       now_ns[0] += 50_000_000
       self.assertEqual(reader.read(sm, 10., now_ns[0] + offset), {})
       self.assertTrue(reader.reset_required)

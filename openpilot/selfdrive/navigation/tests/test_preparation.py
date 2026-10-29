@@ -28,9 +28,8 @@ class RecordingParams(ParamsStub):
   def put(self, key, value, **kwargs):
     self.writes.append((key, value))
     if key == 'NavigationModelManifest':
-      assert not self.get_bool('NavigationModelDrivingEnabled')
       assert Path(value).is_file()
-      if self.get('NavigationModelCandidate') == corrected.MODEL_ID:
+      if any(entry.get('id') == corrected.MODEL_ID for entry in json.loads(Path(value).read_text()).get('entries', [])):
         assert load_experimental_model(value, experimental=True, backend='AMD').compiler_verification_validated
     super().put(key, value, **kwargs)
 
@@ -98,14 +97,15 @@ class TestExistingModelPreparation(unittest.TestCase):
     self.assertEqual(self.params.get('NavigationModelManifest'), 'previous-manifest.json')
     self.assert_preserved()
 
-  def test_success_publishes_real_validated_manifest_last_and_keeps_driving_off(self):
+  def test_success_publishes_real_validated_manifest_without_changing_selection(self):
     before = self.artifact.read_bytes()
     receipt = self.prepare()
     self.assertTrue(receipt['prepared'] and receipt['registered'])
     self.assertFalse(receipt['activation_allowed'])
     self.assertFalse(self.params.get_bool('NavigationModelDrivingEnabled'))
     self.assertEqual(self.params.writes[-1], ('NavigationModelManifest', receipt['manifest_path']))
-    self.assertEqual(self.params.writes[0], ('NavigationModelDrivingEnabled', False))
+    self.assertEqual(self.params.writes, [('NavigationModelManifest', receipt['manifest_path'])])
+    self.assertEqual(self.params.get('NavigationModelCandidate'), 'old-candidate')
     entry = load_experimental_model(receipt['manifest_path'], experimental=True, backend='AMD')
     self.assertTrue(entry.compiler_verification_validated)
     self.assertFalse(entry.normal_activation_allowed)
@@ -115,6 +115,16 @@ class TestExistingModelPreparation(unittest.TestCase):
     for flag in ('gpu_execution_performed', 'model_recompiled', 'models_downloaded', 'normal_service_modified', 'source_onnx_bytes_rechecked'):
       self.assertIs(receipt[flag], False)
     self.assert_preserved()
+
+  def test_registration_never_changes_canonical_selection_or_stale_activation_preference(self):
+    from openpilot.sunnypilot.models.navigation_bundle import navigation_bundle
+    self.params.values['ModelManager_ActiveBundleChestnut'] = navigation_bundle()
+    self.params.values['NavigationModelDrivingEnabled'] = True
+    before = copy.deepcopy(self.params.values)
+    receipt = self.prepare()
+    before['NavigationModelManifest'] = receipt['manifest_path']
+    self.assertEqual(self.params.values, before)
+    self.assertEqual(self.params.writes, [('NavigationModelManifest', receipt['manifest_path'])])
 
   def test_portable_proof_survives_package_rename_and_unrelated_working_directory(self):
     receipt = self.prepare()

@@ -62,17 +62,14 @@ def registered(tmp_path):
                           registry=registry_path, loader=loader, artifact=paths['artifact_sha256'])
 
 
-def test_registered_corrected_candidate_requires_its_own_approval(registered):
-  registry = json.loads(registered.registry.read_text())
-  registry['candidates'][0]['activation_approved'] = False
-  registered.registry.write_text(json.dumps(registry))
+def test_registered_corrected_candidate_admission_is_not_an_independent_selection(registered):
   before = copy.deepcopy(registered.params.values)
   status = activation.candidate_status(registered.params, candidate_id=corrected.MODEL_ID)
-  assert status['registered'] and status['installed'] and not status['approved']
-  with pytest.raises(NavigationModelDisabled, match='Explicit user authorization'):
-    activation.admit_candidate(registered.params, candidate_id=corrected.MODEL_ID)
+  assert status['registered'] and status['installed'] and not status['selected']
+  permit = activation.admit_candidate(registered.params, candidate_id=corrected.MODEL_ID)
+  assert permit.model_id == corrected.MODEL_ID
   assert registered.params.values == before
-  registered.loader.assert_not_called()
+  assert activation.authorize_runtime(registered.params) is None
 
 
 def test_corrected_receipt_cannot_redirect_to_retired_manifest(registered):
@@ -92,14 +89,15 @@ def test_corrected_admission_binds_only_corrected_artifact_without_changing_sele
   assert registered.params.values == before
   assert permit.artifact_path == registered.artifact and permit.manifest_path == registered.manifest
   activation.validate_admission(permit, registered.params, allow_unselected_manifest=True)
-  with pytest.raises(NavigationModelDisabled, match='manifest changed'):
+  with pytest.raises(NavigationModelDisabled):
     activation.validate_runtime_permit(permit, params=registered.params)
   registered.params.put('NavigationModelCandidate', corrected.MODEL_ID)
   registered.params.put('NavigationModelManifest', str(registered.manifest))
-  registered.params.put_bool('NavigationModelDrivingEnabled', True)
+  from openpilot.sunnypilot.models.navigation_bundle import navigation_bundle
+  registered.params.put('ModelManager_ActiveBundleChestnut', navigation_bundle())
   activation.validate_runtime_permit(permit, params=registered.params)
   registered.params.put('NavigationModelManifest', str(registered.retired))
-  with pytest.raises(NavigationModelDisabled, match='manifest changed'):
+  with pytest.raises(NavigationModelDisabled):
     activation.validate_runtime_permit(permit, params=registered.params)
 
 
@@ -111,11 +109,11 @@ def test_configured_corrected_manifest_tampering_does_not_silently_use_other_rec
   assert not activation.candidate_status(registered.params, candidate_id=corrected.MODEL_ID)['eligible']
 
 
-def test_branch_registry_has_only_corrected_approved_candidate_with_unchanged_pins():
+def test_branch_registry_has_only_corrected_candidate_with_unchanged_pins():
   registry = json.loads(activation.REGISTRY.read_text())
   assert len(registry['candidates']) == 1
   candidate = registry['candidates'][0]
-  assert candidate['id'] == corrected.MODEL_ID and candidate['activation_approved'] is True
+  assert candidate['id'] == corrected.MODEL_ID and 'activation_approved' not in candidate
   assert candidate['artifact_sha256'] == corrected.ARTIFACT_SHA256
   assert candidate['metadata_sha256'] == corrected.METADATA_SHA256
   assert candidate['compiler_sha256'] == corrected.COMPILER_SHA256

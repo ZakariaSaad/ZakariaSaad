@@ -173,18 +173,23 @@ class TestNavigationModelInputs(OpenpilotTestCase):
     self.assertIsInstance(main, ast.FunctionDef)
     assert isinstance(main, ast.FunctionDef)
     calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)]
-    # Check the unconditional main-startup guard, separately from the additional
-    # post-warmup check inside the asynchronous big-model loader.
-    # Startup's try/finally now clears ChestnutLoading on every exit. Its direct
-    # body is unconditional on successful startup; nested loader functions and
-    # conditional branches must not satisfy this publication guard assertion.
-    startup = [*main.body, *(statement for node in main.body if isinstance(node, ast.Try) for statement in node.body)]
+    # Main delegates to the shared loader before constructing any publisher.
+    # Its unconditional successful return must follow the guard for both models;
+    # the nested post-warmup check alone cannot satisfy this boundary.
+    loading = [node.value.lineno for node in main.body if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+               and isinstance(node.value.func, ast.Name) and node.value.func.id == 'load_selected_models']
+    publishers = [node.lineno for node in calls if node.func.id == 'PubMaster']
+    self.assertEqual(len(loading), 1)
+    self.assertTrue(publishers)
+    self.assertLess(loading[0], min(publishers))
+    loader = ast.parse(inspect.getsource(modeld_module.load_selected_models)).body[0]
+    startup = [statement for node in loader.body if isinstance(node, ast.Try) for statement in node.body]
     guards = [node.lineno for node in startup if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
               and isinstance(node.value.func, ast.Name) and node.value.func.id == '_reject_navigation_publication']
-    publishers = [node.lineno for node in calls if node.func.id == 'PubMaster']
+    returns = [node.lineno for node in startup if isinstance(node, ast.Return)]
     self.assertEqual(len(guards), 1)
-    self.assertTrue(publishers)
-    self.assertLess(guards[0], min(publishers))
+    self.assertEqual(len(returns), 1)
+    self.assertLess(guards[0], returns[0])
 
   def test_legacy_nav_contract_rejected_non_navigation_unchanged(self):
     self.assertEqual(modeld_module._navigation_input_specs({'metadata': {'model': {'input_shapes': {'desire': (1, 8)}}}}), {})

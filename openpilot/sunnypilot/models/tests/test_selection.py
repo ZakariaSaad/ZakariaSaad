@@ -26,7 +26,7 @@ def device(tmp_path, monkeypatch):
   params.put_bool('IsEngaged', False, block=True)
   params.put_bool('NavigationEnabled', True, block=True)
   params.put('NavDestination', {'latitude': 1., 'longitude': 2.}, block=True)
-  params.put_bool('NavigationModelDrivingEnabled', False, block=True)
+  params.put_bool('ModelManager_NativeSelectionMigrated', True, block=True)
   params.put('ModelManager_ActiveBundle', {'ref': 'small-existing', 'runner': 'tinygrad'}, block=True)
   params.put('ModelManager_ActiveBundleChestnut', {'ref': 'big-existing', 'runner': 'tinygrad'}, block=True)
   params.put('ModelRunnerTypeCache', 1, block=True)
@@ -64,7 +64,7 @@ def request(device, ref=selection.NAV_REF, source='chestnut', **kwargs):
 def enable_existing(device):
   request(device)
   selection.process_pending_selection(device.params)
-  assert device.params.get_bool('NavigationModelDrivingEnabled')
+  assert selection.is_navigation_selected(device.params)
 
 
 def test_explicit_corrected_selection_prepares_before_publishing_and_requests_on(device):
@@ -88,9 +88,9 @@ def test_explicit_corrected_selection_prepares_before_publishing_and_requests_on
   assert selection.process_pending_selection(params)
   assert order == ['prepare', 'admit']
   assert params.get('NavigationModelManifest') == str(device.permit.manifest_path)
-  assert params.get('NavigationModelCandidate') == selection.MODEL_ID
-  assert params.get_bool('NavigationModelDrivingEnabled')
-  for key in ('ModelManager_ActiveBundle', 'ModelManager_ActiveBundleChestnut', 'NavigationEnabled', 'NavDestination'):
+  assert selection.is_navigation_selected(params)
+  assert params.get('ModelManager_ActiveBundleChestnut') == selection.navigation_bundle()
+  for key in ('ModelManager_ActiveBundle', 'NavigationEnabled', 'NavDestination'):
     assert params.get(key) == before[key]
   assert params.get(selection.REQUEST_KEY) is None
   assert selection.selection_status(params)['selected_ref'] == selection.NAV_REF
@@ -112,32 +112,34 @@ def test_navigation_ref_stays_visible_to_existing_frontend_until_install_and_com
   device.installer.side_effect = installing
   selection.process_pending_selection(device.params)
   assert device.params.get('ModelManager_DownloadRef') is None
-  assert device.params.get_bool('NavigationModelDrivingEnabled')
+  assert selection.is_navigation_selected(device.params)
 
 
 def test_explicit_off_cancels_download_ref_and_prevents_late_activation(device):
   request(device)
   def installing(params, **kwargs):
-    selection.request_navigation_disabled(params)
+    selection.cancel_model_selection(params)
     assert not kwargs['current']()
-    kwargs['progress']('downloading', 'Stale progress must not replace OFF')
+    kwargs['progress']('downloading', 'Stale progress must not replace cancellation')
   device.installer.side_effect = installing
   selection.process_pending_selection(device.params)
   assert device.params.get('ModelManager_DownloadRef') is None
-  assert not device.params.get_bool('NavigationModelDrivingEnabled')
-  assert 'OFF' in selection.selection_status(device.params)['message']
+  assert not selection.is_navigation_selected(device.params)
+  assert 'cancelled' in selection.selection_status(device.params)['message']
 
 
-def test_automatic_retired_migration_uses_local_preparation_only(device):
+def test_retired_legacy_choice_never_automatically_selects_corrected(device):
+  device.params.put_bool('ModelManager_NativeSelectionMigrated', False, block=True)
   device.params.put('NavigationModelCandidate', selection.RETIRED_MODEL_ID, block=True)
   device.params.put_bool('NavigationModelDrivingEnabled', True, block=True)
-  device.inspect.return_value = {'registered': False}
-  device.prepare.side_effect = NavigationModelDisabled('Corrected local model is missing')
+  before = snapshot(device.params)
   selection.process_pending_selection(device.params)
   device.installer.assert_not_called()
-  assert not device.params.get_bool('NavigationModelDrivingEnabled')
-  assert device.params.get('ModelManager_DownloadRef') is None
-  assert 'missing' in selection.selection_status(device.params)['message']
+  device.admit.assert_not_called()
+  assert snapshot(device.params) == before
+  assert not selection.is_navigation_selected(device.params)
+  assert device.params.get('NavigationModelDrivingEnabled') is None
+
 
 
 @pytest.mark.parametrize('failure_stage', ['prepare', 'admit', 'validate'])
@@ -159,11 +161,11 @@ def test_ordinary_big_switch_waits_for_download_then_withdraws_navigation_only(d
   small, destination = params.get('ModelManager_ActiveBundle'), params.get('NavDestination')
   ordinary = {'ref': 'ordinary-ready', 'runner': 'tinygrad'}
   request(device, ordinary['ref'])
-  assert params.get_bool('NavigationModelDrivingEnabled')
-  assert params.get('ModelManager_ActiveBundleChestnut')['ref'] == 'big-existing'
+  assert selection.is_navigation_selected(params)
+  assert params.get('ModelManager_ActiveBundleChestnut')['ref'] == selection.NAV_REF
   assert selection.process_pending_selection(params) is False
   assert selection.complete_ordinary_selection(params, 'chestnut', ordinary, ordinary['ref'])
-  assert not params.get_bool('NavigationModelDrivingEnabled')
+  assert not selection.is_navigation_selected(params)
   assert params.get('NavigationModelCandidate') is None
   assert params.get('ModelManager_ActiveBundleChestnut') == ordinary
   assert params.get('ModelManager_ActiveBundle') == small
@@ -178,7 +180,7 @@ def test_default_mountain_dew_switch_clears_big_slot_only(device):
   selection.process_pending_selection(device.params)
   device.defaults.assert_called_once_with('chestnut')
   assert device.params.get('ModelManager_ActiveBundleChestnut') is None
-  assert not device.params.get_bool('NavigationModelDrivingEnabled')
+  assert not selection.is_navigation_selected(device.params)
   assert device.params.get('ModelManager_ActiveBundle') == small
   assert device.params.get_bool('NavigationEnabled')
 
@@ -223,14 +225,10 @@ def test_download_failure_or_cancellation_keeps_current_model(device, state):
   assert selection.selection_status(device.params)['state'] == state
 
 
-@pytest.mark.parametrize('choice', ['off', 'ordinary'])
-def test_explicit_off_or_ordinary_selection_survives_native_reopen_and_manager_clears(device, choice):
+def test_ordinary_selection_survives_native_reopen_and_manager_clears(device):
   enable_existing(device)
-  if choice == 'off':
-    selection.request_navigation_disabled(device.params)
-  else:
-    request(device, selection.DEFAULT_REF)
-    selection.process_pending_selection(device.params)
+  request(device, selection.DEFAULT_REF)
+  selection.process_pending_selection(device.params)
   before = snapshot(device.params)
   # These are intentionally transient in the existing branch; selection
   # persistence must not change their normal lifecycle semantics.
@@ -245,7 +243,7 @@ def test_explicit_off_or_ordinary_selection_survives_native_reopen_and_manager_c
   for _ in range(3):
     assert selection.process_pending_selection(params) is False
   assert snapshot(params) == before
-  assert not params.get_bool('NavigationModelDrivingEnabled')
+  assert not selection.is_navigation_selected(params)
   device.admit.assert_not_called()
 
 
@@ -305,7 +303,7 @@ def test_ordinary_small_switch_requires_navigation_fallback_contract_and_preserv
   if compatible:
     assert selection.complete_ordinary_selection(device.params, 'qcom', bundle, bundle['ref'])
     assert device.params.get('ModelManager_ActiveBundle') == bundle
-    for key in ('NavigationModelCandidate', 'NavigationModelDrivingEnabled', 'NavigationEnabled', 'ModelManager_ActiveBundleChestnut'):
+    for key in ('NavigationEnabled', 'ModelManager_ActiveBundleChestnut'):
       assert device.params.get(key) == before[key]
   else:
     with pytest.raises(NavigationModelDisabled, match='supported native QCOM'):
@@ -327,46 +325,51 @@ def test_stock_small_default_cannot_remove_required_navigation_fallback(device):
 
 def test_off_during_corrected_preparation_cancels_without_late_enable(device):
   device.inspect.return_value = {'registered': False}
-  device.prepare.side_effect = lambda *args, **kwargs: selection.request_navigation_disabled(device.params)
+  device.prepare.side_effect = lambda *args, **kwargs: selection.cancel_model_selection(device.params)
   request(device)
   selection.process_pending_selection(device.params)
-  assert not device.params.get_bool('NavigationModelDrivingEnabled')
+  assert not selection.is_navigation_selected(device.params)
   assert device.params.get(selection.REQUEST_KEY) is None
   assert device.params.get('ModelManager_ActiveBundleChestnut')['ref'] == 'big-existing'
 
 
-@pytest.mark.parametrize('enabled', [False, True])
-def test_retired_request_migrates_only_after_corrected_admission(device, enabled):
+@pytest.mark.parametrize('flag,completed,expected', [(True, True, True), (False, True, False), (True, False, False)])
+def test_legacy_migration_requires_completed_explicit_corrected_selection(device, flag, completed, expected):
   params = device.params
-  params.put('NavigationModelCandidate', selection.RETIRED_MODEL_ID, block=True)
-  params.put_bool('NavigationModelDrivingEnabled', enabled, block=True)
-  def admit(*args, **kwargs):
-    assert not params.get_bool('NavigationModelDrivingEnabled')
-    assert kwargs['candidate_id'] == selection.MODEL_ID
-    return device.permit
-  device.admit.side_effect = admit
-  selection.process_pending_selection(params)
-  assert params.get('NavigationModelCandidate') == selection.MODEL_ID
-  assert params.get_bool('NavigationModelDrivingEnabled') is enabled
-  device.admit.reset_mock()
-  selection.process_pending_selection(params)
+  params.put_bool('ModelManager_NativeSelectionMigrated', False, block=True)
+  params.put('NavigationModelCandidate', selection.MODEL_ID, block=True)
+  params.put_bool('NavigationModelDrivingEnabled', flag, block=True)
+  params.put('NavigationModelManifest', str(device.permit.manifest_path), block=True)
+  params.put(selection.STATE_KEY, {'id': 'old-completed', 'source': 'chestnut', 'ref': selection.NAV_REF,
+                                   'state': 'selected' if completed else 'failed'}, block=True)
+  selection.migrate_native_selection(params)
+  assert selection.is_navigation_selected(params) is expected
+  assert params.get('NavigationModelDrivingEnabled') is None
+  assert params.get('NavigationModelCandidate') is None
+  assert params.get_bool('ModelManager_NativeSelectionMigrated')
+  device.installer.assert_not_called()
   device.admit.assert_not_called()
+  # A stale legacy write after migration cannot reactivate Bigv2.
+  params.put('ModelManager_ActiveBundleChestnut', {'ref': 'flip-flop'}, block=True)
+  params.put_bool('NavigationModelDrivingEnabled', True, block=True)
+  params.put('NavigationModelCandidate', selection.MODEL_ID, block=True)
+  selection.migrate_native_selection(params)
+  assert params.get('ModelManager_ActiveBundleChestnut')['ref'] == 'flip-flop'
 
 
-@pytest.mark.parametrize('interrupted', [False, True])
-def test_failed_or_interrupted_legacy_migration_keeps_navigation_off(device, interrupted):
+@pytest.mark.parametrize('pending', ['retired_bigv2_migration', 'device_ui'])
+def test_legacy_pending_requests_do_not_resurrect_original_or_override_newer_choice(device, pending):
   params = device.params
+  params.put_bool('ModelManager_NativeSelectionMigrated', False, block=True)
   params.put('NavigationModelCandidate', selection.RETIRED_MODEL_ID, block=True)
   params.put_bool('NavigationModelDrivingEnabled', True, block=True)
-  if interrupted:
-    params.put(selection.REQUEST_KEY, {'schema': 1, 'id': 'interrupted', 'source': 'chestnut', 'ref': selection.NAV_REF,
-                                      'origin': 'retired_bigv2_migration', 'phase': 'pending', 'enable': True}, block=True)
-  device.admit.side_effect = NavigationModelDisabled('Corrected artifact missing')
-  selection.process_pending_selection(params)
-  assert not params.get_bool('NavigationModelDrivingEnabled')
-  assert selection.selection_status(params)['state'] == 'failed'
-  assert 'Corrected artifact missing' in selection.selection_status(params)['message']
+  ref = selection.NAV_REF if pending == 'retired_bigv2_migration' else 'flip-flop'
+  params.put(selection.REQUEST_KEY, {'schema': 1, 'id': 'interrupted', 'source': 'chestnut', 'ref': ref,
+                                    'origin': pending, 'phase': 'pending', 'enable': True}, block=True)
+  selection._recover_or_migrate(params)
+  assert not selection.is_navigation_selected(params)
   assert params.get('ModelManager_ActiveBundleChestnut')['ref'] == 'big-existing'
+  assert params.get(selection.REQUEST_KEY) is None if pending == 'retired_bigv2_migration' else params.get(selection.REQUEST_KEY)['ref'] == ref
 
 
 @pytest.mark.parametrize('after_completion', [False, True])
@@ -393,8 +396,8 @@ def test_native_commit_journal_recovers_partial_or_completed_power_loss(device, 
   selection.process_pending_selection(reopened)
   assert reopened.get(selection.REQUEST_KEY) is None
   if after_completion:
-    assert reopened.get_bool('NavigationModelDrivingEnabled')
-    assert reopened.get('NavigationModelCandidate') == selection.MODEL_ID
+    assert selection.is_navigation_selected(reopened)
+    assert reopened.get('ModelManager_ActiveBundleChestnut')['ref'] == selection.NAV_REF
   else:
     assert snapshot(reopened) == before
     assert selection.selection_status(reopened)['state'] == 'failed'
@@ -428,7 +431,7 @@ def test_ordinary_commit_recovery_drops_only_its_stale_download_request(device, 
   assert reopened.get('ModelManager_DownloadRef') is None
   if after_completion:
     assert reopened.get('ModelManager_ActiveBundleChestnut') == bundle
-    assert not reopened.get_bool('NavigationModelDrivingEnabled')
+    assert not selection.is_navigation_selected(reopened)
   else:
     assert snapshot(reopened) == before
 
@@ -454,13 +457,111 @@ def test_selection_status_distinguishes_requested_loading_active_and_failed(devi
   device.params.put_bool('ChestnutLoading', True, block=True)
   assert selection.selection_status(device.params)['state'] == 'loading'
   device.params.put('NavigationModelRuntimeState', {'candidate_id': selection.MODEL_ID, 'role': 'candidate'}, block=True)
-  assert selection.selection_status(device.params)['state'] == 'active'
+  assert selection.selection_status(device.params)['state'] == 'reported'
+  assert selection.selection_status(device.params)['last_reported_ref'] == selection.NAV_REF
   device.params.put('NavigationModelRuntimeState', {'candidate_id': selection.MODEL_ID, 'role': 'ordinary_small'}, block=True)
-  assert selection.selection_status(device.params)['state'] == 'failed'
+  assert selection.selection_status(device.params)['state'] == 'reported'
+  assert selection.selection_status(device.params)['last_reported_ref'] == 'small-existing'
 
 
 def test_retired_choice_never_enters_queue(device):
   for ref in (selection.RETIRED_MODEL_ID, 'navigation:' + selection.RETIRED_MODEL_ID):
     with pytest.raises(NavigationModelDisabled, match='retired'):
       request(device, ref)
+  assert device.params.get(selection.REQUEST_KEY) is None
+
+
+@pytest.mark.parametrize('stage', ['slot', 'marker'])
+def test_legacy_migration_power_loss_cannot_resurrect_stale_selection(device, monkeypatch, stage):
+  params = device.params
+  params.put_bool('ModelManager_NativeSelectionMigrated', False, block=True)
+  params.put('NavigationModelCandidate', selection.MODEL_ID, block=True)
+  params.put_bool('NavigationModelDrivingEnabled', True, block=True)
+  params.put('NavigationModelManifest', str(device.permit.manifest_path), block=True)
+  params.put(selection.STATE_KEY, {'id': 'old-selected', 'source': 'chestnut', 'ref': selection.NAV_REF, 'state': 'selected'}, block=True)
+  original = params.put
+  target = 'ModelManager_ActiveBundleChestnut' if stage == 'slot' else 'ModelManager_NativeSelectionMigrated'
+  def interrupted(key, value, **kwargs):
+    original(key, value, **kwargs)
+    if key == target:
+      raise PowerLoss()
+  with monkeypatch.context() as patcher:
+    patcher.setattr(params, 'put', interrupted)
+    with pytest.raises(PowerLoss):
+      selection.migrate_native_selection(params)
+  reopened = Params(str(device.root / 'params'))
+  selection.migrate_native_selection(reopened)
+  assert selection.is_navigation_selected(reopened)
+  assert reopened.get_bool('ModelManager_NativeSelectionMigrated')
+  assert reopened.get('NavigationModelDrivingEnabled') is None
+
+
+def test_native_selection_survives_first_restart_and_repeated_ignition_cycles(device):
+  enable_existing(device)
+  for _ in range(4):
+    params = Params(str(device.root / 'params'))
+    for flag in (ParamKeyFlag.CLEAR_ON_MANAGER_START, ParamKeyFlag.CLEAR_ON_ONROAD_TRANSITION,
+                 ParamKeyFlag.CLEAR_ON_OFFROAD_TRANSITION):
+      params.clear_all(flag)
+    params.put_bool('IsOffroad', True, block=True)
+    params.put_bool('IsEngaged', False, block=True)
+    selection._recover_or_migrate(params)
+    assert selection.is_navigation_selected(params)
+    assert params.get('NavigationModelManifest') == str(device.permit.manifest_path)
+    assert params.get('NavigationModelDrivingEnabled') is None
+
+
+@pytest.mark.parametrize('ordinary', ['flip-flop', 'mountain-dew'])
+def test_bigv2_ordinary_bigv2_roundtrip_uses_one_slot(device, ordinary):
+  enable_existing(device)
+  request(device, ordinary)
+  assert selection.complete_ordinary_selection(device.params, 'chestnut', {'ref': ordinary}, ordinary)
+  assert not selection.is_navigation_selected(device.params)
+  assert device.params.get('ModelManager_ActiveBundleChestnut')['ref'] == ordinary
+  enable_existing(device)
+  assert device.params.get('ModelManager_ActiveBundleChestnut')['ref'] == selection.NAV_REF
+
+
+def test_bare_background_download_does_not_replace_explicit_big_selection(device):
+  enable_existing(device)
+  device.params.put('ModelManager_DownloadRef', 'flip-flop', block=True)
+  assert not selection.complete_ordinary_selection(device.params, 'chestnut', {'ref': 'flip-flop'}, 'flip-flop')
+  assert selection.is_navigation_selected(device.params)
+  assert device.params.get('ModelManager_DownloadRef') is None
+
+
+@pytest.mark.parametrize('role', ['loading', 'ready', 'small_loading', 'failed'])
+def test_runtime_status_never_claims_unpublished_fallback_is_running(device, role):
+  enable_existing(device)
+  device.params.put_bool('IsOffroad', False, block=True)
+  device.params.put('NavigationModelRuntimeState', {'candidate_id': selection.MODEL_ID, 'role': role, 'reason': 'test'}, block=True)
+  state = selection.selection_status(device.params)
+  assert state['last_reported_ref'] is None
+  assert 'publishing predictions' not in state['message']
+  assert state['state'] == ('failed' if role == 'failed' else 'loading')
+
+
+def test_native_bundle_resolves_shared_runner_and_survives_missing_files_or_upstream_catalog(device, monkeypatch):
+  from openpilot.cereal import custom
+  from openpilot.sunnypilot.models import helpers
+  enable_existing(device)
+  monkeypatch.setattr(helpers, 'chestnut_present', lambda: True)
+  monkeypatch.setattr(helpers, '_bundle_is_valid_locally', lambda bundle: False)
+  helpers.validate_active_bundles(device.params, {'chestnut': [custom.ModelManagerSP.ModelBundle(ref='flip-flop')]})
+  assert selection.is_navigation_selected(device.params)
+  bundle = helpers.get_selected_bundle(device.params, 'chestnut')
+  assert bundle.ref == selection.NAV_REF
+  assert bundle.generation == 0
+  assert bundle.models[0].type == custom.ModelManagerSP.Model.Type.navigation
+  assert helpers.get_active_model_runner(device.params) == int(custom.ModelManagerSP.Runner.tinygrad)
+
+
+def test_backup_native_slot_or_legacy_flags_do_not_silently_reselect(device):
+  before = snapshot(device.params)
+  remaining = selection.model_restore_settings(device.params, {
+    'ModelManager_ActiveBundleChestnut': selection.navigation_bundle(),
+    'NavigationModelDrivingEnabled': True, 'NavigationModelCandidate': selection.MODEL_ID,
+    'ModelManager_NativeSelectionMigrated': False, 'NavigationEnabled': True})
+  assert remaining == {'NavigationEnabled': True}
+  assert snapshot(device.params) == before
   assert device.params.get(selection.REQUEST_KEY) is None

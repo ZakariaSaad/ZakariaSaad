@@ -156,3 +156,11 @@ def run_migration(_params):
 
   # seed the chestnut model slot from the pre-split single slot
   _migrate_model_bundle_slots(_params)
+
+  # Convert a completed corrected-native selection into the ordinary Chestnut
+  # slot before any model process starts. Legacy flags are migration input only.
+  try:
+    from openpilot.sunnypilot.models.selection import _recover_or_migrate
+    _recover_or_migrate(_params)
+  except Exception as error:
+    cloudlog.exception(f"Error migrating native model selection: {error}")

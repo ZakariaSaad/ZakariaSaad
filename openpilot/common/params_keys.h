@@ -229,7 +229,9 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"LongitudinalPersonality", {PERSISTENT | BACKUP, INT, std::to_string(static_cast<int>(cereal::LongitudinalPersonality::STANDARD))}},
     {"NavigationEnabled", {PERSISTENT, BOOL, "0"}},
     {"NavigationModelInputsEnabled", {PERSISTENT, BOOL, "0"}},
+    // Legacy migration input only; never a runtime activation preference.
     {"NavigationModelDrivingEnabled", {PERSISTENT, BOOL, "0"}},
+    {"ModelManager_NativeSelectionMigrated", {PERSISTENT, BOOL, "0"}},
     {"NavigationModelCandidate", {PERSISTENT, STRING, "big-nav-v2-map-fp32"}},
     {"NavigationModelManifest", {PERSISTENT, STRING, ""}},
     {"NavigationModelRuntimeState", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION | DONT_LOG, JSON}},

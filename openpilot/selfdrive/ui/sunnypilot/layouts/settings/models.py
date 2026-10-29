@@ -12,7 +12,6 @@ from openpilot.cereal import custom
 from openpilot.sunnypilot.models.helpers import get_selected_bundle, resolve_bundle_by_ref
 from openpilot.sunnypilot.models.selection import NAV_REF, selection_status
 from openpilot.selfdrive.navigation.activation import candidate_status, list_candidates
-from openpilot.selfdrive.navigation.selection import selection_description
 from openpilot.selfdrive.ui.sunnypilot.model_selection import ModelSelectionRequest, selection_message
 from openpilot.common.constants import CV
 from openpilot.selfdrive.ui.ui_state import device, ui_state
@@ -142,29 +141,16 @@ class ModelsLayout(Widget):
                                         1, None, True, "", style.BUTTON_ACTION_WIDTH, None, True,
                                         lambda v: f"{v / 100:.2f} m")
 
-    self.navigation_status = button_item(tr("Navigation Model"), tr("DETAILS"),
-                                          lambda: selection_description(ui_state.params),
-                                          lambda: gui_app.push_widget(alert_dialog(selection_description(ui_state.params))))
-    self.navigation_driving = toggle_item_sp(tr("Navigation Model Driving"),
-                                               lambda: selection_description(ui_state.params),
-                                               initial_state=ui_state.params.get_bool('NavigationModelDrivingEnabled'),
-                                               callback=self._set_navigation_driving,
-                                               enabled=lambda: not self._model_selection_running() and ui_state.is_offroad())
     self.items = [self.small_model_item, self.big_model_item, self.cancel_download_item, self.download_item, self.refresh_item, self.clear_cache_item,
-                  self.navigation_status, self.navigation_driving, self.lane_turn_desire_toggle, self.lane_turn_value_control,
+                  self.lane_turn_desire_toggle, self.lane_turn_value_control,
                   self.lagd_toggle, self.delay_control, self.camera_offset]
 
   def _request_selection(self, source: str, ref: str | None, *, cancel: bool = False):
     if self._model_selection_running():
       return
     self._model_selection = ModelSelectionDialog(
-      ui_state.params, source=source, ref=ref, is_offroad=ui_state.is_offroad(), cancel=cancel, on_finished=lambda:
-      self.navigation_driving.action_item.set_state(ui_state.params.get_bool('NavigationModelDrivingEnabled')))
+      ui_state.params, source=source, ref=ref, is_offroad=ui_state.is_offroad(), cancel=cancel, on_finished=lambda: None)
     gui_app.push_widget(self._model_selection)
-
-  def _set_navigation_driving(self, enabled):
-    self._request_selection('chestnut', NAV_REF if enabled else None)
-    self.navigation_driving.action_item.set_state(ui_state.params.get_bool('NavigationModelDrivingEnabled'))
 
   def _model_selection_running(self):
     return self._model_selection is not None and self._model_selection.worker.is_alive()
@@ -246,10 +232,6 @@ class ModelsLayout(Widget):
       bundle = get_selected_bundle(ui_state.params, source)
       name = bundle.internalName if bundle else default_model_name(source)
       color = ON_COLOR if not ui_state.is_offroad() and source == carry_source and name == carry_internal else rl.LIGHTGRAY
-      if source == 'chestnut' and ui_state.params.get_bool('NavigationModelDrivingEnabled'):
-        navigation = candidate_status(ui_state.params)
-        name = navigation['display_name']
-        color = ON_COLOR if not ui_state.is_offroad() and carry_source == 'chestnut' and carry_internal == navigation['id'] else rl.LIGHTGRAY
       name = "● " + name
       if source == "chestnut":
         if big_state == 'failed':
@@ -274,18 +256,10 @@ class ModelsLayout(Widget):
   def _status_note(self) -> str:
     """The failover story for the Model Status row. One-way big -> small, and the
     fallback is runner-matched: a Default big can only fall back to the Default
-    small (stock modeld), a custom big has no automatic fallback yet."""
+    small (stock modeld), a custom big uses the prepared ordinary small fallback."""
     requested = selection_status(ui_state.params)
     if requested.get('state') in ('pending', 'preparing', 'downloading', 'failed', 'cancelled') or requested.get('selected_ref') == NAV_REF:
       return selection_message(requested)
-    navigation = candidate_status(ui_state.params)
-    if navigation.get('selected'):
-      if not navigation['enabled']:
-        return tr("Navigation candidate selected locally. Navigation Model Driving is off; ordinary model selections remain in use.")
-      if big_model_state() == 'failed':
-        return tr("Navigation model unavailable. The configured ordinary small model takes over until the next drive.")
-      return tr("{} is requested. Only the active model runs; the configured ordinary small model remains available for fallback.").format(
-        navigation['display_name'])
     if not ui_state.chestnut_present:
       return ""
     big_bundle = get_selected_bundle(ui_state.params, "chestnut")
@@ -390,7 +364,7 @@ class ModelsLayout(Widget):
     roots = [TreeNode("Default", {'display_name': default_model_name(source)})]
     for candidate in navigation:
       state = tr("installed local, navigation aware") if candidate.get('installed') else tr("download and verify on selection")
-      state += tr("; enables navigation driving after verification")
+      state += tr("; selected after verification")
       roots.append(TreeNode(NAVIGATION_PREFIX + candidate['id'], {'display_name': f"{candidate['display_name']} ({state})"}))
     folders_list = [TreeFolder("", roots)]
     folders_list.extend(self._get_folders(favorites, bundles))
@@ -398,15 +372,10 @@ class ModelsLayout(Widget):
 
   @staticmethod
   def _slot_active_ref(source: str) -> str:
-    if source == 'chestnut':
-      navigation = candidate_status(ui_state.params)
-      if navigation.get('selected'):
-        return NAVIGATION_PREFIX + navigation['id']
     bundle = get_selected_bundle(ui_state.params, source)
     return bundle.ref if bundle else "Default"
 
   def _update_state(self):
-    self.navigation_driving.action_item.set_state(ui_state.params.get_bool('NavigationModelDrivingEnabled'))
     advanced_controls: bool = ui_state.params.get_bool("ShowAdvancedControls")
     turn_desire: bool = ui_state.params.get_bool("LaneTurnDesire")
     live_delay: bool = ui_state.params.get_bool("LagdToggle")
@@ -433,12 +402,6 @@ class ModelsLayout(Widget):
       bundle = get_selected_bundle(ui_state.params, item_source)
       name = bundle.displayName if bundle else default_model_name(item_source)
       color = ON_COLOR if not ui_state.is_offroad() and item_source == carry_source and name == carry_display else style.ITEM_TEXT_VALUE_COLOR
-      if item_source == 'chestnut':
-        navigation = candidate_status(ui_state.params)
-        if navigation.get('selected'):
-          name = navigation['display_name'] + (tr(" (navigation requested)") if navigation['enabled'] else tr(" (local; driving off)"))
-          active = not ui_state.is_offroad() and carry_source == 'chestnut' and carry_display == navigation['display_name']
-          color = ON_COLOR if active else style.ITEM_TEXT_VALUE_COLOR
       item.action_item.set_value(name, color)
 
     note = self._status_note()

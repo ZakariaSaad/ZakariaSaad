@@ -1,8 +1,8 @@
 # Corrected Bigv2: integration and retained evidence
 
 Current model: **Nav Model Integration Bigv2 — FP32 map correction**,
-`big-nav-v2-map-fp32`. It is approved for the owner's experimental activation of
-the exact artifact below. The original `big-nav-v2` is retired: it is neither a
+`big-nav-v2-map-fp32`. Explicit selection through the ordinary Big Models interface
+loads the exact experimental artifact below after normal file admission. The original `big-nav-v2` is retired: it is neither a
 selection option nor a rollback target. Historical files and evidence are kept.
 
 Use [SunnyLink model and EPS controls](sunnylink-model-and-eps-controls.md) for
@@ -11,7 +11,7 @@ registration-first, separate-SSH-enable workflow.
 
 ## Normal selection
 
-Update the same installed `mvl-honda-eps-selector21-chestnut-v28` branch through
+Update the installed `mvl-sp-steer-eps-nav` branch through
 **Settings → Software** and restart when prompted. In SunnyLink, open **Models →
 Big Models → Navigation models**, choose the corrected FP32 model and **Activate**.
 The entry identifies itself as **installed local** or **downloadable**. The equivalent comma menu is **Settings → Models → Big Models**.
@@ -20,17 +20,16 @@ Explicit selection reuses an installed `.sptg` whose SHA256 matches the approved
 artifact. If needed, it downloads and verifies the published model and sidecars,
 installs complete files atomically, and performs missing local registration.
 The existing SunnyLink progress/cancel controls track this request. It verifies
-approved provenance/warp/fallback and requests Navigation Model Driving ON only
+pinned provenance/warp/fallback and commits the normal Big Model slot only
 after admission succeeds off road and disengaged. No separate receipt preparation,
 compilation, GPU diagnostic, hidden parameter edit or new approval is needed.
 Existing valid registration is reused. A failed, cancelled or superseded request
 preserves the prior valid selection and reports its reason.
 
-Selecting **Mountain Dew Model v3 (Default)** or another ordinary big model
-withdraws navigation driving after that replacement is ready. **Models →
-Navigation Model → Navigation Model Driving → OFF** withdraws the request without
-altering saved ordinary model selections. OFF and ordinary choices persist across
-reboot. Maps remain available. Selecting any model never engages controls.
+Selecting **Mountain Dew Model v3 (Default)**, Flip Flop or another ordinary big
+model replaces Bigv2 in the same slot after that replacement is ready. There is
+no separate Navigation Model Driving preference. Explicit selections persist
+across reboots; maps remain independent. Selecting a model never engages controls.
 
 Existing files used by automatic preparation:
 
@@ -99,15 +98,16 @@ Honda EPS and MVL algorithms, safety, firmware, Selector 21 runtime and routing
 are unchanged. The current UI/catalog overlay and shared selection queue are
 described in the controls guide.
 
-## Approval, limitations and recovery
+## Historical authorization, limitations and recovery
 
 The final review of integration commit
 `c2c0d72a9451823e980249203672597e74f7aa30`, followed by owner authorization,
 approved this corrected candidate in
 `086fd710f3ea3b5c1088003a1d7e1132f96c2cfe`. The historical compiler report's
 `candidate_activation_approved: false` remains unchanged: compilation evidence
-and later branch authorization are different records. Current selection preserves
-the exact approved identities; it cannot approve unknown artifacts.
+and later owner authorization are different historical records. The current
+lifecycle removes the redundant activation policy flag and uses explicit model
+selection. Exact artifact/provenance checks remain; unknown artifacts are refused.
 
 The physical compiler/source-reload comparisons establish the reported synthetic
 results, not sustained real-world numerical stability or reproduction of the
@@ -115,8 +115,8 @@ original failing road frame. Existing finite-output rejection and single-active-
 model small fallback remain. The previously observed roughly one-second first
 small-model invocation during fallback is not eliminated by this cleanup.
 
-For recovery, turn Navigation Model Driving OFF and select Mountain Dew or a
-known-working ordinary big model through the same UI while off road. Do not
+For recovery, select Mountain Dew, Flip Flop or a known-working ordinary big model
+through the same UI while off road. No additional OFF action is required. Do not
 restore original Bigv2. No package deletion, firmware restoration, service change
 or fresh installation is required.
 

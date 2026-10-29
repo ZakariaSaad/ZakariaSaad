@@ -1,7 +1,7 @@
 """Register existing Bigv2 files without GPU access, downloads or compilation.
 
-Preparation is separate from branch approval and never enables driving. Only the
-small warp and provenance are copied; existing model/source weights stay in place.
+Registration never selects a driving model. Only the small warp and provenance
+are copied; existing model/source weights stay in place.
 """
 import argparse
 from contextlib import contextmanager
@@ -124,33 +124,23 @@ def _release_sources(directory):
   return sources
 
 
-def _publish_selection(params, model_id, manifest):
-  """Publish both pointers with readback; retain the old pair on failed writes."""
-  previous = {key: params.get(key) for key in ('NavigationModelCandidate', 'NavigationModelManifest')}
+def _publish_registration(params, manifest):
+  """Publish registration metadata only; selection belongs to ModelManager."""
+  key = 'NavigationModelManifest'
+  previous = params.get(key)
   try:
-    for key, value in (('NavigationModelCandidate', model_id), ('NavigationModelManifest', manifest)):
-      params.put(key, value, block=True)
-      _require(params.get(key) == value, f'Could not persist {key}; registration cancelled')
-    _require(not params.get_bool('NavigationModelDrivingEnabled'), 'Driving permission changed while publishing registration')
+    params.put(key, manifest, block=True)
+    _require(params.get(key) == manifest, f'Could not persist {key}; registration cancelled')
   except Exception as error:
-    failures = []
     try:
-      params.put_bool('NavigationModelDrivingEnabled', False, block=True)
-      _require(not params.get_bool('NavigationModelDrivingEnabled'), 'Could not persist Navigation Model Driving OFF')
+      if params.get(key) != previous:
+        if previous is None:
+          params.remove(key)
+        else:
+          params.put(key, previous, block=True)
+      _require(params.get(key) == previous, f'Could not restore {key}')
     except Exception as restore_error:
-      failures.append(str(restore_error))
-    for key, value in previous.items():
-      try:
-        if params.get(key) != value:
-          if value is None:
-            params.remove(key)
-          else:
-            params.put(key, value, block=True)
-        _require(params.get(key) == value, f'Could not restore {key}')
-      except Exception as restore_error:
-        failures.append(str(restore_error))
-    if failures:
-      raise ExperimentalCatalogError(f'{error}; registration rollback failed: {"; ".join(failures)}') from error
+      raise ExperimentalCatalogError(f'{error}; registration rollback failed: {restore_error}') from error
     raise
 
 
@@ -159,9 +149,9 @@ def prepare_existing_model(params=None, *, is_offroad: bool, model_dir=MODEL_DIR
                            sidecars_dir=None) -> dict:
   """Verify existing corrected bytes and retain their immutable local package.
 
-  Shared model selection uses publish_selection=False: preparation never changes
-  the previous selected model or enable request while replacement files are being
-  checked. Direct registration publishes a disabled selection after validation.
+  The legacy publish_selection argument now controls registration metadata only.
+  Shared model selection uses False and commits the canonical bundle separately;
+  direct registration publishes the verified manifest without selecting a model.
   Neither mode executes kernels, deletes legacy evidence, or copies model weights.
   """
   params = params if params is not None else Params()
@@ -171,9 +161,6 @@ def prepare_existing_model(params=None, *, is_offroad: bool, model_dir=MODEL_DIR
            'Run existing-model registration as the checkout owner (comma), without sudo; no elevated hardware access is needed')
   _offroad(params, is_offroad)
   require_offroad(params)
-  if publish_selection:
-    params.put_bool('NavigationModelDrivingEnabled', False, block=True)
-    _require(not params.get_bool('NavigationModelDrivingEnabled'), 'Could not persist Navigation Model Driving OFF')
   directory, root = Path(model_dir).resolve(strict=True), Path(package_root).resolve()
   _require(root != CHECKOUT and not root.is_relative_to(CHECKOUT), 'Registration packages must remain outside the installed source checkout')
   root.mkdir(parents=True, exist_ok=True)
@@ -233,16 +220,14 @@ def prepare_existing_model(params=None, *, is_offroad: bool, model_dir=MODEL_DIR
     receipt = _package_receipt(package, identity, profile, model_id=model_id)
     _offroad(params, is_offroad)
     require_offroad(params)
-    if publish_selection:
-      _require(not params.get_bool('NavigationModelDrivingEnabled'), 'Driving permission changed during preparation; registration refused')
-    receipt.update(status='registered_disabled', registered=True)
+    receipt.update(status='registered', registered=True)
     # Keep previous complete receipts intact until all file checks succeed. Each
     # receipt publication is atomic, and interrupted preparations are reusable.
     _write_json(receipt_path, receipt)
     if not (package / 'registration.json').exists():
       _write_json(package / 'registration.json', receipt)
     if publish_selection:
-      _publish_selection(params, model_id, receipt['manifest_path'])
+      _publish_registration(params, receipt['manifest_path'])
     return receipt
 
 

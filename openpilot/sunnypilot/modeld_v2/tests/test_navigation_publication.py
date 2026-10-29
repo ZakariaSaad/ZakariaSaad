@@ -26,7 +26,7 @@ class EndOfFrames(Exception):
 class TestNavigationPublication(unittest.TestCase):
   def test_actual_main_runs_one_selected_model_and_uses_small_only_after_failure(self):
     for transition in ('healthy', 'missing_navigation', 'route_change', 'destination_cleared', 'navigation_off',
-                       'permission_revoked', 'candidate_failure', 'candidate_nonfinite', 'feature_disabled'):
+                       'selection_changed', 'legacy_flag_ignored', 'candidate_failure', 'candidate_nonfinite', 'small_failure', 'ordinary_selected'):
       with self.subTest(transition=transition):
         self._exercise_transition(transition)
 
@@ -67,7 +67,7 @@ class TestNavigationPublication(unittest.TestCase):
       def candidate_run(bufs, transforms, inputs, *args):
         candidate_calls.append(camera.frame_id)
         captured_inputs.append((camera.frame_id, {key: value.copy() for key, value in inputs.items()}))
-        if transition == 'candidate_failure' and camera.frame_id == 2:
+        if transition in ('candidate_failure', 'small_failure') and camera.frame_id == 2:
           raise RuntimeError('synthetic candidate inference failure')
         return real_candidate_run(bufs, transforms, inputs, *args)
 
@@ -79,6 +79,9 @@ class TestNavigationPublication(unittest.TestCase):
 
       def small_run(bufs, transforms, inputs, *args):
         small_calls.append((camera.frame_id, {key: value.copy() for key, value in inputs.items()}))
+        if transition == 'small_failure':
+          assert params.get('NavigationModelRuntimeState')['role'] == 'small_loading'
+          raise RuntimeError('synthetic ordinary small inference failure')
         return Parser().parse_outputs({key: raw_small[np.newaxis, value].copy() for key, value in slices.items()})
 
       small = SimpleNamespace(chestnut=False, numpy_inputs={'action_t': np.zeros(2, np.float32)},
@@ -96,8 +99,8 @@ class TestNavigationPublication(unittest.TestCase):
         return {'navigation': nav, 'nav_map': np.full((256, 256), 0 if neutral else 128, np.float32)}
 
       reader = SimpleNamespace(read_for_model=Mock(side_effect=read_inputs))
-      if transition == 'feature_disabled':
-        params.put_bool('NavigationModelDrivingEnabled', False)
+      if transition == 'ordinary_selected':
+        params.put('ModelManager_ActiveBundleChestnut', {'ref': 'ordinary'})
 
       class Camera:
         width, height, buffer_len = 1344, 760, 1622016
@@ -136,7 +139,10 @@ class TestNavigationPublication(unittest.TestCase):
           self.frame += 1
           self.data['narrowRoadCameraState'].frameId = camera.frame_id
           if camera.frame_id == 2:
-            if transition == 'permission_revoked':
+            if transition == 'selection_changed':
+              # Simulate corrupted/on-road state outside the guarded UI: reject it.
+              params.put('ModelManager_ActiveBundleChestnut', {'ref': 'ordinary'})
+            elif transition == 'legacy_flag_ignored':
               params.put_bool('NavigationModelDrivingEnabled', False)
             elif transition == 'navigation_off':
               params.put_bool('NavigationEnabled', False)
@@ -153,9 +159,9 @@ class TestNavigationPublication(unittest.TestCase):
       gpu_state = SimpleNamespace(big=False, send=Mock())
       for name, value in {'Params': Mock(return_value=params), 'setproctitle': Mock(),
                           'get_active_bundle': Mock(),
-                          '_find_driving_pkl': Mock(return_value=None if transition == 'feature_disabled' else 'ordinary-big.sptg'),
+                          '_find_driving_pkl': Mock(return_value=None if transition == 'ordinary_selected' else 'ordinary-big.sptg'),
                           'chestnut_present': Mock(return_value=True), 'VisionIpcClient': clients,
-                          'authorize_runtime': Mock(return_value=None if transition == 'feature_disabled' else permit),
+                          'authorize_runtime': Mock(return_value=None if transition == 'ordinary_selected' else permit),
                           'load_navigation_model': Mock(return_value=candidate), 'ModelState': Mock(return_value=small),
                           'NavigationInputs': Mock(return_value=reader), 'wait_for_chestnut': Mock(),
                           'config_realtime_process': Mock(),
@@ -166,19 +172,25 @@ class TestNavigationPublication(unittest.TestCase):
         stack.enter_context(patch.object(modeld, name, value))
       stack.enter_context(patch.object(modeld.gc, 'disable'))
       stack.enter_context(patch.object(modeld.messaging, 'log_from_bytes', return_value=SimpleNamespace(brand='honda', longitudinalActuatorDelay=.2)))
-      with self.assertRaises(EndOfFrames):
-        modeld.main()
+      if transition == 'small_failure':
+        with self.assertRaisesRegex(RuntimeError, 'ordinary small inference failure'):
+          modeld.main()
+      else:
+        with self.assertRaises(EndOfFrames):
+          modeld.main()
 
       initialization_errors = [error for error in load_errors if 'chestnut load failed' in error[0][0]]
       self.assertEqual(initialization_errors, [], initialization_errors)
       published = [message['modelV2'] for name, message in sent if name == 'modelV2']
-      failure = transition in ('candidate_failure', 'candidate_nonfinite', 'permission_revoked')
-      disabled = transition == 'feature_disabled'
-      expected_ids = [1, 3] if failure else [1, 2, 3]
+      failure = transition in ('candidate_failure', 'candidate_nonfinite', 'selection_changed', 'small_failure')
+      small_failed = transition == 'small_failure'
+      disabled = transition == 'ordinary_selected'
+      expected_ids = [1] if small_failed else [1, 3] if failure else [1, 2, 3]
       self.assertEqual([message['frameId'] for message in published], expected_ids)
-      self.assertEqual([message['big'] for message in published], [False] * 3 if disabled else [True, False] if failure else [True] * 3)
+      expected_big = [False] * 3 if disabled else [True] if small_failed else [True, False] if failure else [True] * 3
+      self.assertEqual([message['big'] for message in published], expected_big)
       frame_candidate_calls = [frame for frame in candidate_calls if frame > 0]
-      expected_candidate_calls = [] if disabled else [1] if transition == 'permission_revoked' else [1, 2] if failure else [1, 2, 3]
+      expected_candidate_calls = [] if disabled else [1] if transition == 'selection_changed' else [1, 2] if failure else [1, 2, 3]
       self.assertEqual(frame_candidate_calls, expected_candidate_calls)
       self.assertEqual([frame for frame, _ in small_calls], [1, 2, 3] if disabled else [3] if failure else [])
       # Normal selected-model warmup is separate from production frame execution.
@@ -211,9 +223,11 @@ class TestNavigationPublication(unittest.TestCase):
           self.assertEqual(changed_inputs['navigation'][10], 1.)
           self.assertTrue(all(np.all(tensor.numpy() == 3) for tensor in candidate.adapter.input_queues.values()))
         state = params.get('NavigationModelRuntimeState')
-        self.assertEqual(state['active_source'], 'qcom' if failure else 'chestnut')
+        self.assertEqual(state['active_source'], None if small_failed else 'qcom' if failure else 'chestnut')
+        self.assertEqual(state['role'], 'failed' if small_failed else 'ordinary_small' if failure else 'candidate')
       if failure:
-        self.assertAlmostEqual(published[-1]['action']['desiredCurvature'], .02)
+        if not small_failed:
+          self.assertAlmostEqual(published[-1]['action']['desiredCurvature'], .02)
         np.testing.assert_allclose(small_calls[0][1]['action_t'], [modeld.prediction_delay(10.) + .1 + .05 + .025, .2 + .2 + .05 + .025])
         self.assertIs(params.get('ChestnutActive'), False)
       if transition == 'candidate_nonfinite':

@@ -300,10 +300,6 @@ def needs_default_chestnut_download(params: Params | None = None, chestnut_prese
   if not chestnut_present:
     return False
   params = params or Params()
-  # Navigation uses its own reviewed native artifact. Its empty ordinary slot is
-  # not an implicit request to fetch a second large driving model.
-  if params.get_bool("NavigationModelDrivingEnabled") is True:
-    return False
   if chestnut_compiled():
     return False
   if get_selected_bundle(params, "chestnut") is not None:
@@ -372,7 +368,6 @@ class DefaultChestnutDownloader:
       require_offroad(manager.params)
       if (manager.params.get("ModelManager_DownloadRef") is not None or
           manager.params.get("ModelManager_SelectionRequest") != selection_request or
-          manager.params.get_bool("NavigationModelDrivingEnabled") is True or
           get_selected_bundle(manager.params, "chestnut") is not None):
         raise RuntimeError("Default Chestnut installation deferred after model selection changed")
       install_staged_files(staging, [artifact.fileName for artifact in artifacts])

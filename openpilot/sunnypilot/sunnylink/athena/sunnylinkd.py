@@ -57,9 +57,9 @@ BLOCKED_PARAMS = {
   "ParamsVersion",         # Device-managed version counter
   "IsOffroad", "IsEngaged", "CarParams", "CarParamsPersistent", "CarParamsSP", "CarParamsSPPersistent",
   "HondaEpsFirmwareVerifiedSha256", "HondaEpsFirmwareAttestation", "HondaEpsFirmwareDriveConfig", "HondaEpsFirmwareStatus",
-  "NavigationModelCandidate", "NavigationModelManifest", "NavigationModelRuntimeState", "NavigationModelInputsEnabled",
+  "NavigationModelDrivingEnabled", "NavigationModelCandidate", "NavigationModelManifest", "NavigationModelRuntimeState", "NavigationModelInputsEnabled",
   "ModelManager_SelectionRequest", "ModelManager_SelectionState", "ModelManager_SelectionStatus",
-  "ModelManager_ActiveBundleUSBGPU", "ModelManager_BundleSlotsMigrated", "ModelRunnerTypeCache",
+  "ModelManager_ActiveBundleUSBGPU", "ModelManager_BundleSlotsMigrated", "ModelManager_NativeSelectionMigrated", "ModelRunnerTypeCache",
 }
 
 
@@ -257,6 +257,8 @@ def saveParams(params_to_update: dict[str, str], compression: bool = False) -> N
   from openpilot.sunnypilot.sunnylink.utils import _convert_param_to_type
   from openpilot.selfdrive.navigation.errors import NavigationModelDisabled
   device_params = Params()
+  if 'NavigationModelDrivingEnabled' in params_to_update:
+    raise NavigationModelDisabled('Navigation Model Driving is retired; select a model in Big Models instead')
   # Critical writes use shared guarded interfaces; they are never raw Params
   # writes. Refusals propagate to SunnyLink rather than reporting false success.
   pending = {key: value for key, value in params_to_update.items() if key not in BLOCKED_PARAMS}
@@ -278,8 +280,6 @@ def saveParams(params_to_update: dict[str, str], compression: bool = False) -> N
       raw = base64.b64decode(pending.pop(key), validate=True)
       if compression:
         raw = gzip.decompress(raw)
-      if device_params.get_type(key) == ParamKeyType.BOOL and raw.lower() not in (b'true', b'false', b'1', b'0'):
-        raise NavigationModelDisabled('Navigation driving request must be a boolean')
       updates[key] = _convert_param_to_type(raw, device_params.get_type(key))
     model_selection.apply_remote_model_settings(device_params, updates)
   for key, value in pending.items():

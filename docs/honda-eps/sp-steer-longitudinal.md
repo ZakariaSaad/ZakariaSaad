@@ -1,5 +1,10 @@
 # Authoritative sp-steer longitudinal integration
 
+> **Model lifecycle follow-up:** [Bigv2 model lifecycle](bigv2-model-lifecycle.md)
+> supersedes the separate navigation-driving selection/approval workflow described
+> in this historical verification report. Current selection uses the ordinary Big
+> Model slot; exact artifacts, EPS and longitudinal code remain preserved.
+
 Repository: `ZakariaSaad/ZakariaSaad`, branch `mvl-sp-steer-eps-nav`.
 Starting branch: `bc4af6400ff555a6d39eb7980714307347ba3d11`.
 Authoritative MVL `sp-steer`: `0f5085fc3f713da58d236ed3822b9d27bc0e9917`.

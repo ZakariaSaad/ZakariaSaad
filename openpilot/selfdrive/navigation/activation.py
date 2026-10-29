@@ -1,7 +1,8 @@
-"""Branch-reviewed navigation model admission, separate from map display.
+"""Native Bigv2 file/contract admission inside the shared model loading path.
 
-A local registration or a UI checkbox cannot approve a driving artifact.
-Only a branch-reviewed candidate with pinned compiled hashes can issue a permit.
+The ordinary Chestnut selection is the only runtime selection authority. This
+module verifies pinned bytes, provenance and tensor/fallback compatibility; it
+does not implement a separate activation preference or approval workflow.
 """
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,7 +24,7 @@ def _text(value, default=''):
 
 
 def _candidate(params, candidate_id=None):
-  identifier = candidate_id if candidate_id is not None else _text(params.get('NavigationModelCandidate', return_default=True), MODEL_ID) or MODEL_ID
+  identifier = candidate_id if candidate_id is not None else MODEL_ID
   if is_retired(identifier):
     raise NavigationModelDisabled(RETIRED_REASON)
   registry = _json_file(REGISTRY)
@@ -141,9 +142,6 @@ def candidate_status(params=None, *, candidate_id=None) -> dict:
       reasons.append('Navigation model software integration regressions have not been reviewed')
     if entry.get('artifact_evidence_reviewed') is not True:
       reasons.append('Artifact, compiler verification and camera-warp evidence have not been reviewed')
-    approved = entry.get('activation_approved') is True
-    if not approved:
-      reasons.append('Explicit user authorization for Navigation Model Driving is still required')
     if any(not isinstance(entry.get(key), str) or re.fullmatch('[0-9a-f]{64}', entry[key]) is None
            for key in ('artifact_sha256', 'warp_sha256', 'metadata_sha256', 'compiler_sha256', 'compiler_report_sha256')):
       reasons.append('Reviewed model, warp, metadata, compiler and verification-report hashes are not pinned')
@@ -177,17 +175,19 @@ def candidate_status(params=None, *, candidate_id=None) -> dict:
     if fallback_reason:
       reasons.append(fallback_reason)
     software_reviewed = entry.get('software_contract_reviewed') is True and entry.get('software_integration_reviewed') is True
+    from openpilot.sunnypilot.models.navigation_bundle import is_navigation_selected
+    selected = is_navigation_selected(params)
     return {'id': entry['id'], 'display_name': entry['display_name'], 'eligible': not reasons,
-            'reason': '; '.join(reasons), 'enabled': params.get_bool('NavigationModelDrivingEnabled'),
-            'registered': registered, 'installed': installed, 'artifact_path': artifact_path, 'manifest_path': manifest, 'approved': approved,
-            'selected': _text(params.get('NavigationModelCandidate')) == entry['id'],
+            'reason': '; '.join(reasons), 'enabled': selected,
+            'registered': registered, 'installed': installed, 'artifact_path': artifact_path, 'manifest_path': manifest,
+            'selected': selected,
             'blockers': reasons, 'software_compatible': software_reviewed,
             'artifact_evidence_reviewed': entry.get('artifact_evidence_reviewed') is True,
             'runtime_compatibility': entry.get('runtime_compatibility', 'unverified'),
             'local_file_validation': 'Required at runtime admission; registration status checks declared identities only'}
   except (ValueError, OSError, TypeError, KeyError) as error:
     return {'id': '', 'display_name': 'Navigation model', 'eligible': False, 'reason': str(error), 'enabled': False,
-            'registered': False, 'installed': False, 'artifact_path': '', 'manifest_path': '', 'approved': False, 'selected': False,
+            'registered': False, 'installed': False, 'artifact_path': '', 'manifest_path': '', 'selected': False,
             'blockers': [str(error)], 'software_compatible': False, 'artifact_evidence_reviewed': False,
             'runtime_compatibility': 'unverified'}
 
@@ -228,11 +228,10 @@ class DrivingPermit:
 
 
 def admit_candidate(params=None, *, candidate_id=None) -> DrivingPermit:
-  """Read-only enable/startup admission, shared by Settings, SSH and modeld.
+  """Read-only installation/startup admission; does not change model selection.
 
-  A selected or enabled flag is not required here. No Params are written and no
-  model is loaded or executed. The returned permit still requires the actual
-  driving flag and selection before runtime use.
+  Preparation can verify before committing the shared selected slot. Runtime use
+  additionally requires that same native model in the canonical Chestnut slot.
   """
   params = params if params is not None else Params()
   registry_fingerprint = _fingerprint(REGISTRY)
@@ -271,7 +270,7 @@ def admit_candidate(params=None, *, candidate_id=None) -> DrivingPermit:
     raise NavigationModelDisabled('Local compiler source or verification report differs from the reviewed evidence')
   if _fingerprint(REGISTRY) != registry_fingerprint or _fingerprint(manifest) != manifest_fingerprint or \
      tuple(_fingerprint(path) for path in artifact_paths) != fingerprints or _fallback_identity(params) != fallback_identity:
-    raise NavigationModelDisabled('Navigation artifacts or branch approval changed during admission')
+    raise NavigationModelDisabled('Navigation artifacts or compatibility definition changed during admission')
   permit = DrivingPermit(entry.model_id, entry.artifact_path, entry.warp_path, manifest, metadata_path, entry.input_specs, entry.metadata,
                          approved['action_contract'], entry.warp_frame_size, registry_fingerprint,
                          tuple(_fingerprint(path) for path in (entry.artifact_path, entry.warp_path, manifest, metadata_path)), fallback_identity, _PERMIT_SEAL)
@@ -279,9 +278,10 @@ def admit_candidate(params=None, *, candidate_id=None) -> DrivingPermit:
 
 
 def authorize_runtime(params=None) -> DrivingPermit | None:
-  """Hash and verify once at startup. OFF mode never opens candidate files."""
+  """Verify the selected native bundle in the ordinary big-model loader thread."""
   params = params if params is not None else Params()
-  if not params.get_bool('NavigationModelDrivingEnabled'):
+  from openpilot.sunnypilot.models.navigation_bundle import is_navigation_selected
+  if not is_navigation_selected(params):
     return None
   permit = admit_candidate(params)
   validate_runtime_permit(permit, params=params)
@@ -300,7 +300,7 @@ def validate_admission(permit, params=None, *, allow_unselected_manifest=False) 
     raise NavigationModelDisabled('Navigation model manifest changed')
   if _fingerprint(REGISTRY) != permit.registry_fingerprint or \
      tuple(_fingerprint(path) for path in (permit.artifact_path, permit.warp_path, permit.manifest_path, permit.metadata_path)) != permit.file_fingerprints:
-    raise NavigationModelDisabled('Navigation artifacts or branch eligibility changed after admission')
+    raise NavigationModelDisabled('Navigation artifacts or compatibility definition changed after admission')
   try:
     fallback_changed = _fallback_identity(params) != permit.fallback_identity
   except (OSError, ValueError, TypeError, KeyError) as error:
@@ -310,11 +310,12 @@ def validate_admission(permit, params=None, *, allow_unselected_manifest=False) 
 
 
 def validate_runtime_permit(permit, input_specs=None, params=None) -> None:
-  """Cheap per-frame revocation and native contract check; never rehash weights."""
+  """Cheap per-frame selection/file contract check; never rehash weights."""
   params = params if params is not None else Params()
   validate_admission(permit, params)
-  if not params.get_bool('NavigationModelDrivingEnabled') or _candidate(params)['id'] != permit.model_id:
-    raise NavigationModelDisabled('Navigation model driving permission was withdrawn')
+  from openpilot.sunnypilot.models.navigation_bundle import is_navigation_selected
+  if not is_navigation_selected(params):
+    raise NavigationModelDisabled('Native navigation model is no longer selected')
   if input_specs is not None:
     import numpy as np
 

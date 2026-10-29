@@ -42,7 +42,7 @@ class TestDrivingNavigation(unittest.TestCase):
     class InitializationFinished(Exception):
       pass
 
-    for mode, expected_loads in (('approved', [False]), ('off', [True, False]), ('blocked', [True, False]),
+    for mode, expected_loads in (('approved', [False]), ('off', [True, False]), ('blocked', [False]),
                                  ('candidate_failed', [False]), ('small_failed', [False])):
       with self.subTest(mode=mode), ExitStack() as stack:
         params = ParamsStub(NavigationModelDrivingEnabled=mode != 'off', NavigationModelCandidate=MODEL_ID, ChestnutActive=True)
@@ -70,6 +70,7 @@ class TestDrivingNavigation(unittest.TestCase):
         clients.available_streams.return_value = [modeld.VisionStreamType.VISION_STREAM_NARROW_ROAD]
         device = physical_amd_fixture()
         for name, value in {'Params': Mock(return_value=params), 'setproctitle': Mock(), 'get_active_bundle': Mock(),
+                            'is_navigation_selected': Mock(return_value=mode != 'off'),
                             '_find_driving_pkl': Mock(return_value='selected-ordinary-big.sptg'), 'chestnut_present': Mock(return_value=True),
                             'wait_for_chestnut': Mock(), 'VisionIpcClient': clients, 'Device': {'AMD': device},
                             'validate_runtime_permit': Mock(), '_reject_navigation_publication': Mock(),
@@ -87,16 +88,20 @@ class TestDrivingNavigation(unittest.TestCase):
         if mode in ('approved', 'candidate_failed', 'small_failed'):
           candidate.warmup.assert_called_once()
           big.warmup.assert_not_called()
-        else:
+        elif mode == 'off':
           big.warmup.assert_called_once()
+        else:
+          big.warmup.assert_not_called()
         small.warmup.assert_not_called()
         small.run.assert_not_called()
         candidate.run.assert_not_called()
         if mode == 'approved':
           self.assertIs(params.get('ChestnutActive'), True)
-          self.assertEqual(params.get('NavigationModelRuntimeState')['active_source'], 'chestnut')
+          self.assertEqual(params.get('NavigationModelRuntimeState')['role'], 'ready')
+          self.assertIsNone(params.get('NavigationModelRuntimeState')['active_source'])
         elif mode == 'candidate_failed':
-          self.assertEqual(params.get('NavigationModelRuntimeState')['active_source'], 'qcom')
+          self.assertEqual(params.get('NavigationModelRuntimeState')['role'], 'small_loading')
+          self.assertIsNone(params.get('NavigationModelRuntimeState')['active_source'])
           self.assertTrue(params.get_bool('OnroadCycleRequested'), 'Preserve existing SunnyPilot initialization recovery')
         modeld.PubMaster.assert_not_called()
 

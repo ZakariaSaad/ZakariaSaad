@@ -1,5 +1,10 @@
 # sp-steer continuation: preservation inventory
 
+> **Model lifecycle follow-up:** [Bigv2 model lifecycle](bigv2-model-lifecycle.md)
+> supersedes the separate navigation-driving selection/approval workflow described
+> in this historical verification report. Current selection uses the ordinary Big
+> Model slot; exact artifacts, EPS and longitudinal code remain preserved.
+
 **Longitudinal follow-up:** the owner subsequently requested exact upstream
 longitudinal behavior. The retained ACC/Experimental/DEC modes described in the
 initial migration are now removed. [The current longitudinal review](sp-steer-longitudinal.md)
@@ -251,8 +256,8 @@ No uninstall, installation URL change or routine SSH command is needed.
    The corrected model is reused by SHA256; it is not automatically reselected.
 5. SunnyLink **Models → Big Models → Navigation models** still selects corrected
    Bigv2 through Download/Verify/Install/Select as needed. An explicit admitted
-   selection requests navigation driving ON; choosing Mountain Dew/another
-   ordinary big model withdraws that request. Maps/destinations remain separate.
+   selection sets the canonical Big Model slot; choosing Mountain Dew/another
+   ordinary big model replaces that choice without a second toggle. Maps/destinations remain separate.
    Insight EPS remains under **SunnyLink → Steering → Insight EPS Controller**;
    missing confirmation can be recovered through the explicit owner-attestation
    control after the Insight's VIN has been identified. No firmware is flashed.

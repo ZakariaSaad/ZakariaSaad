@@ -30,8 +30,6 @@ class TestRetiredLongitudinalSettings(OpenpilotTestCase):
       'HondaEpsFirmwareGeometry': 'mvl',
       'HondaEpsFirmwareResponse': 'route32',
       'NavigationEnabled': True,
-      'NavigationModelDrivingEnabled': False,
-      'NavigationModelCandidate': 'big-nav-v2-map-fp32',
       'NavigationModelManifest': '/data/navigation-models/existing/manifest.json',
       'ModelManager_ActiveBundle': {'ref': 'existing-small'},
       'ModelManager_ActiveBundleChestnut': {'ref': 'existing-ordinary-big'},
@@ -176,3 +174,28 @@ class TestModelBundleSlotMigration(OpenpilotTestCase):
     _migrate_model_bundle_slots(params)
     assert params.get('ModelManager_ActiveBundleChestnut') == legacy
     assert params.get_bool('ModelManager_BundleSlotsMigrated')
+
+
+class TestCanonicalNativeSelectionMigration(OpenpilotTestCase):
+  def test_manager_startup_migrates_recorded_completed_choice_before_runner_resolution(self):
+    from unittest.mock import patch
+    from openpilot.sunnypilot.models import helpers, selection
+
+    params = Params()
+    params.put('ModelManager_ActiveBundleChestnut', {'ref': 'flip-flop', 'minimumSelectorVersion': 21, 'runner': 'tinygrad'}, block=True)
+    params.put('NavigationModelCandidate', selection.MODEL_ID, block=True)
+    params.put_bool('NavigationModelDrivingEnabled', True, block=True)
+    params.put('NavigationModelManifest', '/data/navigation-models/corrected/manifest.json', block=True)
+    params.put(selection.STATE_KEY, {'id': 'recorded-explicit-choice', 'ref': selection.NAV_REF,
+                                     'source': 'chestnut', 'state': 'selected'}, block=True)
+    params.clear_all(ParamKeyFlag.CLEAR_ON_MANAGER_START)
+    run_migration(params)
+    assert selection.is_navigation_selected(params)
+    assert params.get('NavigationModelDrivingEnabled') is None
+    with patch.object(helpers, 'chestnut_present', return_value=True):
+      assert helpers.get_active_model_runner(params) == 1
+    # Full manager startup is idempotent, not a fresh download/activation.
+    params.clear_all(ParamKeyFlag.CLEAR_ON_MANAGER_START)
+    run_migration(params)
+    assert selection.is_navigation_selected(params)
+    assert params.get(selection.REQUEST_KEY) is None

@@ -1,7 +1,7 @@
 """SunnyLink's existing model-picker protocol, backed by shared safe selection.
 
-Catalog and active-slot projections are response-only. The native ordinary
-catalog/slots never receive a fake model generation or navigation bundle.
+The hosted catalog overlay presents the native Bigv2 adapter. Accepted model
+choices use the same canonical Chestnut slot as ordinary big models.
 """
 import base64
 import copy
@@ -20,10 +20,11 @@ ARTIFACT = Path('/data/nav-bigv2/bigv2-amd-map-fp32.sptg')
 STATUS_KEY = 'ModelManager_SelectionStatus'
 REVISION_KEY = 'ModelManager_SelectionRevision'
 WRITE_KEYS = frozenset(('ModelManager_DownloadRef', 'ModelManager_ActiveBundle', 'ModelManager_ActiveBundleChestnut',
-                        'NavigationModelDrivingEnabled', REVISION_KEY))
-PROTECTED_KEYS = frozenset(('NavigationModelCandidate', 'NavigationModelManifest', 'NavigationModelRuntimeState',
+                        REVISION_KEY))
+PROTECTED_KEYS = frozenset(('NavigationModelDrivingEnabled', 'NavigationModelCandidate', 'NavigationModelManifest', 'NavigationModelRuntimeState',
                             'NavigationModelInputsEnabled', 'ModelManager_SelectionRequest', 'ModelManager_SelectionState', STATUS_KEY,
-                            'ModelManager_ActiveBundleUSBGPU', 'ModelManager_BundleSlotsMigrated', 'ModelRunnerTypeCache'))
+                            'ModelManager_ActiveBundleUSBGPU', 'ModelManager_BundleSlotsMigrated',
+                            'ModelManager_NativeSelectionMigrated', 'ModelRunnerTypeCache'))
 
 
 def _json(value, default=None):
@@ -46,7 +47,7 @@ def _selection():
 
 
 def local_bundle() -> dict:
-  """A truthful frontend-only entry, never parsed by the ordinary model loader."""
+  """Hosted catalog metadata for the native adapter; no fabricated generation."""
   availability = 'installed local' if ARTIFACT.is_file() else 'downloadable'
   return {'short_name': 'NAV-BIG-V2-MAP-FP32', 'display_name': f'{DISPLAY_NAME} ({availability})',
           'ref': NAV_REF, 'is_big': True, 'is_20hz': True, 'environment': 'AMD LLVM gfx1200 USB',
@@ -91,11 +92,6 @@ def project_get_param(params, key: str, raw: bytes | None) -> bytes | None:
     catalog['bundles'] = [bundle for bundle in bundles if not _retired(bundle) and
                           not (isinstance(bundle, dict) and bundle.get('ref') == NAV_REF)] + [local_bundle()]
     return _encode(catalog)
-  if key == 'ModelManager_ActiveBundleChestnut' and params.get_bool('NavigationModelDrivingEnabled') and \
-     params.get('NavigationModelCandidate') == MODEL_ID:
-    # Preserve the actual ordinary big slot for fallback/disable. This display
-    # projection describes the accepted requested model, not engaged controls.
-    return _encode(local_bundle())
   return raw
 
 
@@ -146,22 +142,16 @@ def apply_remote_model_settings(params, updates: dict, *, origin='sunnylink') ->
       if _retired(bundle):
         raise NavigationModelDisabled('Original Bigv2 is retired; select the corrected FP32 model')
       ref = bundle.get('ref') if bundle else 'Default'
-      if ref != 'Default' and (not isinstance(ref, str) or _ordinary_source(params, ref) != source):
+      valid_navigation = source == 'chestnut' and ref == NAV_REF
+      if ref != 'Default' and not valid_navigation and (not isinstance(ref, str) or _ordinary_source(params, ref) != source):
         raise NavigationModelDisabled('Restored bundle must identify a model in the matching current catalog')
       requests.append((source, ref))
-  enabled = updates.get('NavigationModelDrivingEnabled')
-  if enabled is not None:
-    if type(enabled) is not bool:
-      raise NavigationModelDisabled('Navigation driving request must be a boolean')
-    requests.append(('chestnut', NAV_REF) if enabled else ('disable', ''))
   if len(requests) > 1:
-    raise NavigationModelDisabled('Apply one model selection or navigation-driving request at a time')
+    raise NavigationModelDisabled('Apply one model selection at a time')
   if requests:
     source, ref = requests[0]
     if source == 'cancel':
       selection.cancel_model_selection(params, offroad=True, origin=origin, expected_revision=expected)
-    elif source == 'disable':
-      selection.request_navigation_disabled(params, offroad=True, origin=origin, expected_revision=expected)
     else:
       selection.request_model_selection(params, source=source, ref=ref, offroad=True, origin=origin, expected_revision=expected)
   return {key: value for key, value in updates.items() if key not in WRITE_KEYS}

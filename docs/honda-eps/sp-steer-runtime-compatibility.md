@@ -1,5 +1,10 @@
 # Corrected Bigv2 on the pinned sp-steer runtime
 
+> **Model lifecycle follow-up:** [Bigv2 model lifecycle](bigv2-model-lifecycle.md)
+> supersedes the separate navigation-driving selection/approval workflow described
+> in this historical verification report. Current selection uses the ordinary Big
+> Model slot; exact artifacts, EPS and longitudinal code remain preserved.
+
 The migration retains the existing corrected model and registration bytes. It adopts
 sp-steer's native SPTG loader adapter and tinygrad revision for ordinary models;
 it does not replace Bigv2, recompile it, or rewrite its historical compiler report.

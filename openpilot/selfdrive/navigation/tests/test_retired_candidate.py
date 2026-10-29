@@ -17,9 +17,10 @@ def test_only_corrected_candidate_is_exposed_and_saved_retired_request_is_reject
   params = ParamsStub(NavigationModelCandidate=RETIRED_MODEL_ID, NavigationModelDrivingEnabled=True,
                       NavigationModelManifest='/data/navigation-models/old/manifest.json')
   with patch.object(activation, 'load_experimental_model', side_effect=AssertionError('Retired model must never load')):
-    with pytest.raises(NavigationModelDisabled, match='Original Bigv2 is retired'):
-      activation.authorize_runtime(params)
-  assert 'retired' in activation.candidate_status(params)['reason']
+    assert activation.authorize_runtime(params) is None
+  assert not activation.candidate_status(params)['selected']
+  with pytest.raises(NavigationModelDisabled, match='Original Bigv2 is retired'):
+    activation.admit_candidate(params, candidate_id=RETIRED_MODEL_ID)
   with pytest.raises(NavigationModelDisabled, match='Original Bigv2 is retired'):
     activation.candidate_manifest(params, RETIRED_MODEL_ID)
 

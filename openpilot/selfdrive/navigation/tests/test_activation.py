@@ -1,4 +1,4 @@
-"""Driving permits require branch approval independently of display/diagnostic settings."""
+"""Native file/tensor admission follows canonical selection, never stale flags."""
 from contextlib import contextmanager
 import hashlib
 import json
@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from openpilot.selfdrive.navigation import activation
+from openpilot.sunnypilot.models.navigation_bundle import navigation_bundle
 from openpilot.selfdrive.navigation.model_inputs import NavigationModelDisabled
 
 
@@ -36,7 +37,7 @@ class ParamsStub:
 
 @contextmanager
 def reviewed_fixture(input_specs=None, metadata=None):
-  """Simulate explicit branch authorization and the separately tested verifier.
+  """Simulate the canonical native choice and the separately tested file verifier.
 
   Dummy files are never executed. This is admission-unit evidence, not a claim
   that any real candidate has been authorized for driving.
@@ -51,7 +52,7 @@ def reviewed_fixture(input_specs=None, metadata=None):
     source = json.loads(activation.REGISTRY.read_text())
     record = source['candidates'][0]
     record.update(software_contract_reviewed=True, software_integration_reviewed=True,
-                  artifact_evidence_reviewed=True, activation_approved=True)
+                  artifact_evidence_reviewed=True)
     hashes = [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths[:2]] + [hashlib.sha256(metadata_path.read_bytes()).hexdigest()]
     record.update(dict(zip(('artifact_sha256', 'warp_sha256', 'metadata_sha256'), hashes, strict=True)))
     paths[2].write_text(json.dumps({'entries': [{'id': 'big-nav-v2-map-fp32',
@@ -62,7 +63,8 @@ def reviewed_fixture(input_specs=None, metadata=None):
     registry.write_text(json.dumps(source))
     fallback = root / 'ordinary.sptg'
     fallback.write_bytes(b'SPTGPLN1-inert-unit-fixture')
-    params = ParamsStub(NavigationModelDrivingEnabled=True, NavigationModelCandidate='big-nav-v2-map-fp32', NavigationModelManifest=str(paths[2]),
+    params = ParamsStub(NavigationModelDrivingEnabled=False, NavigationModelCandidate='stale-candidate', NavigationModelManifest=str(paths[2]),
+                        ModelManager_ActiveBundleChestnut=navigation_bundle(),
                         ModelManager_ActiveBundle={'minimumSelectorVersion': 21, 'runner': 'tinygrad',
                                                   'models': [{'artifact': {'fileName': fallback.name}}]})
     reviewed_metadata = dict(metadata or {})
@@ -85,12 +87,11 @@ class TestActivation(unittest.TestCase):
     registry.assert_not_called()
     loader.assert_not_called()
 
-  def test_branch_approval_keeps_opt_in_off_and_requires_registered_local_files(self):
+  def test_selection_requires_registered_local_files(self):
     params = ParamsStub(NavigationModelDrivingEnabled=False, NavigationEnabled=True, NavigationModelInputsEnabled=True,
                         NavigationModelCandidate='big-nav-v2-map-fp32', NavigationModelManifest='/nonexistent')
     with patch.object(activation, 'ordinary_fallback_reason', return_value=''):
       status = activation.candidate_status(params)
-      self.assertTrue(status['approved'])
       self.assertFalse(status['eligible'])
       self.assertIn('matching local verified manifest', status['reason'])
       self.assertTrue(status['artifact_evidence_reviewed'])
@@ -99,8 +100,10 @@ class TestActivation(unittest.TestCase):
       self.assertEqual(status['runtime_compatibility'], 'reviewed_native_binary_abi_adapter')
       self.assertIsNone(activation.authorize_runtime(params))
       self.assertFalse(params.get_bool('NavigationModelDrivingEnabled'))
-      # Writing an enable flag cannot bypass the remaining admission checks.
+      # A stale flag cannot select anything; an actual selection must pass files.
       params.values['NavigationModelDrivingEnabled'] = True
+      self.assertIsNone(activation.authorize_runtime(params))
+      params.values['ModelManager_ActiveBundleChestnut'] = navigation_bundle()
       with self.assertRaises(NavigationModelDisabled):
         activation.authorize_runtime(params)
 
@@ -110,16 +113,16 @@ class TestActivation(unittest.TestCase):
       self.assertEqual(permit.warp_frame_size, 1622016)
       verifier.assert_called_once()
       activation.validate_runtime_permit(permit, params=params)
-      params.values['NavigationModelDrivingEnabled'] = False
+      params.values['ModelManager_ActiveBundleChestnut'] = {'ref': 'ordinary-big'}
       with self.assertRaises(NavigationModelDisabled):
         activation.validate_runtime_permit(permit, params=params)
 
   def test_local_artifact_mutation_and_candidate_change_revoke_admission(self):
     with reviewed_fixture() as (params, permit, _):
-      params.values['NavigationModelCandidate'] = 'unreviewed-model'
+      params.values['ModelManager_ActiveBundleChestnut'] = {'ref': 'unreviewed-model'}
       with self.assertRaises(NavigationModelDisabled):
         activation.validate_runtime_permit(permit, params=params)
-      params.values['NavigationModelCandidate'] = 'big-nav-v2-map-fp32'
+      params.values['ModelManager_ActiveBundleChestnut'] = navigation_bundle()
       permit.artifact_path.write_bytes(b'mutated')
       with self.assertRaises(NavigationModelDisabled):
         activation.validate_runtime_permit(permit, params=params)
@@ -138,20 +141,16 @@ class TestActivation(unittest.TestCase):
       with self.assertRaises(NavigationModelDisabled):
         activation.validate_runtime_permit(permit, params=params)
 
-  def test_registration_and_software_review_do_not_grant_driving_authorization(self):
+  def test_legacy_activation_flag_is_not_a_second_selection_authority(self):
     with reviewed_fixture() as (params, permit, _):
-      registry = json.loads(activation.REGISTRY.read_text())
-      registry['candidates'][0]['activation_approved'] = False
-      activation.REGISTRY.write_text(json.dumps(registry))
-      status = activation.candidate_status(params)
-      self.assertTrue(status['registered'])
-      self.assertTrue(status['software_compatible'])
-      self.assertTrue(status['artifact_evidence_reviewed'])
-      self.assertFalse(status['eligible'])
-      self.assertIn('Explicit user authorization', status['reason'])
-      self.assertNotIn('Physical Chestnut', status['reason'])
-      with self.assertRaises(NavigationModelDisabled):
-        activation.authorize_runtime(params)
+      for stale in (True, False):
+        params.values['NavigationModelDrivingEnabled'] = stale
+        params.values['NavigationModelCandidate'] = 'stale-or-retired-candidate'
+        activation.validate_runtime_permit(permit, params=params)
+        self.assertTrue(activation.candidate_status(params)['selected'])
+      params.values['ModelManager_ActiveBundleChestnut'] = {'ref': 'ordinary-big'}
+      self.assertIsNone(activation.authorize_runtime(params))
+      self.assertFalse(activation.candidate_status(params)['selected'])
 
   def test_manifest_declarations_are_checked_before_showing_registered_status(self):
     with reviewed_fixture() as (params, permit, _):
@@ -195,7 +194,7 @@ class TestReadOnlyAdmission(unittest.TestCase):
   def test_preflight_can_admit_an_explicit_candidate_without_enabling_or_changing_selection(self):
     with reviewed_fixture() as (params, _permit, verifier):
       params.values['NavigationModelDrivingEnabled'] = False
-      params.values['NavigationModelCandidate'] = 'another-selection'
+      params.values['ModelManager_ActiveBundleChestnut'] = {'ref': 'ordinary-big'}
       before = dict(params.values)
       verifier.reset_mock()
       permit = activation.admit_candidate(params, candidate_id='big-nav-v2-map-fp32')
@@ -203,18 +202,17 @@ class TestReadOnlyAdmission(unittest.TestCase):
       self.assertEqual(params.values, before)
       activation.validate_admission(permit, params)
       verifier.assert_called_once()
-      with self.assertRaisesRegex(NavigationModelDisabled, 'permission was withdrawn'):
+      with self.assertRaisesRegex(NavigationModelDisabled, 'no longer selected'):
         activation.validate_runtime_permit(permit, params=params)
 
-  def test_status_reports_local_installation_approval_and_selection_separately(self):
+  def test_status_reports_local_installation_and_canonical_selection(self):
     with reviewed_fixture() as (params, permit, _):
       params.values['NavigationModelDrivingEnabled'] = False
       status = activation.candidate_status(params)
-      self.assertTrue(status['approved'])
       self.assertTrue(status['registered'])
       self.assertTrue(status['installed'])
       self.assertTrue(status['selected'])
-      self.assertFalse(status['enabled'])
+      self.assertTrue(status['enabled'])
       self.assertEqual(status['artifact_path'], str(permit.artifact_path))
       self.assertEqual(status['blockers'], [])
       permit.artifact_path.unlink()
@@ -224,19 +222,19 @@ class TestReadOnlyAdmission(unittest.TestCase):
       self.assertFalse(status['eligible'])
       self.assertIn('not installed', status['reason'])
 
-  def test_preflight_does_not_hash_files_when_branch_approval_is_missing(self):
+  def test_preflight_rejects_unpinned_artifacts_without_opening_weights(self):
     with reviewed_fixture() as (params, _permit, verifier):
       registry = json.loads(activation.REGISTRY.read_text())
-      registry['candidates'][0]['activation_approved'] = False
+      registry['candidates'][0]['artifact_sha256'] = ''
       activation.REGISTRY.write_text(json.dumps(registry))
       verifier.reset_mock()
       before = dict(params.values)
-      with self.assertRaisesRegex(NavigationModelDisabled, 'Explicit user authorization'):
+      with self.assertRaisesRegex(NavigationModelDisabled, 'hashes are not pinned'):
         activation.admit_candidate(params)
       verifier.assert_not_called()
       self.assertEqual(params.values, before)
 
-  def test_slow_admission_rejects_artifact_manifest_and_approval_changes(self):
+  def test_slow_admission_rejects_artifact_manifest_and_contract_changes(self):
     for changed in ('artifact_path', 'manifest_path', 'registry', 'fallback'):
       with self.subTest(changed=changed), reviewed_fixture() as (params, permit, verifier):
         entry = verifier.return_value
@@ -265,6 +263,7 @@ class TestReadOnlyAdmission(unittest.TestCase):
   def test_file_admission_and_camera_profile_imports_work_with_system_stdlib_only(self):
     code = """
 from openpilot.selfdrive.navigation import activation
+from openpilot.sunnypilot.models.navigation_bundle import navigation_bundle
 from openpilot.selfdrive.navigation.warp_compatibility import validate_camera_profile
 import sys
 assert not any(name in sys.modules for name in ('numpy', 'capnp', 'zmq', 'tinygrad'))

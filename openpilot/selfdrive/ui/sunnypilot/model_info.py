@@ -13,6 +13,7 @@ from openpilot.selfdrive.ui.ui_state import ui_state, ChestnutState
 from openpilot.sunnypilot.models.fetcher import get_cached_bundles
 from openpilot.sunnypilot.models.helpers import get_active_source, get_selected_bundle, resolve_bundle_by_ref
 from openpilot.sunnypilot.models.model_name import DEFAULT_BIG_MODEL, DEFAULT_MODEL
+from openpilot.sunnypilot.models.navigation_bundle import is_navigation_selected
 
 
 def model_cache_size_mb() -> float:
@@ -27,8 +28,6 @@ def model_cache_size_mb() -> float:
 
 
 def active_source() -> str:
-  if navigation := _navigation_model_info():
-    return navigation[0]
   return get_active_source(chestnut=ui_state.chestnut_present,
                            chestnut_active=ui_state.chestnut_active, chestnut_loading=ui_state.chestnut_loading,
                            offroad=ui_state.is_offroad())
@@ -55,29 +54,34 @@ def big_model_state() -> str | None:
           ChestnutState.LOADING: 'loading'}.get(ui_state.chestnut_state)
 
 
-def _navigation_model_info() -> tuple[str, str, str] | None:
-  """Display actual opt-in runtime identity without changing ordinary selections."""
+def _navigation_model_info() -> tuple[str | None, str | None, str | None] | None:
+  """Report published predictions, never infer running from selection/loading."""
   params = ui_state.params
-  if params.get_bool('NavigationModelDrivingEnabled') is not True:
+  if not is_navigation_selected(params) or ui_state.is_offroad():
     return None
+  # A last-confirmed role survives a model process exit. Existing UI message
+  # liveness and model identity must still agree before naming a running model.
+  if not ui_state.sm.alive['modelV2']:
+    return None, None, None
+  big = ui_state.sm['modelV2'].big
   state = params.get('NavigationModelRuntimeState')
-  if not isinstance(state, dict) or state.get('candidate_id') != params.get('NavigationModelCandidate', return_default=True):
-    return None
-  if state.get('active_source') == 'chestnut' and state.get('role') == 'candidate':
-    from openpilot.selfdrive.navigation.activation import candidate_status
-    status = candidate_status(params)
-    return 'chestnut', status['id'], status['display_name']
-  if state.get('active_source') == 'qcom' and state.get('role') in ('ordinary_small', 'failed'):
+  selected = get_selected_bundle(params, 'chestnut')
+  if not isinstance(state, dict) or selected is None or state.get('candidate_id') != selected.internalName:
+    return None, None, None
+  if big and state.get('active_source') == 'chestnut' and state.get('role') == 'candidate':
+    return 'chestnut', selected.internalName, selected.displayName
+  if not big and state.get('active_source') == 'qcom' and state.get('role') == 'ordinary_small':
     bundle = get_selected_bundle(params, 'qcom')
     name = bundle.displayName if bundle else default_model_name('qcom')
     return 'qcom', bundle.internalName if bundle else name, name
-  return None
+  # Ready/initializing/fallback-pending/failed are not successful predictions.
+  return None, None, None
 
 
 def carrying_model() -> tuple[str | None, str | None, str | None]:
   """(source, internal name, display name) of what actually drives. Runner-matched:
   when a Default big cannot carry, stock modeld runs the Default small, never the
-  small slot's pick; a custom big has no automatic fallback yet -> (None, None, None)."""
+  small slot's pick; a custom big uses its configured ordinary small fallback."""
   if navigation := _navigation_model_info():
     return navigation
   source = active_source()
@@ -91,6 +95,9 @@ def carrying_model() -> tuple[str | None, str | None, str | None]:
     if get_selected_bundle(ui_state.params, "chestnut") is None:
       name = default_model_name("qcom")
       return "qcom", name, name
+    bundle = get_selected_bundle(ui_state.params, "qcom")
+    if bundle:
+      return "qcom", bundle.internalName, bundle.displayName
     return None, None, None
   bundle = get_selected_bundle(ui_state.params, "qcom")
   if bundle:
@@ -116,9 +123,10 @@ def model_info() -> tuple[str, str, str]:
   would flash the wrong model."""
   if navigation := _navigation_model_info():
     source, _, name = navigation
+    source = source or active_source()
     other = 'qcom' if source == 'chestnut' else 'chestnut'
     bundle = get_selected_bundle(ui_state.params, other)
-    return source, name, bundle.displayName if bundle else default_model_name(other)
+    return source, name or 'No model predictions', bundle.displayName if bundle else default_model_name(other)
   source = active_source()
   other = "qcom" if source == "chestnut" else "chestnut"
   active_bundle = get_selected_bundle(ui_state.params, source)

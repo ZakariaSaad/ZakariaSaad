@@ -11,8 +11,9 @@ from unittest.mock import patch
 
 from openpilot.common.params import Params
 from openpilot.common.test import OpenpilotTestCase
-from openpilot.selfdrive.navigation.corrected_bigv2 import MODEL_ID, DISPLAY_NAME
+from openpilot.selfdrive.navigation.corrected_bigv2 import DISPLAY_NAME
 from openpilot.sunnypilot.models import selection
+from openpilot.sunnypilot.models.navigation_bundle import is_navigation_selected, navigation_bundle
 
 
 @unittest.skipUnless(os.environ.get('DISPLAY'), 'requires real raylib rendering under Xvfb')
@@ -108,6 +109,8 @@ class TestNavigationModelUI(OpenpilotTestCase):
         layout = self.mount(layout_type)
         self.assertFalse(hasattr(layout, 'navigation_register'))
         self.assertFalse(hasattr(layout, 'navigation_register_btn'))
+        self.assertFalse(hasattr(layout, 'navigation_driving'))
+        self.assertFalse(hasattr(layout, 'navigation_models_btn'))
         if module == 'mici.layouts':
           layout._select_hardware('chestnut')
           rows = gui_app.get_active_widget()._scroller.items
@@ -137,12 +140,12 @@ class TestNavigationModelUI(OpenpilotTestCase):
         self.assert_preserved()
         selection.cancel_model_selection(self.params, offroad=True)
 
-  def test_ordinary_big_selection_queues_without_prematurely_disabling_working_navigation(self):
+  def test_ordinary_big_selection_queues_without_prematurely_replacing_bigv2(self):
     from openpilot.system.ui.widgets import DialogResult
     for module, layout_type in self.layouts():
       with self.subTest(module=module):
-        self.params.put('NavigationModelCandidate', MODEL_ID, block=True)
-        self.params.put_bool('NavigationModelDrivingEnabled', True, block=True)
+        self.params.put('ModelManager_ActiveBundleChestnut', navigation_bundle(), block=True)
+        self.preserved['ModelManager_ActiveBundleChestnut'] = self.params.get('ModelManager_ActiveBundleChestnut')
         layout = self.mount(layout_type)
         if module == 'mici.layouts':
           layout._select_default('chestnut')
@@ -153,28 +156,24 @@ class TestNavigationModelUI(OpenpilotTestCase):
         self.assertIsNone(self.finish_request(layout).request.error)
         status = selection.selection_status(self.params)
         self.assertEqual((status['source'], status['ref'], status['state']), ('chestnut', 'Default', 'pending'))
-        self.assertTrue(self.params.get_bool('NavigationModelDrivingEnabled'))
+        self.assertTrue(is_navigation_selected(self.params))
         self.assert_preserved()
         selection.cancel_model_selection(self.params, offroad=True)
 
-  def test_explicit_off_uses_shared_path_and_survives_widget_recreation(self):
-    from openpilot.system.ui.lib.application import gui_app
+  def test_canonical_selection_survives_widget_recreation_without_a_navigation_toggle(self):
     for module, layout_type in self.layouts():
       with self.subTest(module=module):
-        self.params.put('NavigationModelCandidate', MODEL_ID, block=True)
-        self.params.put_bool('NavigationModelDrivingEnabled', True, block=True)
-        layout = self.mount(layout_type)
-        if module == 'mici.layouts':
-          layout._show_navigation_models()
-          toggle = gui_app.get_active_widget()._scroller.items[1]
-          toggle._toggle_callback(False)
-        else:
-          layout._set_navigation_driving(False)
-        self.assertIsNone(self.finish_request(layout).request.error)
-        self.assertFalse(Params().get_bool('NavigationModelDrivingEnabled'))
-        self.assert_preserved()
-        self.draw(self.mount(layout_type))
-        self.assertFalse(Params().get_bool('NavigationModelDrivingEnabled'))
+        self.params.put('ModelManager_ActiveBundleChestnut', navigation_bundle(), block=True)
+        self.params.put_bool('NavigationModelDrivingEnabled', False, block=True)
+        before = self.params.get('ModelManager_ActiveBundleChestnut')
+        for _ in range(2):
+          layout = self.mount(layout_type)
+          self.assertFalse(hasattr(layout, 'navigation_driving'))
+          self.assertFalse(hasattr(layout, 'navigation_models_btn'))
+          self.assertTrue(is_navigation_selected(Params()))
+          self.assertEqual(Params().get('ModelManager_ActiveBundleChestnut'), before)
+          if module != 'mici.layouts':
+            self.assertEqual(layout._slot_active_ref('chestnut'), selection.NAV_REF)
 
   def test_retired_id_stale_callback_is_rejected_by_shared_service(self):
     from openpilot.system.ui.widgets import DialogResult

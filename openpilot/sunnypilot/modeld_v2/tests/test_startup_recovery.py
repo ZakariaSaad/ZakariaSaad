@@ -14,6 +14,7 @@ from openpilot.common.test import OpenpilotTestCase
 from openpilot.selfdrive.navigation.errors import NavigationModelDisabled
 from openpilot.selfdrive.navigation.candidate_identity import MODEL_ID
 from openpilot.sunnypilot.modeld_v2 import modeld
+from openpilot.sunnypilot.models.navigation_bundle import NAV_REF
 
 
 class StartupFinished(Exception):
@@ -43,7 +44,7 @@ class TestStartupRecovery(OpenpilotTestCase):
 
   def assert_selection_preserved(self, navigation):
     self.assertEqual(self.preserved, {key: self.params.get(key) for key in self.preserved})
-    self.assertEqual(self.params.get_bool('NavigationModelDrivingEnabled'), navigation)
+    self.assertEqual(modeld.is_navigation_selected(self.params), navigation)
 
   def runtime_state(self):
     deadline = time.monotonic() + 2
@@ -55,8 +56,11 @@ class TestStartupRecovery(OpenpilotTestCase):
     return state
 
   @contextmanager
-  def startup(self, *, navigation=True, big_error=None, small_error=False, timeout=False):
-    self.params.put_bool('NavigationModelDrivingEnabled', navigation, block=True)
+  def startup(self, *, navigation=True, big_error=None, small_error=False, timeout=False,
+              hardware=True, cable=False, admission_error=None, configure_selection=True):
+    if configure_selection:
+      self.params.put('ModelManager_ActiveBundleChestnut', {'ref': NAV_REF if navigation else 'ordinary-big'}, block=True)
+    self.preserved['ModelManager_ActiveBundleChestnut'] = self.params.get('ModelManager_ActiveBundleChestnut')
     permit = SimpleNamespace(model_id=MODEL_ID) if navigation else None
     small = SimpleNamespace(chestnut=False, numpy_inputs={}, warmup=Mock(), run=Mock())
     big = SimpleNamespace(chestnut=True, numpy_inputs={}, warmup=Mock(), run=Mock())
@@ -93,8 +97,8 @@ class TestStartupRecovery(OpenpilotTestCase):
       candidate = stack.enter_context(patch.object(modeld, 'load_navigation_model', side_effect=load_big))
       for name, replacement in {'Params': Mock(return_value=self.params), 'setproctitle': Mock(),
                                 'get_active_bundle': Mock(), '_find_driving_pkl': Mock(return_value='ordinary-big.sptg'),
-                                'chestnut_present': Mock(return_value=True), 'wait_for_chestnut': Mock(),
-                                'VisionIpcClient': clients, 'authorize_runtime': Mock(return_value=permit),
+                                'chestnut_present': Mock(return_value=hardware), 'cable_connected': Mock(return_value=cable), 'wait_for_chestnut': Mock(),
+                                'VisionIpcClient': clients, 'authorize_runtime': Mock(return_value=permit, side_effect=admission_error),
                                 '_reject_navigation_publication': Mock(),
                                 'config_realtime_process': Mock(side_effect=StartupFinished), 'PubMaster': Mock()}.items():
         stack.enter_context(patch.object(modeld, name, replacement))
@@ -126,7 +130,8 @@ class TestStartupRecovery(OpenpilotTestCase):
     self.assert_flag('ChestnutRetry', True)
     self.assert_flag('OnroadCycleRequested', True)
     state = self.runtime_state()
-    self.assertEqual(state['active_source'], 'qcom')
+    self.assertIsNone(state['active_source'])
+    self.assertEqual(state['role'], 'small_loading')
     self.assertIn(str(error), state['reason'])
     self.assert_selection_preserved(True)
 
@@ -161,6 +166,9 @@ class TestStartupRecovery(OpenpilotTestCase):
     self.assert_flag('ChestnutLoading', False)
     self.assert_flag('ChestnutActive', False)
     self.assert_selection_preserved(True)
+    self.assertEqual(self.runtime_state()['role'], 'failed')
+    self.assertIsNone(self.runtime_state()['active_source'])
+    self.assertIn('ordinary small initialization failed', self.runtime_state()['reason'])
 
   def test_publication_rejection_clears_startup_flags_without_creating_publishers(self):
     def reject_selected(*models):
@@ -182,7 +190,7 @@ class TestStartupRecovery(OpenpilotTestCase):
       self.assert_flag('ChestnutActive', False)
       self.assert_flag('ChestnutRetry', True)
       self.assert_flag('OnroadCycleRequested', True)
-      self.assertEqual(self.runtime_state()['active_source'], 'qcom')
+      self.assertEqual(self.runtime_state()['role'], 'small_loading')
       fixture.release.set()
       for thread in fixture.threads:
         thread.join(2)
@@ -190,7 +198,7 @@ class TestStartupRecovery(OpenpilotTestCase):
       fixture.small.run.assert_not_called()
     self.assert_flag('ChestnutLoading', False)
     self.assert_flag('ChestnutActive', False)
-    self.assertEqual(self.runtime_state()['active_source'], 'qcom')
+    self.assertEqual(self.runtime_state()['role'], 'small_loading')
     self.assert_selection_preserved(True)
 
   def test_registered_retry_survives_onroad_cycle_and_resets_at_ignition_or_manager_start(self):
@@ -202,3 +210,71 @@ class TestStartupRecovery(OpenpilotTestCase):
     self.params.put_bool('ChestnutRetry', True, block=True)
     self.params.clear_all(ParamKeyFlag.CLEAR_ON_MANAGER_START)
     self.assertFalse(self.params.get_bool('ChestnutRetry'))
+
+  def test_admission_failure_uses_small_without_loading_an_alternate_big_model(self):
+    with self.startup(admission_error=NavigationModelDisabled('registered model hash mismatch')) as fixture:
+      with self.assertRaises(StartupFinished):
+        modeld.main()
+      fixture.candidate.assert_not_called()
+      self.assertEqual([call.kwargs['chestnut'] for call in fixture.models.call_args_list], [False])
+    self.assertEqual(self.runtime_state()['role'], 'small_loading')
+    self.assertIn('hash mismatch', self.runtime_state()['reason'])
+    self.assert_flag('ChestnutRetry', True)
+
+  def test_missing_chestnut_starts_small_without_waiting_or_consuming_retry(self):
+    with self.startup(hardware=False) as fixture:
+      with self.assertRaises(StartupFinished):
+        modeld.main()
+      fixture.candidate.assert_not_called()
+      modeld.wait_for_chestnut.assert_not_called()
+      modeld.authorize_runtime.assert_not_called()
+      self.assertEqual([call.kwargs['chestnut'] for call in fixture.models.call_args_list], [False])
+    self.assertEqual(self.runtime_state()['role'], 'small_loading')
+    self.assertIn('Chestnut unavailable', self.runtime_state()['reason'])
+    self.assert_flag('ChestnutRetry', False)
+
+  def test_cable_before_enumeration_uses_the_upstream_wait_and_native_loader(self):
+    with self.startup(hardware=False, cable=True) as fixture:
+      with self.assertRaises(StartupFinished):
+        modeld.main()
+      modeld.wait_for_chestnut.assert_called_once()
+      modeld.authorize_runtime.assert_called_once()
+      fixture.candidate.assert_called_once()
+    self.assertEqual(self.runtime_state()['role'], 'ready')
+    self.assertIsNone(self.runtime_state()['active_source'])
+
+  def test_selection_persists_across_process_restarts_and_ignition_cycles(self):
+    for index, clear in enumerate((None, None, ParamKeyFlag.CLEAR_ON_IGNITION_ON, ParamKeyFlag.CLEAR_ON_MANAGER_START)):
+      if clear is not None:
+        self.params.clear_all(clear)
+      with self.startup(configure_selection=index == 0) as fixture:
+        with self.assertRaises(StartupFinished):
+          modeld.main()
+        fixture.candidate.assert_called_once()
+        fixture.big.warmup.assert_called_once()
+        fixture.small.run.assert_not_called()
+        self.assertEqual(self.runtime_state()['role'], 'ready')
+        self.assert_selection_preserved(True)
+
+  def test_legacy_enable_flag_cannot_override_selected_ordinary_model(self):
+    self.params.put_bool('NavigationModelDrivingEnabled', True, block=True)
+    with self.startup(navigation=False) as fixture:
+      with self.assertRaises(StartupFinished):
+        modeld.main()
+      fixture.candidate.assert_not_called()
+      modeld.authorize_runtime.assert_not_called()
+      self.assertEqual([call.kwargs['chestnut'] for call in fixture.models.call_args_list], [True, False])
+    self.assertIsNone(self.params.get('NavigationModelRuntimeState'))
+
+  def test_compatibility_admission_runs_inside_the_ordinary_big_loader_thread(self):
+    threads = []
+    with self.startup() as fixture:
+      def admitted(_params):
+        threads.append(threading.current_thread())
+        return SimpleNamespace(model_id=MODEL_ID)
+      modeld.authorize_runtime.side_effect = admitted
+      with self.assertRaises(StartupFinished):
+        modeld.main()
+      fixture.candidate.assert_called_once()
+    self.assertEqual(len(threads), 1)
+    self.assertIsNot(threads[0], threading.current_thread())

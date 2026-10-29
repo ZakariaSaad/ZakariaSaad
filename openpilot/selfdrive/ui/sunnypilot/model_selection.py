@@ -5,7 +5,7 @@ fresh off-road check out of the render loop; it never writes model parameters.
 """
 import threading
 
-from openpilot.sunnypilot.models.selection import cancel_model_selection, request_model_selection, request_navigation_disabled, selection_status
+from openpilot.sunnypilot.models.selection import cancel_model_selection, request_model_selection, selection_status
 
 
 class ModelSelectionRequest:
@@ -19,8 +19,6 @@ class ModelSelectionRequest:
       try:
         if cancel:
           self.result = cancel_model_selection(params, offroad=offroad, origin='device_ui')
-        elif ref is None:
-          self.result = request_navigation_disabled(params, offroad=offroad)
         else:
           self.result = request_model_selection(params, source=source, ref=ref, offroad=offroad, origin='device_ui')
       except Exception as error:

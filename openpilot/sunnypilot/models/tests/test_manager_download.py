@@ -345,6 +345,8 @@ class TestProcessArtifact(ManagerDownloadTestBase):
         for key in ACTIVE_BUNDLE_KEYS.values():
           params.remove(key)
         params.put('ModelManager_DownloadRef', self._bundle.ref, block=True)
+        params.put(selection_module.REQUEST_KEY, {'id': source, 'source': source, 'ref': self._bundle.ref,
+                                                 'origin': 'device_ui', 'phase': 'pending'}, block=True)
         params.put_bool('IsOffroad', True, block=True)
         params.put_bool('IsEngaged', False, block=True)
         self.manager._download_ref = self._bundle.ref
@@ -693,8 +695,9 @@ class TestSelectionDownloadPreservation(ManagerDownloadTestBase):
       params = self.manager.params
       params.put_bool('IsOffroad', True, block=True)
       params.put_bool('IsEngaged', False, block=True)
-      params.put_bool('NavigationModelDrivingEnabled', True, block=True)
-      params.put('NavigationModelCandidate', 'big-nav-v2-map-fp32', block=True)
+      params.put('ModelManager_ActiveBundleChestnut', selection_module.navigation_bundle(), block=True)
+      params.put(selection_module.REQUEST_KEY, {'id': 'big-selection', 'source': 'chestnut', 'ref': 'big-ref',
+                                               'origin': 'device_ui', 'phase': 'pending'}, block=True)
       params.put('ModelManager_ActiveBundle', {'preserve': 'ordinary-small'}, block=True)
       self.manager._download_ref = 'big-ref'
       with mock.patch.object(selection_module, 'require_offroad'):
@@ -702,8 +705,7 @@ class TestSelectionDownloadPreservation(ManagerDownloadTestBase):
 
       assert params.get("ModelManager_ActiveBundleChestnut"), "chestnut download must write the chestnut slot"
       assert params.get("ModelManager_ActiveBundle") == {'preserve': 'ordinary-small'}
-      assert not params.get_bool('NavigationModelDrivingEnabled')
-      assert params.get('NavigationModelCandidate') is None
+      assert not selection_module.is_navigation_selected(params)
       assert self.manager.selected_bundle.status == custom.ModelManagerSP.DownloadStatus.downloaded
     self.run_with_server(body)
 
@@ -722,16 +724,16 @@ class TestSelectionDownloadPreservation(ManagerDownloadTestBase):
       self.make_dummy_queue('big-ref')
       params = self.manager.params
       params.put_bool('IsOffroad', False, block=True)
-      params.put_bool('NavigationModelDrivingEnabled', True, block=True)
-      params.put('NavigationModelCandidate', 'big-nav-v2-map-fp32', block=True)
-      previous = {'preserve': 'previous-big'}
+      params.put('ModelManager_ActiveBundleChestnut', selection_module.navigation_bundle(), block=True)
+      params.put(selection_module.REQUEST_KEY, {'id': 'big-selection', 'source': 'chestnut', 'ref': 'big-ref',
+                                               'origin': 'device_ui', 'phase': 'pending'}, block=True)
+      previous = selection_module.navigation_bundle()
       params.put('ModelManager_ActiveBundleChestnut', previous, block=True)
       self.manager._download_ref = 'big-ref'
       with mock.patch.object(selection_module, 'require_offroad', side_effect=AssertionError('On-road fast guard must refuse')):
         assert not asyncio.run(self.manager._download_bundle(self._bundle, self.dest, 'chestnut'))
       assert params.get('ModelManager_ActiveBundleChestnut') == previous
-      assert params.get_bool('NavigationModelDrivingEnabled')
-      assert params.get('NavigationModelCandidate') == 'big-nav-v2-map-fp32'
+      assert selection_module.is_navigation_selected(params)
       assert params.get('ModelManager_DownloadRef') == 'big-ref'
     self.run_with_server(body)
 
@@ -744,16 +746,16 @@ class TestSelectionDownloadPreservation(ManagerDownloadTestBase):
       self.make_dummy_queue('big-ref')
       params = self.manager.params
       params.put_bool('IsOffroad', True, block=True)
-      params.put_bool('NavigationModelDrivingEnabled', True, block=True)
-      params.put('NavigationModelCandidate', 'big-nav-v2-map-fp32', block=True)
-      previous = {'preserve': 'previous-big'}
+      params.put('ModelManager_ActiveBundleChestnut', selection_module.navigation_bundle(), block=True)
+      params.put(selection_module.REQUEST_KEY, {'id': 'big-selection', 'source': 'chestnut', 'ref': 'big-ref',
+                                               'origin': 'device_ui', 'phase': 'pending'}, block=True)
+      previous = selection_module.navigation_bundle()
       params.put('ModelManager_ActiveBundleChestnut', previous, block=True)
       self.manager._download_ref = 'big-ref'
       with self.assertRaisesRegex(ValueError, 'Hash validation failed'):
         asyncio.run(self.manager._download_bundle(self._bundle, self.dest, 'chestnut'))
       assert params.get('ModelManager_ActiveBundleChestnut') == previous
-      assert params.get_bool('NavigationModelDrivingEnabled')
-      assert params.get('NavigationModelCandidate') == 'big-nav-v2-map-fp32'
+      assert selection_module.is_navigation_selected(params)
     self.run_with_server(body)
 
   def test_newer_request_survives_stale_download_completion(self):

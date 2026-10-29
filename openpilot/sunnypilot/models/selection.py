@@ -14,13 +14,13 @@ from openpilot.selfdrive.navigation.activation import admit_candidate, candidate
 from openpilot.selfdrive.navigation.candidate_identity import MODEL_ID, RETIRED_MODEL_ID
 from openpilot.selfdrive.navigation.errors import NavigationModelDisabled
 from openpilot.selfdrive.navigation.offroad import require_offroad
+from openpilot.sunnypilot.models.navigation_bundle import NAV_REF, navigation_bundle, is_navigation_selected
 
-NAV_REF = 'navigation:' + MODEL_ID
 DEFAULT_REF = 'Default'
 REQUEST_KEY = 'ModelManager_SelectionRequest'
 STATE_KEY = 'ModelManager_SelectionState'
 SLOTS = {'qcom': 'ModelManager_ActiveBundle', 'chestnut': 'ModelManager_ActiveBundleChestnut'}
-SELECTION_KEYS = ('NavigationModelCandidate', 'NavigationModelManifest', 'NavigationModelDrivingEnabled',
+SELECTION_KEYS = ('NavigationModelManifest',
                   'ModelManager_ActiveBundle', 'ModelManager_ActiveBundleChestnut', 'ModelRunnerTypeCache')
 _THREAD_LOCK = threading.RLock()
 
@@ -48,11 +48,9 @@ def _record(params, key):
 def _put(params, key, value):
   if value is None:
     params.remove(key)
-  elif key == 'NavigationModelDrivingEnabled':
-    params.put_bool(key, value, block=True)
   else:
     params.put(key, value, block=True)
-  actual = params.get_bool(key) if key == 'NavigationModelDrivingEnabled' else params.get(key)
+  actual = params.get(key)
   if actual != value:
     raise NavigationModelDisabled('Could not persist ' + key)
 
@@ -67,8 +65,6 @@ def _state(params, request, state, message):
 
 
 def _selected_ref(params, source='chestnut'):
-  if source == 'chestnut' and params.get('NavigationModelCandidate') == MODEL_ID and params.get_bool('NavigationModelDrivingEnabled'):
-    return NAV_REF
   bundle = params.get(SLOTS[source])
   return bundle.get('ref', DEFAULT_REF) if isinstance(bundle, dict) and bundle else DEFAULT_REF
 
@@ -83,21 +79,29 @@ def selection_status(params):
   if request and request.get('id') != record.get('id'):
     state, message = 'pending', 'Model selection is pending; current selections remain in use.'
   runtime = _record(params, 'NavigationModelRuntimeState')
-  if not request and record.get('state') not in ('failed', 'cancelled'):
-    if selected == NAV_REF:
-      if not params.get_bool('IsOffroad') and runtime.get('candidate_id') == MODEL_ID and runtime.get('role') in ('ordinary_small', 'failed'):
-        state, message = 'failed', 'Corrected Bigv2 is unavailable; the ordinary small model is carrying this drive.'
-      elif not params.get_bool('IsOffroad') and runtime.get('candidate_id') == MODEL_ID and runtime.get('role') == 'candidate':
-        state, message = 'active', 'Corrected Bigv2 is active. Driver supervision remains required.'
-      elif not params.get_bool('IsOffroad') and params.get_bool('ChestnutLoading'):
-        state, message = 'loading', 'Loading corrected Bigv2; this does not engage controls.'
-      else:
-        state, message = 'selected', 'Corrected Bigv2 selected; navigation driving requested. Applies on the next drive.'
-    elif params.get('NavigationModelCandidate') == MODEL_ID:
-      state, message = 'selected', 'Navigation driving is OFF. The ordinary model selection is in use.'
+  last_reported_ref = None
+  if not params.get_bool('IsOffroad') and runtime.get('candidate_id') == MODEL_ID:
+    role = runtime.get('role')
+    if role == 'candidate':
+      last_reported_ref = NAV_REF
+    elif role == 'ordinary_small':
+      last_reported_ref = _selected_ref(params, 'qcom')
+    if not request and selected == NAV_REF:
+      if role == 'candidate':
+        state, message = 'reported', 'Last model-process report: corrected Bigv2 published predictions. Check current live health on the device.'
+      elif role == 'ordinary_small':
+        state, message = 'reported', 'Last model-process report: ordinary small fallback published predictions. Check current live health on the device.'
+      elif role == 'failed':
+        state, message = 'failed', 'Model prediction failed: ' + str(runtime.get('reason', 'unknown error'))
+      elif role in ('loading', 'ready', 'small_loading'):
+        state, message = 'loading', 'Preparing model predictions: ' + str(runtime.get('reason', role))
+  if not request and record.get('state') not in ('failed', 'cancelled') and selected == NAV_REF and params.get_bool('IsOffroad'):
+    state, message = 'selected', 'Corrected Bigv2 selected. Applies on the next drive; no separate activation is needed.'
+  elif not request and selected == NAV_REF and not runtime and params.get_bool('ChestnutLoading'):
+    state, message = 'loading', 'Loading corrected Bigv2; predictions are not yet confirmed.'
   return {**record, 'state': state, 'message': message, 'source': source,
           'ref': request.get('ref', record.get('ref', selected)), 'selected_ref': selected,
-          'navigation_enabled': params.get_bool('NavigationModelDrivingEnabled'),
+          'last_reported_ref': last_reported_ref, 'navigation_enabled': is_navigation_selected(params),
           'request_id': request.get('id', ''), 'revision': record.get('id', '')}
 
 
@@ -129,15 +133,15 @@ def request_model_selection(params, *, source, ref, offroad, origin='device_ui',
     require_offroad(params)
     if expected_revision is not None and expected_revision != _record(params, STATE_KEY).get('id', ''):
       raise NavigationModelDisabled('Stale model selection; refresh SunnyLink before selecting again')
-    # Repeated in-flight delivery is idempotent. Completed explicit selections
-    # may intentionally re-enable navigation after a deliberate OFF.
+    # Repeated in-flight delivery is idempotent. Only an explicit selection
+    # can replace the canonical slot after artifact preparation.
     current = _record(params, REQUEST_KEY)
     if current.get('phase') == 'committing':
       raise NavigationModelDisabled('Model selection is being committed; wait for recovery/completion')
     if current.get('ref') == ref and current.get('source') == source and current.get('phase') != 'committing':
       return selection_status(params)
     request = {'schema': 1, 'id': uuid.uuid4().hex, 'source': source, 'ref': ref, 'origin': origin,
-               'phase': 'pending', 'enable': ref == NAV_REF}
+               'phase': 'pending'}
     previous = {key: copy.deepcopy(params.get(key)) for key in (REQUEST_KEY, STATE_KEY, 'ModelManager_DownloadRef')}
     try:
       _put(params, REQUEST_KEY, request)
@@ -172,27 +176,6 @@ def cancel_model_selection(params, *, offroad=True, origin='device_ui', expected
     return selection_status(params)
 
 
-def request_navigation_disabled(params, *, offroad=True, origin='device_ui', expected_revision=None):
-  _guard(params, offroad)
-  with _lock(params):
-    require_offroad(params)
-    if expected_revision is not None and expected_revision != _record(params, STATE_KEY).get('id', ''):
-      raise NavigationModelDisabled('Stale model selection; refresh SunnyLink before selecting again')
-    request = _record(params, REQUEST_KEY)
-    if request.get('phase') == 'committing':
-      raise NavigationModelDisabled('Model selection is being committed; wait for completion')
-    # Explicit OFF cancels an unfinished corrected selection, not an ordinary
-    # download requested separately. Never alter NavigationEnabled (map display).
-    if request.get('ref') == NAV_REF:
-      _put(params, REQUEST_KEY, None)
-      if params.get('ModelManager_DownloadRef') == NAV_REF:
-        _put(params, 'ModelManager_DownloadRef', None)
-    _put(params, 'NavigationModelDrivingEnabled', False)
-    _state(params, {'id': uuid.uuid4().hex, 'ref': _selected_ref(params), 'source': 'chestnut'},
-           'selected', 'Navigation driving is OFF; ordinary model selections are preserved.')
-    return selection_status(params)
-
-
 def report_download_state(params, ref, state, message=''):
   with _lock(params):
     request = _record(params, REQUEST_KEY)
@@ -207,21 +190,12 @@ def report_download_state(params, ref, state, message=''):
 
 def _restore(params, previous):
   failures = []
-  try:
-    _put(params, 'NavigationModelDrivingEnabled', False)
-  except Exception as error:
-    failures.append(str(error))
-  for key, value in previous.items():
-    if key == 'NavigationModelDrivingEnabled':
+  for key in SELECTION_KEYS:
+    if key not in previous:
       continue
     try:
-      if params.get(key) != value:
-        _put(params, key, value)
-    except Exception as error:
-      failures.append(str(error))
-  if not failures and previous.get('NavigationModelCandidate') != RETIRED_MODEL_ID:
-    try:
-      _put(params, 'NavigationModelDrivingEnabled', bool(previous.get('NavigationModelDrivingEnabled')))
+      if params.get(key) != previous[key]:
+        _put(params, key, previous[key])
     except Exception as error:
       failures.append(str(error))
   if failures:
@@ -237,15 +211,11 @@ def _commit(params, request, changes, permit=None):
     if permit is not None:
       validate_admission(permit, params, allow_unselected_manifest=True)
     previous = {key: copy.deepcopy(params.get(key)) for key in SELECTION_KEYS}
-    previous['NavigationModelDrivingEnabled'] = params.get_bool('NavigationModelDrivingEnabled')
     journal = {**request, 'phase': 'committing', 'previous': previous}
     _put(params, REQUEST_KEY, journal)
     try:
-      _put(params, 'NavigationModelDrivingEnabled', False)
       for key, value in changes.items():
-        if key != 'NavigationModelDrivingEnabled':
-          _put(params, key, value)
-      _put(params, 'NavigationModelDrivingEnabled', bool(changes.get('NavigationModelDrivingEnabled', False)))
+        _put(params, key, value)
       # Completed state is written before clearing the journal. Recovery can
       # distinguish an interrupted successful commit from a partial write.
       _state(params, request, 'selected', 'Model selection completed; applies on the next drive. Controls are not engaged.')
@@ -281,10 +251,6 @@ def _default_ready(source):
 def _recover_or_migrate(params):
   with _lock(params):
     request = _record(params, REQUEST_KEY)
-    if request.get('origin') == 'retired_bigv2_migration' and request.get('phase') == 'pending':
-      _put(params, 'NavigationModelDrivingEnabled', False)
-      if params.get('NavigationModelCandidate') == RETIRED_MODEL_ID:
-        _put(params, 'NavigationModelCandidate', None)
     if request.get('phase') == 'committing':
       state = _record(params, STATE_KEY)
       if state.get('id') != request.get('id') or state.get('state') != 'selected':
@@ -293,18 +259,43 @@ def _recover_or_migrate(params):
       _put(params, REQUEST_KEY, None)
       if params.get('ModelManager_DownloadRef') == request.get('ref'):
         _put(params, 'ModelManager_DownloadRef', None)
+  migrate_native_selection(params)
+
+
+def migrate_native_selection(params):
+  """Consume a completed legacy choice once; never infer selection from files.
+
+  Called during manager startup before any model process and before off-road
+  selection processing. The slot write is atomic, then the migration marker is
+  persisted. A restart between those writes recognizes the canonical slot.
+  """
+  with _lock(params):
+    if params.get_bool('ModelManager_NativeSelectionMigrated'):
+      params.remove('NavigationModelDrivingEnabled')
+      params.remove('NavigationModelCandidate')
       return
-    if request or params.get('NavigationModelCandidate') != RETIRED_MODEL_ID:
-      return
-    enabled = params.get_bool('NavigationModelDrivingEnabled')
-    # Record old intent before withdrawing it, so power loss cannot accidentally
-    # re-enable the retired model or repeatedly reinterpret the saved request.
-    request = {'schema': 1, 'id': uuid.uuid4().hex, 'source': 'chestnut', 'ref': NAV_REF,
-               'origin': 'retired_bigv2_migration', 'phase': 'pending', 'enable': enabled}
-    _put(params, REQUEST_KEY, request)
-    _put(params, 'NavigationModelDrivingEnabled', False)
+    request = _record(params, REQUEST_KEY)
+    state = _record(params, STATE_KEY)
+    # Never continue the former policy that converted retired model intent into
+    # corrected-model activation. It was not a new explicit corrected choice.
+    retired_request = request.get('origin') == 'retired_bigv2_migration'
+    if retired_request:
+      _put(params, REQUEST_KEY, None)
+      if params.get('ModelManager_DownloadRef') == request.get('ref'):
+        _put(params, 'ModelManager_DownloadRef', None)
+      _state(params, request, 'cancelled', 'Original Bigv2 is retired. Select the corrected model explicitly.')
+    completed = (not retired_request and not request and state.get('state') == 'selected' and
+                 state.get('source') == 'chestnut' and state.get('ref') == NAV_REF and
+                 params.get('NavigationModelCandidate') == MODEL_ID and
+                 params.get_bool('NavigationModelDrivingEnabled') and bool(params.get('NavigationModelManifest')))
+    if not is_navigation_selected(params) and completed:
+      # Integrity is rechecked by the normal loader; migration preserves identity
+      # even if removable storage or Chestnut is temporarily unavailable.
+      _put(params, SLOTS['chestnut'], navigation_bundle())
+      _put(params, 'ModelRunnerTypeCache', None)
+    _put(params, 'ModelManager_NativeSelectionMigrated', True)
+    params.remove('NavigationModelDrivingEnabled')
     params.remove('NavigationModelCandidate')
-    _state(params, request, 'pending', 'Original Bigv2 retired. Checking the corrected local model; navigation driving is OFF.')
 
 
 def process_pending_selection(params):
@@ -332,39 +323,26 @@ def process_pending_selection(params):
   try:
     if request['ref'] == NAV_REF:
       registered = candidate_status(params, candidate_id=MODEL_ID)
-      if registered.get('approved') is False:
-        raise NavigationModelDisabled('Explicit user authorization for Navigation Model Driving is still required')
-      if request.get('origin') == 'retired_bigv2_migration':
-        # Updating an old saved ID is not consent to a large download. Retain
-        # the previous local-only migration and leave navigation OFF on failure.
-        if not registered.get('registered'):
-          from openpilot.selfdrive.navigation.preparation import prepare_existing_model
-          prepare_existing_model(params, is_offroad=True, model_id=MODEL_ID, publish_selection=False)
-      else:
-        from openpilot.selfdrive.navigation.download import prepare_downloaded_model
-        def progress(state, message):
-          with _lock(params):
-            if _current(params, request):
-              _state(params, request, state, message)
+      from openpilot.selfdrive.navigation.download import prepare_downloaded_model
+      def progress(state, message):
         with _lock(params):
-          if not _current(params, request):
-            return True
-          _put(params, 'ModelManager_DownloadRef', NAV_REF)
-        prepare_downloaded_model(params, current=lambda: _current(params, request), progress=progress, registration=registered)
+          if _current(params, request):
+            _state(params, request, state, message)
+      with _lock(params):
+        if not _current(params, request):
+          return True
+        _put(params, 'ModelManager_DownloadRef', NAV_REF)
+      prepare_downloaded_model(params, current=lambda: _current(params, request), progress=progress, registration=registered)
       permit = admit_candidate(params, candidate_id=MODEL_ID)
-      changes = {'NavigationModelManifest': str(permit.manifest_path), 'NavigationModelCandidate': MODEL_ID,
-                 'NavigationModelDrivingEnabled': bool(request.get('enable', True))}
+      changes = {'NavigationModelManifest': str(permit.manifest_path),
+                 SLOTS['chestnut']: navigation_bundle(), 'ModelRunnerTypeCache': None}
       _commit(params, request, changes, permit)
     else:
-      if request['source'] == 'qcom' and params.get_bool('NavigationModelDrivingEnabled'):
+      if request['source'] == 'qcom' and is_navigation_selected(params):
         raise NavigationModelDisabled('Corrected Bigv2 requires the configured native small-model fallback. ' +
-                                      'Turn navigation driving OFF before selecting the stock small default.')
+                                      'Select another big model before selecting the stock small default.')
       _default_ready(request['source'])
       changes = {SLOTS[request['source']]: None, 'ModelRunnerTypeCache': None}
-      if request['source'] == 'chestnut':
-        changes['NavigationModelCandidate'] = None
-      else:
-        changes['NavigationModelDrivingEnabled'] = params.get_bool('NavigationModelDrivingEnabled')
       _commit(params, request, changes)
   except Exception as error:
     with _lock(params):
@@ -397,32 +375,30 @@ def complete_ordinary_selection(params, source, bundle_dict, expected_ref):
     if request and (request.get('ref') != expected_ref or request.get('source') != source):
       return False
     if not request:
-      # Existing manager/auto-fallback requests also get the same guarded commit.
+      # Upstream may prepare the ordinary small fallback when its slot is empty.
+      # A bare/background big download is not an explicit selection request.
+      if source != 'qcom' or params.get(SLOTS['qcom']):
+        _put(params, 'ModelManager_DownloadRef', None)
+        return False
       request = {'schema': 1, 'id': uuid.uuid4().hex, 'source': source, 'ref': expected_ref, 'phase': 'pending', 'origin': 'manager'}
       _put(params, REQUEST_KEY, request)
     # The next drive can start before the manager's next validation tick. Let
     # startup derive the runner from the new slot, never from the previous model.
     changes = {SLOTS[source]: bundle_dict, 'ModelRunnerTypeCache': None}
-    if source == 'chestnut':
-      changes['NavigationModelCandidate'] = None
-    else:
-      changes['NavigationModelDrivingEnabled'] = params.get_bool('NavigationModelDrivingEnabled')
-  if source == 'qcom' and params.get_bool('NavigationModelDrivingEnabled'):
+  if source == 'qcom' and is_navigation_selected(params):
     from openpilot.common.hardware.hw import Paths
     from openpilot.selfdrive.navigation.software_compatibility import validate_ordinary_fallback_bundle
     validate_ordinary_fallback_bundle(bundle_dict, Path(Paths.model_root()))
   return _commit(params, request, changes)
 
 
-def select_navigation_now(params, *, enabled, offroad):
-  """Synchronous CLI compatibility path through the same explicit request queue."""
-  if not enabled:
-    return request_navigation_disabled(params, offroad=offroad, origin='cli')
-  queued = request_model_selection(params, source='chestnut', ref=NAV_REF, offroad=offroad, origin='cli')
+def select_model_now(params, *, source, ref, offroad):
+  """Optional synchronous caller of the same explicit model selection queue."""
+  queued = request_model_selection(params, source=source, ref=ref, offroad=offroad, origin='cli')
   process_pending_selection(params)
   with _lock(params):
     state = selection_status(params)
-    if state.get('revision') == queued['request_id'] and state['state'] in ('selected', 'active', 'loading') and state['navigation_enabled']:
+    if state.get('revision') == queued['request_id'] and state['state'] in ('selected', 'active', 'loading') and state['selected_ref'] == ref:
       return state
     request = _record(params, REQUEST_KEY)
     if request.get('id') == queued['request_id'] and request.get('phase') != 'committing':
@@ -438,7 +414,7 @@ def model_restore_settings(params, updates):
   protected = {'NavigationModelCandidate', 'NavigationModelManifest', 'NavigationModelDrivingEnabled',
                'NavigationModelRuntimeState', REQUEST_KEY, STATE_KEY, 'ModelManager_DownloadRef',
                'ModelManager_SelectionStatus', 'ModelManager_SelectionRevision',
-               'ModelManager_ActiveBundleUSBGPU', 'ModelManager_BundleSlotsMigrated', 'ModelRunnerTypeCache'}
+               'ModelManager_ActiveBundleUSBGPU', 'ModelManager_BundleSlotsMigrated', 'ModelManager_NativeSelectionMigrated', 'ModelRunnerTypeCache'}
   remaining = {key: value for key, value in updates.items() if key not in protected}
   if sum(key in remaining for key in SLOTS.values()) > 1:
     raise NavigationModelDisabled('Restore one model selection at a time; current selections are preserved')
@@ -447,5 +423,9 @@ def model_restore_settings(params, updates):
       value = remaining.pop(key)
       if not isinstance(value, dict):
         raise NavigationModelDisabled('Invalid backed-up ordinary model selection')
+      if value.get('ref') == NAV_REF:
+        # A backup is not a fresh explicit native-model choice. Keep the current
+        # model; selecting Bigv2 in Models performs registration/admission.
+        continue
       request_model_selection(params, source=source, ref=value.get('ref', DEFAULT_REF), offroad=True, origin='restore')
   return remaining

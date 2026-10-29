@@ -139,7 +139,7 @@ def _registered_entry(receipt: dict, manifest: Path, registry: dict) -> tuple[di
   _require(isinstance(receipt.get('model_id'), str) and bool(receipt['model_id'])
            and receipt['model_id'] == registry.get('id') and receipt.get('source_onnx_sha256') == SOURCE_ONNX_SHA256,
            'Receipt source/checkpoint identity mismatch')
-  _require(receipt.get('status') == 'registered_disabled' and receipt.get('activation_allowed') is False,
+  _require(receipt.get('status') in ('registered', 'registered_disabled') and receipt.get('activation_allowed') is False,
            'Registration receipt must not claim driving activation')
   _require(Path(receipt.get('manifest_path', '')).resolve(strict=True) == manifest, 'Receipt manifest path mismatch')
   catalog = load_experimental_catalog(manifest, experimental=True)
@@ -424,10 +424,10 @@ def validate_software_compatibility(receipt_path: str | Path = DEFAULT_RECEIPT, 
                                            'normalization': 'Inside ONNX graph', 'navigation': [1, 47]},
             'execution_policy': 'single_selected_model', 'fallback_policy': 'initialized_for_failure_recovery',
             'runtime_compatibility': approved.get('runtime_compatibility', 'unverified'),
-            'branch_activation_approved': approved.get('activation_approved') is True}
+            'selection_policy': 'canonical_chestnut_bundle'}
   check('branch_reviewed_software_integration', reviewed_integration)
   report['passed'] = all(check['status'] == 'passed' for check in checks)
-  report['status'] = 'software_compatible_driving_disabled' if report['passed'] else 'software_compatibility_failed'
+  report['status'] = 'software_compatible' if report['passed'] else 'software_compatibility_failed'
   return report
 
 

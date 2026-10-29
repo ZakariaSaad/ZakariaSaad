@@ -12,6 +12,7 @@ from openpilot.selfdrive.navigation.errors import NavigationModelDisabled
 from openpilot.selfdrive.navigation.tests.test_activation import ParamsStub
 from openpilot.common.params import Params
 from openpilot.sunnypilot.models import selection
+from openpilot.sunnypilot.models.navigation_bundle import is_navigation_selected, navigation_bundle
 from openpilot.sunnypilot.sunnylink import model_selection as bridge
 
 
@@ -76,14 +77,15 @@ def test_retired_and_duplicate_navigation_entries_removed_only_from_response(par
   assert json.loads(raw)['bundles'][0] == old
 
 
-def test_active_projection_tracks_request_without_overwriting_ordinary_big_slot(params):
+def test_active_slot_is_not_projected_from_stale_legacy_activation(params):
   ordinary = json.dumps(params.get('ModelManager_ActiveBundleChestnut')).encode()
-  assert bridge.project_get_param(params, 'ModelManager_ActiveBundleChestnut', ordinary) == ordinary
-  params.put_bool('NavigationModelDrivingEnabled', True)
-  assert json.loads(bridge.project_get_param(params, 'ModelManager_ActiveBundleChestnut', ordinary))['ref'] == bridge.NAV_REF
-  assert params.get('ModelManager_ActiveBundleChestnut') == {'ref': 'ordinary-big'}
-  params.put_bool('NavigationModelDrivingEnabled', False)
-  assert bridge.project_get_param(params, 'ModelManager_ActiveBundleChestnut', ordinary) == ordinary
+  for enabled in (False, True):
+    params.put_bool('NavigationModelDrivingEnabled', enabled)
+    assert bridge.project_get_param(params, 'ModelManager_ActiveBundleChestnut', ordinary) == ordinary
+  params.put('ModelManager_ActiveBundleChestnut', navigation_bundle())
+  canonical = json.dumps(params.get('ModelManager_ActiveBundleChestnut')).encode()
+  assert bridge.project_get_param(params, 'ModelManager_ActiveBundleChestnut', canonical) == canonical
+  assert json.loads(canonical)['ref'] == bridge.NAV_REF
 
 
 def test_current_frontend_nav_ref_enters_shared_pending_queue(params, offroad):
@@ -91,7 +93,7 @@ def test_current_frontend_nav_ref_enters_shared_pending_queue(params, offroad):
   remaining = bridge.apply_remote_model_settings(params, {'ModelManager_DownloadRef': bridge.NAV_REF, 'UnrelatedSetting': 3})
   assert remaining == {'UnrelatedSetting': 3}
   request = params.get(selection.REQUEST_KEY)
-  assert request['ref'] == bridge.NAV_REF and request['origin'] == 'sunnylink' and request['enable'] is True
+  assert request['ref'] == bridge.NAV_REF and request['origin'] == 'sunnylink'
   assert selection.selection_status(params)['state'] == 'pending'
   assert not params.get_bool('NavigationModelDrivingEnabled')
   for key in ('NavigationModelManifest', 'ModelManager_ActiveBundle', 'ModelManager_ActiveBundleChestnut'):
@@ -100,12 +102,11 @@ def test_current_frontend_nav_ref_enters_shared_pending_queue(params, offroad):
   assert bridge.project_get_param(params, bridge.STATUS_KEY, None).startswith(b'Pending:')
 
 
-def test_frontend_default_selection_disables_navigation_only_when_ready(params, offroad):
-  params.put_bool('NavigationModelDrivingEnabled', True)
+def test_frontend_default_selection_replaces_bigv2_only_when_ready(params, offroad):
+  params.put('ModelManager_ActiveBundleChestnut', navigation_bundle())
   fallback = copy.deepcopy(params.get('ModelManager_ActiveBundle'))
   bridge.apply_remote_model_settings(params, {'ModelManager_ActiveBundleChestnut': '{}'})
-  assert params.get_bool('NavigationModelDrivingEnabled')
-  assert params.get('ModelManager_ActiveBundleChestnut') == {'ref': 'ordinary-big'}
+  assert is_navigation_selected(params)
   with patch.object(selection, '_default_ready'):
     selection.process_pending_selection(params)
   assert not params.get_bool('NavigationModelDrivingEnabled')
@@ -115,10 +116,10 @@ def test_frontend_default_selection_disables_navigation_only_when_ready(params, 
 
 
 def test_ordinary_ref_completion_uses_shared_switch_and_preserves_map_and_small(params, offroad):
-  params.put_bool('NavigationModelDrivingEnabled', True)
+  params.put('ModelManager_ActiveBundleChestnut', navigation_bundle())
   bridge.apply_remote_model_settings(params, {'ModelManager_DownloadRef': 'ordinary-big'})
   assert params.get('ModelManager_DownloadRef') == 'ordinary-big'
-  assert params.get_bool('NavigationModelDrivingEnabled')
+  assert is_navigation_selected(params)
   # Model manager invokes completion only after its existing artifact SHA check.
   assert selection.complete_ordinary_selection(params, 'chestnut', {'ref': 'ordinary-big'}, 'ordinary-big')
   assert not params.get_bool('NavigationModelDrivingEnabled')
@@ -126,15 +127,16 @@ def test_ordinary_ref_completion_uses_shared_switch_and_preserves_map_and_small(
   assert params.get_bool('NavigationEnabled')
 
 
-def test_cancel_and_explicit_off_are_real_shared_operations(params, offroad):
+def test_cancel_is_shared_and_legacy_activation_is_rejected(params, offroad):
   bridge.apply_remote_model_settings(params, {'ModelManager_DownloadRef': bridge.NAV_REF})
   bridge.apply_remote_model_settings(params, {'ModelManager_DownloadRef': ''})
   assert params.get(selection.REQUEST_KEY) is None
   assert selection.selection_status(params)['state'] == 'cancelled'
-  params.put_bool('NavigationModelDrivingEnabled', True)
-  bridge.apply_remote_model_settings(params, {'NavigationModelDrivingEnabled': False})
-  assert not params.get_bool('NavigationModelDrivingEnabled')
-  assert params.get('ModelManager_ActiveBundleChestnut') == {'ref': 'ordinary-big'}
+  before = copy.deepcopy(params.values)
+  for enabled in (False, True):
+    with pytest.raises(NavigationModelDisabled, match='not writable settings'):
+      bridge.apply_remote_model_settings(params, {'NavigationModelDrivingEnabled': enabled})
+    assert params.values == before
 
 
 def test_revision_guard_refuses_stale_remote_choice_without_mutation(params, offroad):
@@ -215,15 +217,15 @@ def test_actual_rpc_catalog_active_and_schema_status_are_consistent(rpc_device):
   assert bridge.STATUS_KEY in response and bridge.REVISION_KEY in response
   schema = json.loads(gzip.decompress(base64.b64decode(rpc.getParamsMetadata())))
   panel = next(panel for panel in schema['panels'] if panel['id'] == 'models')
-  section = next(section for section in panel['sections'] if section['id'] == 'navigation_model')
-  assert {item['key'] for item in section['items']} == {'NavigationModelDrivingEnabled', bridge.STATUS_KEY}
+  section = next(section for section in panel['sections'] if section['id'] == 'model_selection')
+  assert {item['key'] for item in section['items']} == {bridge.STATUS_KEY}
   assert before == {key: p.get(key) for key in before}
 
 
 def test_actual_rpc_nav_selection_is_pending_until_shared_admission_completes(rpc_device, offroad):
   p, rpc = rpc_device.params, rpc_device.rpc
   manifest = rpc_device.root / 'registered-manifest.json'
-  permit = SimpleNamespace(manifest_path=manifest, model_id=bridge.MODEL_ID)
+  permit = SimpleNamespace(manifest_path=manifest, model_id=bridge.MODEL_ID, artifact_path=bridge.ARTIFACT)
   before = {key: p.get(key) for key in ('ModelManager_ActiveBundle', 'ModelManager_ActiveBundleChestnut')}
   rpc.saveParams({'ModelManager_DownloadRef': wire(bridge.NAV_REF)})
   assert selection.selection_status(p)['state'] == 'pending'
@@ -237,13 +239,14 @@ def test_actual_rpc_nav_selection_is_pending_until_shared_admission_completes(rp
     selection.process_pending_selection(p)
   admit.assert_called_once_with(p, candidate_id=bridge.MODEL_ID)
   validate.assert_called_once_with(permit, p, allow_unselected_manifest=True)
-  assert p.get_bool('NavigationModelDrivingEnabled')
+  assert is_navigation_selected(p)
   assert p.get('NavigationModelManifest') == str(manifest)
   assert p.get('ModelManager_DownloadRef') is None
-  assert before == {key: p.get(key) for key in before}
+  assert p.get('ModelManager_ActiveBundle') == before['ModelManager_ActiveBundle']
+  assert p.get('ModelManager_ActiveBundleChestnut')['ref'] == bridge.NAV_REF
   response = rpc.getParams(['ModelManager_ActiveBundleChestnut'])
   assert json.loads(rpc_value(response, 'ModelManager_ActiveBundleChestnut'))['ref'] == bridge.NAV_REF
-  assert 'requested' in rpc_value(response, bridge.STATUS_KEY).lower()
+  assert 'selected' in rpc_value(response, bridge.STATUS_KEY).lower()
 
 
 def test_current_hosted_cancel_clears_native_download_request_and_keeps_selected_model(rpc_device, offroad):
@@ -271,12 +274,12 @@ def test_actual_rpc_admission_failure_preserves_previous_selection(rpc_device, o
   assert before == {key: p.get(key) for key in before}
 
 
-def test_actual_rpc_default_commits_off_after_ready_without_touching_small_or_maps(rpc_device, offroad):
+def test_actual_rpc_default_replaces_bigv2_after_ready_without_touching_small_or_maps(rpc_device, offroad):
   p, rpc = rpc_device.params, rpc_device.rpc
-  p.put_bool('NavigationModelDrivingEnabled', True, block=True)
+  p.put('ModelManager_ActiveBundleChestnut', navigation_bundle(), block=True)
   fallback = p.get('ModelManager_ActiveBundle')
   rpc.saveParams({'ModelManager_ActiveBundleChestnut': wire({})})
-  assert p.get_bool('NavigationModelDrivingEnabled')
+  assert is_navigation_selected(p)
   with patch.object(selection, '_default_ready') as ready:
     selection.process_pending_selection(p)
   ready.assert_called_once_with('chestnut')
@@ -336,4 +339,29 @@ def test_shared_restore_also_discards_legacy_and_derived_model_fields(params):
   updates = {'ModelManager_ActiveBundleUSBGPU': {'ref': 'stale-big'}, 'ModelManager_BundleSlotsMigrated': False,
              'ModelRunnerTypeCache': 0, 'UnrelatedSetting': 'preserved'}
   assert selection.model_restore_settings(params, updates) == {'UnrelatedSetting': 'preserved'}
+  assert params.values == before
+
+
+@pytest.mark.parametrize('enabled', [False, True])
+def test_actual_rpc_rejects_retired_toggle_before_any_mutation(rpc_device, enabled):
+  p, rpc = rpc_device.params, rpc_device.rpc
+  before = {key: p.get(key) for key in (*selection.SELECTION_KEYS, selection.REQUEST_KEY, selection.STATE_KEY, 'NavigationEnabled')}
+  with pytest.raises(NavigationModelDisabled, match='retired'):
+    rpc.saveParams({'NavigationModelDrivingEnabled': wire(enabled), 'NavigationEnabled': wire(False)})
+  assert before == {key: p.get(key) for key in before}
+
+
+def test_canonical_bigv2_slot_write_uses_the_same_explicit_selection_queue(params, offroad):
+  before = copy.deepcopy(params.get('ModelManager_ActiveBundleChestnut'))
+  bridge.apply_remote_model_settings(params, {'ModelManager_ActiveBundleChestnut': navigation_bundle()})
+  assert params.get(selection.REQUEST_KEY)['ref'] == bridge.NAV_REF
+  assert params.get('ModelManager_ActiveBundleChestnut') == before
+
+
+def test_backup_corrected_bundle_does_not_silently_replace_current_model(params):
+  before = copy.deepcopy(params.values)
+  saved = {'ModelManager_ActiveBundleChestnut': wire(navigation_bundle()),
+           'NavigationModelDrivingEnabled': wire(True),
+           'UnrelatedSetting': wire('keep')}
+  assert bridge.model_restore_settings(params, saved) == {'UnrelatedSetting': saved['UnrelatedSetting']}
   assert params.values == before

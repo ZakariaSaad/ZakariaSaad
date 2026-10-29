@@ -142,8 +142,9 @@ class TestStockModelDetection(ModelsDirMixin, OpenpilotTestCase):
     assert needs_default_chestnut_download(params, chestnut_present=False) is False
     assert needs_default_chestnut_download(params, chestnut_present=True) is True
 
+    # A stale removed activation preference has no authority over downloads.
     params.get_bool.return_value = True
-    assert needs_default_chestnut_download(params, chestnut_present=True) is False
+    assert needs_default_chestnut_download(params, chestnut_present=True) is True
     params.get_bool.return_value = False
 
     with mock.patch("openpilot.sunnypilot.models.default_chestnut.get_selected_bundle", return_value={"ref": "custom"}):
@@ -342,13 +343,14 @@ class TestDefaultChestnutDownloader(ModelsDirMixin, OpenpilotTestCase):
     assert modeld_helpers.is_lfs_pointer(self.models_dir / CANONICAL_PKL)
 
   def test_new_selection_prevents_default_publication(self):
-    for change in ("ModelManager_DownloadRef", "ModelManager_SelectionRequest", "NavigationModelDrivingEnabled"):
+    for change in ("ModelManager_DownloadRef", "ModelManager_SelectionRequest", "ModelManager_ActiveBundleChestnut"):
       with self.subTest(change=change):
         manager = self.make_manager()
         values = {}
         manager.params.get.side_effect = values.get
         manager.params.get_bool.side_effect = lambda key, values=values: values.get(key, False)
-        manager.download_background.side_effect = lambda *_, values=values, change=change: values.update({change: True})
+        value = {"ref": "navigation:big-nav-v2-map-fp32"} if change == "ModelManager_ActiveBundleChestnut" else True
+        manager.download_background.side_effect = lambda *_, values=values, change=change, value=value: values.update({change: value})
         artifacts = [default_chestnut.make_artifact(CANONICAL_PKL, "https://x", "aa")]
         with mock.patch.object(default_chestnut, "resolve_default_chestnut_artifacts", return_value=artifacts), \
              mock.patch.object(default_chestnut, "install_staged_files") as install:

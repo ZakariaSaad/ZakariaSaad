@@ -1,9 +1,10 @@
 # SunnyLink model and Insight EPS controls
 
 Current workflow for `ZakariaSaad/ZakariaSaad`, branch
-`mvl-honda-eps-selector21-chestnut-v28`. Routine selection uses SunnyLink or the
-comma's Models settings. No SSH, recompilation, firmware operation or new approval
-is required for the already-approved corrected model.
+`mvl-sp-steer-eps-nav`. Routine selection uses SunnyLink or the comma's Models
+settings. Corrected Bigv2 uses the same selected Big Model slot and startup/fallback
+lifecycle as the ordinary big models. There is no separate navigation-driving
+toggle, SSH enable command or manual approval step.
 
 ## Update the installed branch
 
@@ -59,19 +60,16 @@ before starting a drive.
 
 Before committing selection, the device checks approved identity, compiler
 provenance, compatible warp and the ordinary small-model fallback. It then selects
-the native navigation loader and requests **Navigation Model Driving ON**. Selecting
-a model never engages controls.
+corrected Bigv2 in the normal Big Model slot. The shared loader recognizes its
+native navigation tensor/warp contract when that model starts. Selecting a model
+never engages controls.
 
 To return to Mountain Dew, choose the **Mountain Dew Model v3** default entry in **Models → Big Models**,
 or another ordinary big model, and activate it. The comma labels the default
 entry **Mountain Dew Model v3 (Default)**. The comma's equivalent
 is **Settings → Models → Big Models**. After the requested ordinary model is ready,
-the switch withdraws navigation driving automatically. The ordinary small-model
+the ordinary model replaces Bigv2 in that same slot. The ordinary small-model
 selection and Navigation Alpha maps, routes and destination sending are preserved.
-
-To keep navigation driving off without changing the saved ordinary selections,
-use **Models → Navigation Model → Navigation Model Driving → OFF**. This explicit
-OFF survives reboot. Choosing corrected Bigv2 again is a new explicit ON request.
 
 Use **Model selection status** to distinguish pending/preparing, selected,
 loading, active and failed states. Selected/requested while off road does not
@@ -82,30 +80,43 @@ including when the browser offers Force Offroad.
 
 ## Persistence, migration and recovery
 
-Corrected registration, ordinary model choices and the EPS toggle are preserved.
-Reboot, reconnect, update and catalog refresh do not create a new Bigv2 selection.
-An explicitly chosen Default big model also survives the legacy-slot migration
-check on subsequent boots.
-Interrupted switches use a persisted transaction to finish or restore the previous
-selection; a superseded preparation cannot later overwrite a newer choice.
+Explicitly selecting Bigv2, Flip Flop, Mountain Dew or another big model writes
+one canonical `ModelManager_ActiveBundleChestnut` choice. Reboots, ordinary ignition
+cycles and model-process restarts retain that choice. The model manager verifies
+files before committing a replacement. Interrupted or superseded transactions
+cannot silently select a different model. A background download or an installed
+Bigv2 file does not create a selection.
 
-The original `big-nav-v2` is retired and cannot be selected or executed. An old
-saved request to drive that model is withdrawn, then migrated to corrected Bigv2
-only after corrected-file admission succeeds. Missing/corrupt corrected files
-leave navigation driving off with a failure explanation. A saved old-model OFF
-does not become ON. Migration is repeatable after interruption.
+For this update, a completed explicit corrected-Bigv2 selection from the old
+workflow migrates once to the canonical slot. The migration requires the matching
+completed selection record and prior ON state; a bare stale ON flag or candidate
+name cannot override an ordinary selection. Old OFF state keeps the ordinary
+selection. Conflicting/incomplete old transactions are recovered conservatively.
+Legacy activation writes from a cached SunnyLink page are refused; refresh the
+page and use Big Models. The original `big-nav-v2` remains retired and is never
+silently promoted to corrected Bigv2.
+
+The loader follows sp-steer's normal big-model loading and one-cycle retry policy.
+It prepares the selected small model for fallback but executes only one model at
+a time. A big-model failure switches to that prepared small model. Loading a small
+model during startup does not by itself mean fallback occurred. Runtime status
+separates loading/ready, actual published predictions, fallback pending, working
+small fallback and terminal failure; an initialized model is not called running.
 
 No model, ONNX, report, recording, firmware evidence or shared warp is deleted by
-this migration. Required active corrected/fallback files are protected from model
-cache cleanup. There is no automatic legacy-file removal.
+this migration. Required corrected/fallback files remain protected from model
+cache cleanup. Registration alone records verified files and never selects them.
 
-For recovery, remain off road, turn **Navigation Model Driving OFF**, and select
-**Mountain Dew Model v3 (Default)** or a known-working ordinary big model. Disable
-the Insight EPS toggle only if you intend to change the controller for the next
-drive. Use the normal update mechanism for subsequent fixes. Do not restore the
-retired original Bigv2. The pre-cleanup source rollback point is
-`086fd710f3ea3b5c1088003a1d7e1132f96c2cfe`; reverting source would also restore its
-older selection semantics, so prefer the ordinary-model recovery above.
+For recovery, remain off road and select **Mountain Dew Model v3 (Default)**,
+Flip Flop or another known-working ordinary big model. No separate navigation OFF
+action is needed. Disable Insight EPS only if you intend to change the lateral
+controller for the next drive. Use the normal Software updater for subsequent
+fixes. The source rollback point for this lifecycle cleanup is
+`8a2f81b3c411437d4e356291c08fd8a2f81252ad`; reverting source restores the former
+split-selection behavior, so review model settings if doing so.
+
+See [Bigv2 model lifecycle](bigv2-model-lifecycle.md) for supplied-log evidence,
+upstream comparison and test scope.
 
 ## Published assets and portable installation
 
@@ -138,8 +149,10 @@ not be represented as covered by one unqualified MIT license.
 
 The existing hosted frontend already understands the device-provided Steering
 schema, Models schema and cached-catalog interface used here. The native
-navigation entry is a response-only display overlay; it does not falsify an
-ordinary model generation or overwrite ordinary catalog/slot parameters.
+navigation catalog entry is a native-format descriptor. It occupies the existing
+Big Model selection slot; the loader uses its verified manifest instead of
+pretending it has an ordinary model generation. Runtime status does not control
+selection.
 
 Current frontend requests contain only a ref or default `{}` without a client
 revision. The device fences superseded jobs, but cannot distinguish a fresh action
@@ -160,7 +173,10 @@ the existing single-active-model small fallback remain in place, including its
 previously observed first-invocation delay. Controller algorithms, MVL tuning,
 Panda safety, firmware, Chestnut runtime and updater are unchanged by this cleanup.
 
-## Download integration verification
+## Earlier download integration verification
+
+These results describe the preceding downloadable-model integration, not the
+current lifecycle cleanup. Current checks are in the lifecycle report linked above.
 
 - Independently downloaded both public assets and verified their exact byte
   sizes and SHA256 values above. Existing data-only validators accepted the

@@ -59,7 +59,7 @@ def test_corrected_registration_preserves_original_and_snapshots_exact_provenanc
   assert (fixture.package_root / 'latest-registration.json').read_bytes() == original_receipt
   assert all(path.read_bytes() == data for path, data in original_files.items())
   assert artifact.read_bytes() == artifact_before
-  assert fixture.params.get('NavigationModelCandidate') == corrected.MODEL_ID
+  assert fixture.params.get('NavigationModelCandidate') == 'big-nav-v2'
   assert not fixture.params.get_bool('NavigationModelDrivingEnabled')
   entry = load_experimental_model(result['manifest_path'], experimental=True, backend='AMD', model_id=corrected.MODEL_ID)
   assert entry.artifact_path == artifact and entry.metadata['map_precision_correction'] == report['map_precision_correction']

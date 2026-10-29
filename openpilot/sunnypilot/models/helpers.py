@@ -14,6 +14,7 @@ from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 from openpilot.common.hardware.hw import Paths
 from openpilot.selfdrive.modeld.helpers import chestnut_present
+from openpilot.sunnypilot.models.navigation_bundle import is_navigation_bundle, navigation_bundle
 
 # SET ME TO THE EXACT JSON VERSION WE SET IN SUNNYPILOT_MODELS REPO
 REQUIRED_JSON_VERSION = 21
@@ -100,6 +101,8 @@ def _bundle_needs_reset(active_bundle: custom.ModelManagerSP.ModelBundle, availa
 
 def _parse_active_bundle(raw_bundle) -> "custom.ModelManagerSP.ModelBundle | None":
   try:
+    if is_navigation_bundle(raw_bundle):
+      return custom.ModelManagerSP.ModelBundle(**navigation_bundle())
     if isinstance(raw_bundle, dict) and raw_bundle and is_bundle_version_compatible(raw_bundle):
       return custom.ModelManagerSP.ModelBundle(**raw_bundle)
   except Exception:
@@ -149,6 +152,13 @@ def _validate_active_bundle(params: Params, source: str, available_bundles: list
   if _LAST_VALIDATED_RAW.get(key) == raw_bundle:
     return
 
+  if source == "chestnut" and is_navigation_bundle(raw_bundle):
+    # Native registration has its own bounded header/hash checks in the loader.
+    # Temporary file/hardware loss must fall back, not erase explicit selection
+    # because the ordinary upstream catalog has no native-navigation entry.
+    _LAST_VALIDATED_RAW[key] = raw_bundle
+    return
+
   active_bundle = _parse_active_bundle(raw_bundle)
   if active_bundle is None or _bundle_needs_reset(active_bundle, available_bundles):
     cloudlog.warning(f"Active model bundle invalid for {source}; resetting to default")
@@ -167,12 +177,6 @@ def validate_active_bundles(params: Params, source_bundles: dict[str, list[custo
 
 def get_active_model_runner(params: Params | None = None, force_check: bool = False) -> int:
   params = params or Params()
-  if params.get_bool('NavigationModelDrivingEnabled') is True:
-    # This separate opt-in never overwrites the user's ordinary runner cache or
-    # either active bundle slot. The native runner performs full artifact admission.
-    from openpilot.selfdrive.navigation.activation import candidate_status
-    if candidate_status(params)['eligible']:
-      return int(custom.ModelManagerSP.Runner.tinygrad)
   cached_runner_type = params.get("ModelRunnerTypeCache")
   if cached_runner_type is not None and not force_check:
     return cached_runner_type
@@ -188,7 +192,7 @@ def get_active_model_runner(params: Params | None = None, force_check: bool = Fa
 
 def _get_model():
   if bundle := get_active_bundle():
-    drive_model = next(model for model in bundle.models if model.type == ModelManager.Model.Type.supercombo)
+    drive_model = next((model for model in bundle.models if model.type == ModelManager.Model.Type.supercombo), None)
     return drive_model
   return None
 

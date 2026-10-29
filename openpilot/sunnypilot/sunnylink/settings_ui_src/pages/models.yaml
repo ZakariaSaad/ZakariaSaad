@@ -7,18 +7,10 @@ order: 10
 remote_configurable: false
 description: Driving model behavior and camera calibration
 sections:
-- id: navigation_model
-  title: Navigation Model
-  description: Select corrected Bigv2 in Big Models to reuse or download the verified model and request navigation driving. Ordinary big-model selections leave navigation driving automatically.
+- id: model_selection
+  title: Model Selection
+  description: Select corrected Bigv2 or an ordinary model in Big Models. Missing files are downloaded and verified before selection completes. Changes require off-road and disengaged status and apply on the next drive; selecting a model never engages controls.
   items:
-  - key: NavigationModelDrivingEnabled
-    widget: toggle
-    title: Navigation Model Driving
-    description: Request the approved corrected Bigv2. OFF keeps ordinary model selections and maps available. Changes require genuine off-road and disengaged state; selecting a model never engages controls.
-    details: Reuses the verified FP32-map artifact when installed; otherwise downloads the pinned model and supporting files. File integrity, camera warp and ordinary small-model fallback are checked before selection completes. No compilation is required. Real-world numerical stability remains experimental.
-    enablement:
-    - $ref: '#/macros/offroad'
-    - type: not_engaged
   - key: ModelManager_SelectionStatus
     widget: info
     title: Model selection status

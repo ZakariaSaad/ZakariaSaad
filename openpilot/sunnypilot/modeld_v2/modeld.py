@@ -53,6 +53,8 @@ from openpilot.sunnypilot.modeld_v2.frame_fusion import fused_with_warp
 from openpilot.sunnypilot.modeld_v2.model_adapters import get_model_adapter
 from openpilot.sunnypilot.modeld_v2.numerics import nonfinite_details
 from openpilot.sunnypilot.models.helpers import get_active_bundle
+from openpilot.sunnypilot.models.navigation_bundle import is_navigation_selected
+from openpilot.selfdrive.navigation.candidate_identity import MODEL_ID
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import drive_config_for_model
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.timing import prediction_delay
@@ -428,13 +430,81 @@ def load_navigation_model(params, cam_w, cam_h, permit):
   return NavigationModelState(cam_w, cam_h, chestnut=True, driving_permit=permit)
 
 
-def navigation_runtime_state(params, permit, model, reason):
-  """Report admission/failure status without scheduling or switching models."""
+def navigation_runtime_state(params, role, reason):
+  """Report only; canonical model selection is the sole runtime authority."""
   params.put('NavigationModelRuntimeState', {
-    'candidate_id': permit.model_id if permit is not None else params.get('NavigationModelCandidate', return_default=True),
-    'role': 'blocked' if model is None else 'candidate' if model.chestnut else 'ordinary_small',
-    'reason': reason, 'active_source': None if model is None else 'chestnut' if model.chestnut else 'qcom',
-  })
+    'candidate_id': MODEL_ID, 'role': role, 'reason': reason,
+    'active_source': 'chestnut' if role == 'candidate' else 'qcom' if role == 'ordinary_small' else None,
+  }, block=True)
+
+
+def load_selected_models(params, cam_w, cam_h, chestnut, navigation_selected):
+  """Upstream big-loader/retry/small-preparation path, with a native Bigv2 adapter.
+
+  Compatibility admission belongs to the selected big loader. An admission
+  failure must follow the same small-model fallback as any other load failure;
+  it must never substitute a separately saved ordinary big-model selection.
+  """
+  model = None
+  navigation_permit = None
+  big_load_error = None
+  if navigation_selected:
+    navigation_runtime_state(params, 'loading' if chestnut else 'small_loading',
+                             'Loading selected corrected Bigv2' if chestnut else 'Chestnut unavailable; preparing ordinary small model')
+  try:
+    if chestnut:
+      big_model = None
+      def load_big():
+        nonlocal big_model, big_load_error, navigation_permit
+        try:
+          wait_for_chestnut()
+          if navigation_selected:
+            permit = authorize_runtime(params)
+            if permit is None:
+              raise NavigationModelDisabled('Corrected Bigv2 is no longer the selected big model')
+            m = load_navigation_model(params, cam_w, cam_h, permit)
+          else:
+            permit = None
+            m = ModelState(cam_w=cam_w, cam_h=cam_h, chestnut=True)
+          m.warmup()
+          _reject_navigation_publication(m)
+          navigation_permit = permit
+          big_model = m
+        except Exception as error:
+          big_load_error = str(error)
+          cloudlog.exception("chestnut load failed")
+      loader = threading.Thread(target=load_big, daemon=True)
+      loader.start()
+      loader.join(BIG_MODEL_TIMEOUT)
+      model = big_model
+      params.put_bool("ChestnutActive", model is not None, block=True)
+      if model is None and not params.get_bool("ChestnutRetry"):
+        # A crank can cut Chestnut power during loading. Preserve upstream's
+        # one-cycle retry; its key survives that synthetic off-road transition.
+        cloudlog.error("big model load failed, cycling onroad to retry")
+        params.put_bool("ChestnutRetry", True, block=True)
+        params.put_bool("OnroadCycleRequested", True)
+
+    # Upstream prepares the ordinary fallback, but does not infer with it while
+    # the selected big model is active. No shadow inference or custom priming.
+    small_model = ModelState(cam_w=cam_w, cam_h=cam_h, chestnut=False) if model is None or chestnut else None
+    if model is None:
+      model = small_model
+    assert model is not None
+    _reject_navigation_publication(model, small_model)
+    if navigation_selected:
+      navigation_runtime_state(params, 'ready' if model.chestnut else 'small_loading',
+                               'Corrected Bigv2 loaded; awaiting predictions' if model.chestnut else
+                               'Ordinary small model prepared; awaiting predictions. ' +
+                               (big_load_error or ('Big model load timed out' if chestnut else 'Chestnut unavailable')))
+    return model, small_model, navigation_permit
+  except BaseException as error:
+    params.put_bool("ChestnutActive", False, block=True)
+    if navigation_selected:
+      navigation_runtime_state(params, 'failed', 'Model initialization failed: ' + str(error))
+    raise
+  finally:
+    params.put_bool("ChestnutLoading", False, block=True)
 
 
 def main(demo=False):
@@ -443,14 +513,20 @@ def main(demo=False):
   cloudlog.bind(daemon=PROCESS_NAME)
   setproctitle(PROCESS_NAME)
 
-  CHESTNUT = _find_driving_pkl(get_active_bundle(chestnut=True)) is not None and (chestnut_present() or cable_connected())
+  params = Params()
+  navigation_selected = is_navigation_selected(params)
+  selected_big = navigation_selected or _find_driving_pkl(get_active_bundle(params, chestnut=True)) is not None
+  CHESTNUT = selected_big and (chestnut_present() or cable_connected())
   if CHESTNUT:
     from tinygrad.runtime.ops_amd import AMDDevice
     AMDDevice.wait_timeout_ms = 3000
 
-  params = Params()
   params.put_bool("ChestnutLoading", CHESTNUT, block=True)
   params.remove("ChestnutActive")
+  if navigation_selected:
+    navigation_runtime_state(params, 'loading', 'Waiting for camera streams')
+  else:
+    params.remove('NavigationModelRuntimeState')
 
   gc.disable()
 
@@ -480,62 +556,9 @@ def main(demo=False):
   cloudlog.warning("loading model")
   st = time.monotonic()
 
-  navigation_permit = None
-  try:
-    navigation_permit = authorize_runtime(params)
-  except Exception as error:
-    cloudlog.exception('navigation_candidate_not_admitted; ordinary model startup retained')
-    navigation_runtime_state(params, None, None, str(error))
-  if navigation_permit is not None:
-    CHESTNUT = True
-    params.put_bool("ChestnutLoading", True, block=True)
-
-  model = None
-  big_load_error = None
-  try:
-    if CHESTNUT:
-      big_model = None
-      def load_big():
-        nonlocal big_model, big_load_error
-        try:
-          wait_for_chestnut()
-          m = (load_navigation_model(params, vipc_client_main.width, vipc_client_main.height, navigation_permit)
-               if navigation_permit is not None else
-               ModelState(cam_w=vipc_client_main.width, cam_h=vipc_client_main.height, chestnut=True))
-          m.warmup()
-          if navigation_permit is not None:
-            _reject_navigation_publication(m)
-          big_model = m
-        except Exception as error:
-          big_load_error = str(error)
-          cloudlog.exception("chestnut load failed")
-      loader = threading.Thread(target=load_big, daemon=True)
-      loader.start()
-      loader.join(BIG_MODEL_TIMEOUT)
-      model = big_model
-      params.put_bool("ChestnutActive", model is not None, block=True)
-      if model is None and not params.get_bool("ChestnutRetry"):
-        # A crank can cut Chestnut power during loading. Preserve the ordinary
-        # one-cycle retry; its registered key survives that off-road transition.
-        cloudlog.error("big model load failed, cycling onroad to retry")
-        params.put_bool("ChestnutRetry", True, block=True)
-        params.put_bool("OnroadCycleRequested", True)
-
-    # Keep the ordinary fallback initialized, as upstream does. It does not run
-    # while the selected big model is active, including during navigation gaps.
-    small_model = ModelState(cam_w=vipc_client_main.width, cam_h=vipc_client_main.height, chestnut=False) if model is None or CHESTNUT else None
-    if model is None:
-      model = small_model
-    if navigation_permit is not None:
-      navigation_runtime_state(params, navigation_permit, model, 'navigation_active' if model.chestnut else
-                               'big model initialization failed: ' + (big_load_error or 'load timed out'))
-    assert model is not None
-    _reject_navigation_publication(model, small_model)
-  except BaseException:
-    params.put_bool("ChestnutActive", False, block=True)
-    raise
-  finally:
-    params.put_bool("ChestnutLoading", False, block=True)
+  model, small_model, navigation_permit = load_selected_models(
+    params, vipc_client_main.width, vipc_client_main.height, CHESTNUT, navigation_selected)
+  reported_model = None
   cloudlog.warning(f"models loaded in {time.monotonic() - st:.1f}s, modeld starting")
 
   config_realtime_process(7, 54)
@@ -689,17 +712,19 @@ def main(demo=False):
       model_output = model.run(bufs, transforms, inputs, chestnut_state.send if send_chestnut else None)
     except Exception as error:
       if not model.chestnut:
+        if navigation_selected:
+          navigation_runtime_state(params, 'failed', 'Ordinary small-model inference failed: ' + str(error))
         raise
       cloudlog.exception("big model failed, fall back to small")
       params.put_bool("ChestnutActive", False)
       assert small_model is not None
-      if navigation_permit is not None:
+      if navigation_selected:
         # Preserve this branch's model-specific timing on the ordinary failure
         # handover; no navigation-data event initiates a model switch.
         if firmware_config is None:
           small_model.lat_delay = get_lat_delay(params, sm['lateralDelay'].lateralDelay)
         long_delay = CP.longitudinalActuatorDelay + small_model.LONG_SMOOTH_SECONDS
-        navigation_runtime_state(params, navigation_permit, small_model, str(error))
+        navigation_runtime_state(params, 'small_loading', 'Big model failed; awaiting ordinary small-model predictions: ' + str(error))
       model = small_model
       if chestnut_state is not None:
         chestnut_state.big = False
@@ -741,6 +766,10 @@ def main(demo=False):
       pm.send('drivingModelData', drivingdata_send)
       pm.send('cameraOdometry', posenet_send)
       pm.send('modelDataV2SP', mdv2sp_send)
+      if navigation_selected and reported_model is not model:
+        navigation_runtime_state(params, 'candidate' if model.chestnut else 'ordinary_small',
+                                 'Corrected Bigv2 publishing predictions' if model.chestnut else 'Ordinary small model publishing predictions')
+        reported_model = model
     last_vipc_frame_id = meta_main.frame_id
 
 if __name__ == "__main__":

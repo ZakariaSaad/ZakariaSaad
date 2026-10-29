@@ -181,12 +181,25 @@ class TestSoftwareCompatibility(unittest.TestCase):
       report = self.validate()
     self.assertTrue(report['passed'], report)
     self.assertEqual(len(report['checks']), 7)
+    self.assertEqual(report['status'], 'software_compatible')
     self.assertEqual(report['source_sha'], 'a' * 40)
     self.assertEqual(report['runtime_compatibility'], 'unverified')
     self.assertFalse(report['activation_allowed'])
     for field in ('gpu_execution_performed', 'model_recompiled', 'models_downloaded', 'normal_service_modified', 'params_modified'):
       self.assertFalse(report[field])
     self.assertEqual(before, {path: path.read_bytes() for path in self.root.iterdir() if path.is_file()})
+
+  def test_current_and_legacy_registration_receipts_never_grant_selection(self):
+    receipt = json.loads(self.receipt.read_text())
+    for status in ('registered', 'registered_disabled'):
+      with self.subTest(status=status):
+        receipt.update(status=status, activation_allowed=False)
+        self.receipt.write_text(json.dumps(receipt))
+        report = self.validate()
+        self.assertTrue(report['passed'], report)
+        receipt['activation_allowed'] = True
+        self.receipt.write_text(json.dumps(receipt))
+        self.assertFalse(self.validate()['passed'])
 
   def test_reviewed_integration_has_no_extra_activation_history_requirement(self):
     report = self.validate()
@@ -197,7 +210,7 @@ class TestSoftwareCompatibility(unittest.TestCase):
     self.assertNotIn('valid_frame_priming', details)
     self.assertNotIn('minimum_valid_frames', self.approved)
     self.assertFalse(report['activation_allowed'])
-    self.assertFalse(details['branch_activation_approved'])
+    self.assertEqual(details['selection_policy'], 'canonical_chestnut_bundle')
 
   def test_receipt_candidate_uses_its_own_registry_identity_without_inheriting_approval(self):
     # Inert native fixtures test candidate dispatch and file bindings only;
@@ -219,7 +232,7 @@ class TestSoftwareCompatibility(unittest.TestCase):
     self.assertEqual(report['model_id'], 'big-nav-v2-map-fp32')
     self.assertEqual(report['artifact_sha256'], self.approved['artifact_sha256'])
     details = next(check['details'] for check in report['checks'] if check['name'] == 'branch_reviewed_software_integration')
-    self.assertFalse(details['branch_activation_approved'])
+    self.assertEqual(details['selection_policy'], 'canonical_chestnut_bundle')
     self.assertFalse(report['activation_allowed'])
     self.assertEqual(before, {path: path.read_bytes() for path in self.root.iterdir() if path.is_file()})
 

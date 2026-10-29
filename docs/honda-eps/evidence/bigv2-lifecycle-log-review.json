@@ -1,0 +1,474 @@
+{
+  "recorded_revision": "8a2f81b3c411437d4e356291c08fd8a2f81252ad",
+  "recorded_branch": "mvl-sp-steer-eps-nav",
+  "recorded_os": "19.9",
+  "kind": "non-actuating structured startup log review; not model inference or numerical replay",
+  "method": [
+    "Decode every recovered complete record with openpilot.tools.lib.logreader.LogReader and the recorded revision matching cereal schemas.",
+    "Analyze routes separately; combine and order each route by Event.logMonoTime.",
+    "Inspect model and camera IDs, publication times, manager process identity, structured logs, events and sanitized initial selections.",
+    "Use Zstandard frame completeness and Capnp framing only to measure the truncated tail; all record field decoding uses LogReader.",
+    "Do not expose route coordinates, VINs, host identity, credentials, full parameter snapshots or raw recordings."
+  ],
+  "files": [
+    {
+      "label": "route_0d_segment_0",
+      "sha256": "81eaf52650eeed3c7158dd97ecd9e4ede14580c081d3f34c972bd60795d60d65",
+      "compressed_bytes": 5868868,
+      "compressed_frame_complete": true,
+      "recovered_uncompressed_bytes": 35874792,
+      "complete_framed_records": 98812,
+      "incomplete_tail_bytes": 0,
+      "reader_warnings": [],
+      "records": 98812,
+      "mono_range_s": [
+        30.661113789,
+        91.706430366
+      ],
+      "model_summary": {
+        "count": 696,
+        "valid": 687,
+        "big_true": 696,
+        "mono_range_s": [
+          56.955577112,
+          91.669192518
+        ],
+        "frame_range": [
+          506,
+          1202
+        ]
+      }
+    },
+    {
+      "label": "route_0d_segment_1",
+      "sha256": "58b57256b6b84f386c8a49db32c766b8fc6b01a4e1f99b21507158a1771b2bd9",
+      "compressed_bytes": 5204154,
+      "compressed_frame_complete": true,
+      "recovered_uncompressed_bytes": 28014912,
+      "complete_framed_records": 71025,
+      "incomplete_tail_bytes": 0,
+      "reader_warnings": [],
+      "records": 71025,
+      "mono_range_s": [
+        30.694917904,
+        131.219283706
+      ],
+      "model_summary": {
+        "count": 789,
+        "valid": 789,
+        "big_true": 789,
+        "mono_range_s": [
+          91.719052524,
+          131.114779408
+        ],
+        "frame_range": [
+          1203,
+          1991
+        ]
+      }
+    },
+    {
+      "label": "route_0e_segment_0",
+      "sha256": "9e01693a878650d61eff0e174289708b12277014c791039bf3f43f723a1f949c",
+      "compressed_bytes": 5661404,
+      "compressed_frame_complete": true,
+      "recovered_uncompressed_bytes": 34931272,
+      "complete_framed_records": 98268,
+      "incomplete_tail_bytes": 0,
+      "reader_warnings": [],
+      "records": 98268,
+      "mono_range_s": [
+        358.246697104,
+        420.03026228
+      ],
+      "model_summary": {
+        "count": 614,
+        "valid": 613,
+        "big_true": 614,
+        "mono_range_s": [
+          389.340057501,
+          420.022720867
+        ],
+        "frame_range": [
+          587,
+          1203
+        ]
+      }
+    },
+    {
+      "label": "route_0e_segment_1",
+      "sha256": "949f42de47f679b3df5c05b3a7dfe2d3d7dff9b4bf3f6de6cc8bb53a8b2f5bf6",
+      "compressed_bytes": 8126718,
+      "compressed_frame_complete": true,
+      "recovered_uncompressed_bytes": 42138392,
+      "complete_framed_records": 107909,
+      "incomplete_tail_bytes": 0,
+      "reader_warnings": [],
+      "records": 107909,
+      "mono_range_s": [
+        358.328035998,
+        480.03018578
+      ],
+      "model_summary": {
+        "count": 1200,
+        "valid": 1200,
+        "big_true": 1200,
+        "mono_range_s": [
+          420.073066987,
+          480.022369529
+        ],
+        "frame_range": [
+          1204,
+          2403
+        ]
+      }
+    },
+    {
+      "label": "route_0e_segment_2",
+      "sha256": "1b39282c51632ddb8960352439aea026f612a34c1702d03ce277acad5bef0fce",
+      "compressed_bytes": 4374528,
+      "compressed_frame_complete": false,
+      "recovered_uncompressed_bytes": 22937600,
+      "complete_framed_records": 58019,
+      "incomplete_tail_bytes": 704,
+      "reader_warnings": [
+        "Corrupted events detected"
+      ],
+      "records": 58019,
+      "mono_range_s": [
+        358.328035998,
+        512.376314789
+      ],
+      "model_summary": {
+        "count": 647,
+        "valid": 647,
+        "big_true": 647,
+        "mono_range_s": [
+          480.072269932,
+          512.374728807
+        ],
+        "frame_range": [
+          2404,
+          3050
+        ]
+      }
+    }
+  ],
+  "routes": {
+    "0d": {
+      "initial_selection": {
+        "pending_selection_request_present": false,
+        "ModelManager_ActiveBundle": {
+          "displayName": "Terrible Super Fantastic Do Over Model (August 15, 2026)",
+          "internalName": "TSFDOM",
+          "ref": "0394d7284cfc229f772ee4fa73ff724ba8245110",
+          "generation": 12,
+          "runner": "tinygrad"
+        },
+        "ModelManager_ActiveBundleChestnut": {
+          "displayName": "Flip Flop Model (October 23, 2026)",
+          "internalName": "FFM",
+          "ref": "35c5406aa5b03c51a6246a1f09ff84464b2a6b96",
+          "generation": 12,
+          "runner": "tinygrad"
+        },
+        "ModelManager_SelectionState": {
+          "ref": "35c5406aa5b03c51a6246a1f09ff84464b2a6b96",
+          "source": "chestnut",
+          "state": "selected",
+          "message": "Model selection completed; applies on the next drive. Controls are not engaged."
+        },
+        "NavigationEnabled": "0",
+        "NavigationModelCandidate": "big-nav-v2-map-fp32",
+        "NavigationModelDrivingEnabled": "0",
+        "NavigationModelInputsEnabled": "0",
+        "navigation_manifest_present": false
+      },
+      "timeline_mono_s": {
+        "modeld_init": 34.772837694,
+        "load_started": 34.836908319,
+        "selected_artifact_load": 34.842787017,
+        "selfdrived_initialization_timeout": 42.727606961,
+        "small_model_preparation": 56.090275186,
+        "load_completed": 56.850791071,
+        "big_model_ready_event": 56.854343623,
+        "first_model_publication": 56.955577112,
+        "last_model_publication": 131.114779408
+      },
+      "modeld_pid": 4737,
+      "selected_artifact_basename": "driving_flip_flop_model_october_23_2026_tinygrad.pkl",
+      "durations_s": {
+        "load_to_ready_log": 22.013882752,
+        "big_artifact_load_to_small_preparation": 21.247488169,
+        "small_preparation_to_load_completed": 0.760515885,
+        "load_completed_to_first_publication": 0.104786041
+      },
+      "publication": {
+        "modelV2": 1485,
+        "valid": 1476,
+        "big_true": 1485,
+        "max_gap_s": 0.074574479,
+        "first_frame_id": 506,
+        "last_frame_id": 1991,
+        "nonfinite_published_action_or_execution_scalar_count": 0
+      },
+      "big_model_events": {
+        "bigModelLoading": 22,
+        "bigModelReady": 1,
+        "bigModelFailed": 0
+      },
+      "relevant_process_transitions": [
+        {
+          "name": "camerad",
+          "transitions": [
+            {
+              "first_mono_s": 31.116410039,
+              "state": {
+                "pid": 4686,
+                "running": true,
+                "shouldBeRunning": true,
+                "exitCode": 0
+              }
+            }
+          ],
+          "last_observation_mono_s": 130.64252545
+        },
+        {
+          "name": "modeld_tinygrad",
+          "transitions": [
+            {
+              "first_mono_s": 31.116410039,
+              "state": {
+                "pid": 4737,
+                "running": true,
+                "shouldBeRunning": true,
+                "exitCode": 0
+              }
+            }
+          ],
+          "last_observation_mono_s": 130.64252545
+        },
+        {
+          "name": "controlsd",
+          "transitions": [
+            {
+              "first_mono_s": 31.116410039,
+              "state": {
+                "pid": 4703,
+                "running": true,
+                "shouldBeRunning": true,
+                "exitCode": 0
+              }
+            }
+          ],
+          "last_observation_mono_s": 130.64252545
+        },
+        {
+          "name": "selfdrived",
+          "transitions": [
+            {
+              "first_mono_s": 31.116410039,
+              "state": {
+                "pid": 4704,
+                "running": true,
+                "shouldBeRunning": true,
+                "exitCode": 0
+              }
+            }
+          ],
+          "last_observation_mono_s": 130.64252545
+        }
+      ],
+      "camera_correlation": {
+        "narrowRoadCameraState": {
+          "recorded_frames": 1993,
+          "matching_model_frame_ids": 1485,
+          "model_timestampEof_mismatches": 0
+        },
+        "wideRoadCameraState": {
+          "recorded_frames": 1993,
+          "matching_model_frame_ids": 1485
+        }
+      },
+      "navigation_metadata_counts": {},
+      "wall_clock_discontinuities": [
+        {
+          "previous_mono_s": 38.629665973,
+          "next_mono_s": 38.650533005,
+          "wall_minus_mono_offset_jump_s": 7977334.390282
+        }
+      ],
+      "device_state": {
+        "chestnut_present_in_all_observations": true,
+        "last_observation_mono_s": 131.108901237,
+        "last_started": false
+      }
+    },
+    "0e": {
+      "initial_selection": {
+        "pending_selection_request_present": false,
+        "ModelManager_ActiveBundle": {
+          "displayName": "Terrible Super Fantastic Do Over Model (August 15, 2026)",
+          "internalName": "TSFDOM",
+          "ref": "0394d7284cfc229f772ee4fa73ff724ba8245110",
+          "generation": 12,
+          "runner": "tinygrad"
+        },
+        "ModelManager_ActiveBundleChestnut": {
+          "displayName": "Flip Flop Model (October 23, 2026)",
+          "internalName": "FFM",
+          "ref": "35c5406aa5b03c51a6246a1f09ff84464b2a6b96",
+          "generation": 12,
+          "runner": "tinygrad"
+        },
+        "ModelManager_SelectionState": {
+          "ref": "navigation:big-nav-v2-map-fp32",
+          "source": "chestnut",
+          "state": "selected",
+          "message": "Model selection completed; applies on the next drive. Controls are not engaged."
+        },
+        "NavigationEnabled": "1",
+        "NavigationModelCandidate": "big-nav-v2-map-fp32",
+        "NavigationModelDrivingEnabled": "1",
+        "NavigationModelInputsEnabled": "0",
+        "navigation_manifest_present": true
+      },
+      "timeline_mono_s": {
+        "modeld_init": 365.124911329,
+        "load_started": 365.159300284,
+        "selected_artifact_load": 367.122689836,
+        "selfdrived_initialization_timeout": 370.308199866,
+        "small_model_preparation": 388.406253732,
+        "load_completed": 389.185912905,
+        "big_model_ready_event": 389.185991654,
+        "first_model_publication": 389.340057501,
+        "last_model_publication": 512.374728807
+      },
+      "modeld_pid": 6592,
+      "selected_artifact_basename": "bigv2-amd-map-fp32.sptg",
+      "durations_s": {
+        "load_to_ready_log": 24.026612621,
+        "big_artifact_load_to_small_preparation": 21.283563896,
+        "small_preparation_to_load_completed": 0.779659173,
+        "load_completed_to_first_publication": 0.154144596
+      },
+      "publication": {
+        "modelV2": 2461,
+        "valid": 2460,
+        "big_true": 2461,
+        "max_gap_s": 0.085919469,
+        "first_frame_id": 587,
+        "last_frame_id": 3050,
+        "nonfinite_published_action_or_execution_scalar_count": 0
+      },
+      "big_model_events": {
+        "bigModelLoading": 26,
+        "bigModelReady": 1,
+        "bigModelFailed": 0
+      },
+      "relevant_process_transitions": [
+        {
+          "name": "camerad",
+          "transitions": [
+            {
+              "first_mono_s": 359.286520061,
+              "state": {
+                "pid": 6525,
+                "running": true,
+                "shouldBeRunning": true,
+                "exitCode": 0
+              }
+            }
+          ],
+          "last_observation_mono_s": 512.250847647
+        },
+        {
+          "name": "modeld_tinygrad",
+          "transitions": [
+            {
+              "first_mono_s": 359.286520061,
+              "state": {
+                "pid": 6592,
+                "running": true,
+                "shouldBeRunning": true,
+                "exitCode": 0
+              }
+            }
+          ],
+          "last_observation_mono_s": 512.250847647
+        },
+        {
+          "name": "controlsd",
+          "transitions": [
+            {
+              "first_mono_s": 359.286520061,
+              "state": {
+                "pid": 6550,
+                "running": true,
+                "shouldBeRunning": true,
+                "exitCode": 0
+              }
+            }
+          ],
+          "last_observation_mono_s": 512.250847647
+        },
+        {
+          "name": "selfdrived",
+          "transitions": [
+            {
+              "first_mono_s": 359.286520061,
+              "state": {
+                "pid": 6551,
+                "running": true,
+                "shouldBeRunning": true,
+                "exitCode": 0
+              }
+            }
+          ],
+          "last_observation_mono_s": 512.250847647
+        }
+      ],
+      "camera_correlation": {
+        "narrowRoadCameraState": {
+          "recorded_frames": 3051,
+          "matching_model_frame_ids": 2461,
+          "model_timestampEof_mismatches": 0
+        },
+        "wideRoadCameraState": {
+          "recorded_frames": 3051,
+          "matching_model_frame_ids": 2461
+        }
+      },
+      "navigation_metadata_counts": {
+        "navInstruction": {
+          "count": 155,
+          "valid": 15
+        },
+        "navModelStateSP": {
+          "count": 2974,
+          "valid": 187
+        }
+      },
+      "wall_clock_discontinuities": [],
+      "device_state": {
+        "chestnut_present_in_all_observations": true,
+        "last_observation_mono_s": 512.212360441,
+        "last_started": true
+      }
+    }
+  },
+  "conclusion": [
+    "The supplied windows show successful ordinary big-model startup and successful corrected Bigv2 startup, not a reproduced startup/fallback failure.",
+    "The same configured small model is prepared during both big-model initializations. No recorded publication switches to big=false; a small-model load log is not a fallback transition.",
+    "Both routes report early selfdrived initialization timeout before first model publication; these are startup delays, not terminal load failures.",
+    "No recorded bigModelFailed event, native admission failure, load/fallback exception or non-finite-output rejection was found in the recovered windows.",
+    "The reported later shutdown/startup failure remains unconfirmed by these attachments; absence here does not disprove the user-observed symptom.",
+    "The final recording is incomplete. Upload truncation is not evidence of a device/process crash."
+  ],
+  "limitations": [
+    "No model artifact, camera warp or GPU inference was executed. Published action scalars and message validity do not establish every internal tensor is finite or prove vehicle safety.",
+    "These are startup comparators, not a failed-fallback reproducer. No fallback latency can be measured because no actual fallback invocation is recorded.",
+    "Camera metadata matches every published model frame, but these rlogs do not contain consumed camera/map tensors or recurrent buffers.",
+    "The routes show separate modeld starts with the same manager PID and increasing monotonic clock, consistent with two onroad sessions in one boot. They do not demonstrate a full reboot followed by the reported failure."
+  ]
+}
