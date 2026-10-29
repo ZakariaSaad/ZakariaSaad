@@ -1,3 +1,7 @@
+"""Explicit diagnostic association checks; production parity lives in test_model_input_execution.
+
+These opt-in diagnostic annotations never drive production navigation tensors.
+"""
 import time
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -190,9 +194,9 @@ class TestNavigationAdmission(OpenpilotTestCase):
     self.assertTrue(tick(), reader.input_reason)
     self.assertTrue(reader.reset_required)
 
-  def test_live_driving_uses_clock_bridge_and_explicit_replay_retains_its_clock(self):
+  def test_production_receipt_clock_needs_no_camera_epoch_bridge(self):
     permit = object()
-    self.assertIsInstance(model_inputs.NavigationInputs(self.params, driving_permit=permit)._camera_clock, CameraClock)
+    self.assertIsNone(model_inputs.NavigationInputs(self.params, driving_permit=permit)._camera_clock)
     reader = model_inputs.NavigationInputs(self.params, clock=lambda: self.now, driving_permit=permit)
     self.assertIsNone(reader._camera_clock)
     self.assertIsNone(model_inputs.NavigationInputs(self.params)._camera_clock)

@@ -1,6 +1,11 @@
-"""Map frames retain route identity and physical GPS timing without changing VisionIPC semantics."""
-import unittest
+"""Pixel/pose differential checks against the pinned official Bigv2 map path.
+
+Synthetic in-memory PMTiles exercise real decoding/rasterization. No tile service,
+GPU, recorded route or vehicle process is used by the differential cases.
+"""
+from contextlib import ExitStack
 from types import SimpleNamespace
+import unittest
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -8,169 +13,137 @@ import numpy as np
 from openpilot.cereal import custom, messaging
 from openpilot.selfdrive.navigation.generation import destination_key
 from openpilot.selfdrive.navigation.mapsd import MapsD
-from openpilot.selfdrive.navigation.renderer import SIZE
+from openpilot.selfdrive.navigation.pmtiles import PMTiles
+from openpilot.selfdrive.navigation.renderer import SIZE, MapRenderer
+from openpilot.selfdrive.navigation.tests.official_reference import load_reference
+from openpilot.selfdrive.navigation.tests.test_navigation import local_archive, make_archive, road_tile
+from openpilot.selfdrive.navigation.vector_tile import decode_roads
 
 
-class TestMapGeneration(unittest.TestCase):
+class TestOfficialMapParity(unittest.TestCase):
   def setUp(self):
-    self.destination = {'longitude': 0., 'latitude': .002}
+    self.stack = self.enterContext(ExitStack())
+    helpers = load_reference('helpers')
+    route = load_reference('route')
+    renderer = load_reference('renderer', namespace={'PMTiles': PMTiles, 'cumulative_distance': route.cumulative_distance,
+                                                   'nearest_segment': route.nearest_segment, 'decode_roads': decode_roads,
+                                                   'Road': object})
+    official = load_reference('mapsd', namespace={'latest_gps_source': helpers.latest_gps_source, 'RouteTracker': route.RouteTracker,
+                                                'MapRenderer': renderer.MapRenderer, 'PMTiles': PMTiles, 'RemoteTiles': MagicMock(),
+                                                'SIZE': SIZE, 'cloudlog': MagicMock()})
     self.params = MagicMock()
-    self.params.get.return_value = dict(self.destination)
-    self.mapd = MapsD(self.params)
-    self.addCleanup(self.mapd.close)
-    self.mapd.renderer = MagicMock()
-    self.mapd.renderer.render.return_value = (np.full((SIZE, SIZE), 128, np.uint8), True)
+    self.local, self.official = MapsD(self.params), official.MapsD()
+    self.addCleanup(self.local.close)
+    self.addCleanup(self.official.close)
+    # Use independent real readers and renderers on the same synthetic vector bytes.
+    data = make_archive(road_tile('bridge'), leaf=True)
+    self.local.renderer = MapRenderer(self.stack.enter_context(local_archive(data)))
+    self.official.renderer = renderer.MapRenderer(self.stack.enter_context(local_archive(data)))
+    self.now = 100.
+    self.enterContext(patch('openpilot.selfdrive.navigation.mapsd.time.monotonic', side_effect=lambda: self.now))
     self.route = messaging.new_message('navRoute', valid=True).navRoute
-    self.route.coordinates = [{'longitude': 0, 'latitude': 0}, {'longitude': 0, 'latitude': .002}]
+    self.route.coordinates = [{'longitude': 0., 'latitude': -.002}, {'longitude': 0., 'latitude': .002}]
     self.route.routeGeneration = 101
-    self.route.destinationKey = destination_key(self.destination)
-    self.gps = SimpleNamespace(hasFix=True, longitude=0., latitude=0., bearingDeg=0., speed=10.)
+    self.route.destinationKey = 'diagnostic-only'
+    self.gps = SimpleNamespace(hasFix=True, longitude=0., latitude=0., bearingDeg=10., speed=10.)
     self.sm = MagicMock()
     self.sm.updated = {'navRoute': True}
     self.sm.valid = {'navRoute': True, 'gpsLocation': False, 'gpsLocationExternal': True}
     self.sm.recv_time = {'gpsLocation': 99.5, 'gpsLocationExternal': 99.5}
     self.sm.logMonoTime = {'gpsLocation': 99_500_000_000, 'gpsLocationExternal': 99_500_000_000, 'navRoute': 99_000_000_000}
     self.sm.__getitem__.side_effect = lambda service: self.route if service == 'navRoute' else self.gps
-    self.enterContext(patch('openpilot.selfdrive.navigation.mapsd.time.monotonic', return_value=100.))
 
-  def test_metadata_matches_exact_rendered_frame_identity(self):
-    image, source = self.mapd.update(self.sm)
-    msg = self.mapd.state_message(17, source, 100_000_000_000)
-    self.assertTrue(msg.valid)
-    state = msg.navModelStateSP
-    self.assertEqual(state.frameId, 17)
-    self.assertEqual(state.locationMonoTime, source)
-    self.assertEqual(state.renderMonoTime, 100_000_000_000)
-    self.assertEqual(state.routeGeneration, 101)
-    self.assertEqual(state.destinationKey, self.route.destinationKey)
+  def assert_frame_equal(self):
+    local, timestamp = self.local.update(self.sm)
+    official, official_timestamp = self.official.update(self.sm)
+    np.testing.assert_array_equal(local, official)
+    self.assertEqual(timestamp, official_timestamp)
+    if self.local.tracker is not None:
+      self.assertEqual(self.local.tracker.progress, self.official.tracker.progress)
+    self.params.get.assert_not_called()
+    return local, timestamp
+
+  def test_actual_pixels_pose_and_receipt_extrapolation(self):
+    image, source = self.assert_frame_equal()
     self.assertTrue(image.any())
+    self.assertEqual(source, 99_500_000_000)
+    for speed, latitude, elapsed in ((12., .0001, .1), (5., .0002, .4), (-2., .0003, .2)):
+      self.gps.speed, self.gps.latitude = speed, latitude
+      self.now += elapsed
+      self.sm.recv_time['gpsLocationExternal'] = self.now - .25
+      self.sm.logMonoTime['gpsLocationExternal'] += 1
+      self.assert_frame_equal()
 
-  def test_same_route_resend_preserves_tracker_but_new_generation_resets_it(self):
-    self.mapd.update(self.sm)
-    first = self.mapd.tracker
-    self.mapd.update(self.sm)
-    self.assertIs(self.mapd.tracker, first)
+  def test_route_republication_and_diagnostic_identity_do_not_reset_progress(self):
+    self.assert_frame_equal()
+    local_tracker, official_tracker = self.local.tracker, self.official.tracker
     self.route.routeGeneration += 1
-    self.mapd.update(self.sm)
-    self.assertIsNot(self.mapd.tracker, first)
-
-  def test_live_destination_mismatch_emits_invalid_black_frame(self):
-    self.params.get.return_value = {'longitude': 1, 'latitude': 1}
-    image, source = self.mapd.update(self.sm)
-    self.assertFalse(image.any())
-    self.assertEqual(source, 0)
-    self.mapd.renderer.render.assert_not_called()
-    state = self.mapd.state_message(1, source, 100_000_000_000)
-    self.assertFalse(state.valid)
-    self.assertEqual((state.navModelStateSP.routeGeneration, state.navModelStateSP.destinationKey), (0, ''))
-
-  def test_destination_change_during_prefetch_discards_old_frame(self):
-    self.mapd.renderer.prefetch.side_effect = lambda _: setattr(self.params.get, 'return_value', {'longitude': 2, 'latitude': 3})
-    image, source = self.mapd.update(self.sm)
-    self.assertFalse(image.any())
-    self.assertEqual(source, 0)
-    self.assertFalse(self.mapd.state_message(1, source, 100_000_000_000).valid)
-
-  def test_invalid_gps_clears_metadata_after_good_frame(self):
-    _, source = self.mapd.update(self.sm)
-    self.assertGreater(source, 0)
-    self.sm.valid['gpsLocationExternal'] = False
-    image, source = self.mapd.update(self.sm)
-    self.assertFalse(image.any())
-    self.assertEqual(source, 0)
-    self.assertFalse(self.mapd.state_message(2, source, 100_000_000_000).valid)
-
-  def test_invalid_route_cannot_supply_model_frame(self):
+    self.route.destinationKey = 'different-diagnostic-destination'
+    self.sm.logMonoTime['navRoute'] -= 1
     self.sm.valid['navRoute'] = False
-    image, source = self.mapd.update(self.sm)
-    self.assertFalse(image.any())
-    self.assertEqual(source, 0)
-    self.assertIsNone(self.mapd.tracker)
+    self.assert_frame_equal()
+    self.assertIs(self.local.tracker, local_tracker)
+    self.assertIs(self.official.tracker, official_tracker)
 
-  def test_official_pose_extrapolates_since_gps_receipt(self):
-    self.mapd.update(self.sm)
-    longitude, latitude, bearing, _ = self.mapd.renderer.render.call_args.args
-    self.assertAlmostEqual(longitude, 0.)
-    self.assertAlmostEqual(latitude * 111195.0802335329, 5., delta=.001)  # 10 m/s * 0.5 seconds
-    self.assertAlmostEqual(bearing, 0.)
+  def test_reroute_reordering_clear_and_startup_match_geometry_semantics(self):
+    self.sm.updated['navRoute'] = False
+    image, source = self.assert_frame_equal()
+    self.assertFalse(image.any() or source)
+    self.sm.updated['navRoute'] = True
+    self.assert_frame_equal()
+    previous = self.local.tracker
+    self.route.coordinates = [{'longitude': 0., 'latitude': -.002}, {'longitude': .0001, 'latitude': .002}]
+    self.route.routeGeneration = 1
+    self.sm.logMonoTime['navRoute'] = 1
+    self.assert_frame_equal()
+    self.assertIsNot(self.local.tracker, previous)
+    self.route.coordinates = []
+    image, source = self.assert_frame_equal()
+    self.assertFalse(image.any() or source)
 
-  def test_legacy_untagged_route_remains_viewable_but_model_metadata_invalid(self):
-    self.mapd.params = None
+  def test_receipt_freshness_and_has_fix_match_official_not_source_timestamp_policy(self):
+    for source_ns in (1, 97_000_000_000, 110_000_000_000):
+      self.sm.logMonoTime['gpsLocationExternal'] = source_ns
+      image, source = self.assert_frame_equal()
+      self.assertTrue(image.any())
+      self.assertEqual(source, source_ns)
+    for recv_time in (97.9, 100.1):
+      self.sm.recv_time['gpsLocationExternal'] = recv_time
+      image, source = self.assert_frame_equal()
+      self.assertFalse(image.any() or source)
+    self.sm.recv_time['gpsLocationExternal'] = 99.5
+    self.gps.hasFix = False
+    image, source = self.assert_frame_equal()
+    self.assertFalse(image.any() or source)
+
+  def test_prefetch_latency_uses_official_pre_fetch_receipt_snapshot(self):
+    frames = []
+    for maps in (self.local, self.official):
+      original = maps.renderer.prefetch
+      def delayed(route, original=original):
+        original(route)
+        self.now += 3.
+      self.now = 100.
+      with patch.object(maps.renderer, 'prefetch', side_effect=delayed):
+        frames.append(maps.update(self.sm))
+    np.testing.assert_array_equal(frames[0][0], frames[1][0])
+    self.assertEqual(frames[0][1], frames[1][1])
+    self.assertTrue(frames[0][0].any())
+
+  def test_metadata_is_diagnostic_only_and_retains_wire_identity(self):
+    image, source = self.assert_frame_equal()
+    self.assertTrue(image.any())
     self.route.routeGeneration = 0
     self.route.destinationKey = ''
-    image, source = self.mapd.update(self.sm)
-    self.assertTrue(image.any())
-    self.assertGreater(source, 0)
-    self.assertFalse(self.mapd.state_message(1, source, 100_000_000_000).valid)
-
-  def test_metadata_rejects_mismatched_source_or_missing_render_timestamp(self):
-    _, source = self.mapd.update(self.sm)
-    self.assertFalse(self.mapd.state_message(1, source - 1, 100_000_000_000).valid)
-    self.assertFalse(self.mapd.state_message(1, source, 0).valid)
-    self.assertFalse(self.mapd.state_message(1, source, source - 1).valid)
-
-  def test_reordered_route_cannot_roll_back_same_destination_generation(self):
-    self.mapd.update(self.sm)
-    self.route.routeGeneration = 102
-    self.sm.logMonoTime['navRoute'] += 1
-    self.mapd.update(self.sm)
-    current = self.mapd.tracker
-    self.route.routeGeneration = 101
-    self.sm.logMonoTime['navRoute'] += 1  # even a fresh replay of an old identity is rejected
-    self.mapd.update(self.sm)
-    self.assertEqual(self.mapd.route_generation, 102)
-    self.assertIs(self.mapd.tracker, current)
-
-  def test_same_generation_geometry_is_immutable(self):
-    self.mapd.update(self.sm)
-    current = self.mapd.tracker
-    self.route.coordinates[1].longitude = .001
-    self.sm.logMonoTime['navRoute'] += 1
-    self.mapd.update(self.sm)
-    self.assertIs(self.mapd.tracker, current)
-    self.assertEqual(self.mapd.route[-1, 0], 0.)
-
-  def test_clear_tombstone_blocks_delayed_old_route_until_new_generation(self):
-    self.mapd.update(self.sm)
-    self.sm.valid['navRoute'] = False
-    self.sm.logMonoTime['navRoute'] += 1
-    self.mapd.update(self.sm)
-    self.sm.valid['navRoute'] = True
-    self.sm.logMonoTime['navRoute'] += 1
-    self.assertEqual(self.mapd.update(self.sm)[1], 0)
-    self.assertIsNone(self.mapd.tracker)
-    self.route.routeGeneration = 102  # a restarted navd allocates a new route identity
-    self.sm.logMonoTime['navRoute'] += 1
-    self.assertGreater(self.mapd.update(self.sm)[1], 0)
-
-  def test_older_clear_does_not_remove_a_newer_route(self):
-    self.mapd.update(self.sm)
-    current = self.mapd.tracker
-    self.sm.valid['navRoute'] = False
-    self.sm.logMonoTime['navRoute'] -= 1
-    self.assertGreater(self.mapd.update(self.sm)[1], 0)
-    self.assertIs(self.mapd.tracker, current)
-
-  def test_live_destination_rechecked_between_render_and_metadata_send(self):
-    _, source = self.mapd.update(self.sm)
-    self.params.get.return_value = {'longitude': 1, 'latitude': 1}
-    self.assertFalse(self.mapd.state_message(1, source, 100_000_000_000).valid)
-
-  def test_fresh_receipt_does_not_revalidate_old_or_foreign_clock_gps(self):
-    for source in (97_000_000_000, 110_000_000_000):
-      with self.subTest(source=source):
-        self.sm.logMonoTime['gpsLocationExternal'] = source
-        self.assertEqual(self.mapd.update(self.sm)[1], 0)
-
-  def test_reserved_custom_struct_id_and_wire_roundtrip(self):
+    self.assert_frame_equal()
+    msg = self.local.state_message(17, source, 100_000_000_000)
+    self.assertTrue(msg.valid)
     self.assertEqual(custom.NavModelStateSP.schema.node.id, 0xcb9fd56c7057593a)
-    _, source = self.mapd.update(self.sm)
-    msg = self.mapd.state_message(0xffffffff, source, 100_000_000_000)
     with messaging.log.Event.from_bytes(msg.to_bytes()) as decoded:
-      self.assertEqual(decoded.which(), 'navModelStateSP')
-      self.assertEqual(decoded.navModelStateSP.frameId, 0xffffffff)
-      self.assertEqual(decoded.navModelStateSP.routeGeneration, 101)
+      self.assertEqual(decoded.navModelStateSP.frameId, 17)
+      self.assertEqual(decoded.navModelStateSP.routeGeneration, 0)
       self.assertEqual(decoded.navModelStateSP.locationMonoTime, source)
+    self.assertFalse(self.local.state_message(18, 0, 100_000_000_001).valid)
 
 
 def _mapd_test_launcher(proc: str, name: str) -> None:

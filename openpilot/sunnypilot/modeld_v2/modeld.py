@@ -34,6 +34,10 @@ from openpilot.common.realtime import config_realtime_process, DT_MDL
 from openpilot.common.transformations.camera import DEVICE_CAMERAS
 from openpilot.common.transformations.model import get_warp_matrix
 from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
+from openpilot.sunnypilot.modeld_v2.bigv2_desire_helper import DesireHelper as Bigv2DesireHelper
+from openpilot.selfdrive.modeld.parse_model_outputs import Parser as Bigv2Parser
+from openpilot.selfdrive.modeld.fill_model_msg import (fill_model_msg as fill_bigv2_model_msg,
+                                                     fill_driving_model_data, fill_pose_msg as fill_bigv2_pose_msg)
 from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan, smooth_value
 from openpilot.selfdrive.modeld.modeld import ChestnutGpuState
 from openpilot.selfdrive.navigation.activation import authorize_runtime, validate_runtime_metadata, validate_runtime_permit
@@ -105,6 +109,21 @@ def _reject_navigation_publication(*models) -> None:
       raise NavigationModelDisabled('Diagnostic model predictions cannot be published')
     if takes_nav(model):
       validate_runtime_permit(getattr(model, '_driving_permit', None), getattr(model, 'navigation_input_specs', {}))
+
+
+def bigv2_warp_matrices(rpy_calib, device_camera, main_wide_camera, use_extra_client):
+  """a03 calibration/camera selection, without optional camera-offset tuning."""
+  main_intrinsics = device_camera.wide_road.intrinsics if main_wide_camera else device_camera.narrow_road.intrinsics
+  extra_intrinsics = device_camera.wide_road.intrinsics if use_extra_client or main_wide_camera else device_camera.narrow_road.intrinsics
+  return (get_warp_matrix(rpy_calib, main_intrinsics, False).astype(np.float32),
+          get_warp_matrix(rpy_calib, extra_intrinsics, True).astype(np.float32))
+
+
+def publish_bigv2_model(msg, output, action, state, *frame_data):
+  """Use the official publisher; omit SP's extra lane/edge time interpolation."""
+  fill_bigv2_model_msg(msg, output, action, state, *frame_data)
+  for line in (*msg.modelV2.laneLines, *msg.modelV2.roadEdges):
+    line.t = []
 
 
 class FrameMeta:
@@ -225,7 +244,7 @@ class ModelState(ModelStateBase):
     else:
       self.constants = ModelConstants()
 
-    self.parser = Parser()
+    self.parser = Bigv2Parser() if getattr(self, '_driving_permit', None) is not None else Parser()
     self.prev_desire = np.zeros(self.constants.DESIRE_LEN, dtype=np.float32)
 
   def _check_diagnostic_session(self) -> None:
@@ -275,13 +294,13 @@ class ModelState(ModelStateBase):
           inputs: dict[str, np.ndarray],
           after_enqueue: Callable[[], None] | None = None) -> dict[str, np.ndarray] | None:
     if getattr(self, 'diagnostic', False) or takes_nav(self):
-      # Recheck every invocation: withdrawing the offline permit must stop the graph,
-      # including its recurrent navigation history, before any inference runs.
+      # Recheck every invocation: an invalid permit stops inference before graph
+      # execution. Production failure uses the ordinary model handover.
       try:
         self._validate_navigation_inputs(self.navigation_input_specs)
       except NavigationModelDisabled:
-        self.reset_state('navigation driving permission revoked' if getattr(self, '_driving_permit', None) is not None else
-                         'diagnostic permission revoked')
+        if getattr(self, 'diagnostic', False):
+          self.reset_state('diagnostic permission revoked')
         raise
     self.adapter.copy_frames(bufs)
 
@@ -323,6 +342,8 @@ class ModelState(ModelStateBase):
         raise RuntimeError("model output not finite")
       sliced = {k: model_output[np.newaxis, v] for k, v in self.vision_output_slices.items()}
       outputs = self.parser.parse_outputs(sliced)
+      if getattr(self, '_driving_permit', None) is not None and os.getenv('SEND_RAW_PRED'):
+        outputs['raw_pred'] = model_output.copy()
       if 'prev_feat' in self.numpy_inputs and 'hidden_state' in self.vision_output_slices:
         (self.numpy_inputs['prev_feat'].flat if self.adapter.is_native else self.numpy_inputs['prev_feat'])[:] = \
           model_output[self.vision_output_slices['hidden_state']]
@@ -583,6 +604,7 @@ def main(demo=False):
   model_transform_main = np.zeros((3, 3), dtype=np.float32)
   model_transform_extra = np.zeros((3, 3), dtype=np.float32)
   live_calib_seen = False
+  restore_ordinary_conditioning = False
   buf_main, buf_extra = None, None
   meta_main = FrameMeta()
   meta_extra = FrameMeta()
@@ -600,7 +622,7 @@ def main(demo=False):
   long_delay = CP.longitudinalActuatorDelay + model.LONG_SMOOTH_SECONDS
   prev_action = log.ModelDataV2.Action()
 
-  DH = DesireHelper()
+  DH = Bigv2DesireHelper() if navigation_permit is not None and model.chestnut else DesireHelper()
   meta_constants = load_meta_constants()
   RELC = RoadEdgeLaneChangeController()
 
@@ -638,26 +660,37 @@ def main(demo=False):
       meta_extra = meta_main
 
     sm.update(0)
+    native_bigv2 = navigation_permit is not None and model.chestnut
     desire = DH.desire
     is_rhd = sm["driverMonitoringState"].isRHD
     frame_id = sm["narrowRoadCameraState"].frameId
     v_ego = max(sm["carState"].vEgo, 0.)
-    if sm.frame % 60 == 0:
-      if firmware_config is None:
-        model.lat_delay = get_lat_delay(params, sm["lateralDelay"].lateralDelay)
-      model.PLANPLUS_CONTROL = params.get("PlanplusControl", return_default=True)
-      camera_offset_helper.set_offset(params.get("CameraOffset", return_default=True))
-    if firmware_config is not None:
-      model.lat_delay = prediction_delay(v_ego)
-    lat_delay = model.lat_delay + model.LAT_SMOOTH_SECONDS
-    if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
+    if native_bigv2:
+      # Preserve the required firmware-controller prediction horizon. Without
+      # that controller, use the checkpoint's current lateralDelay directly.
+      prediction_horizon = prediction_delay(v_ego) if firmware_config is not None else sm["lateralDelay"].lateralDelay
+      lat_delay = prediction_horizon + model.LAT_SMOOTH_SECONDS
+    else:
+      if sm.frame % 60 == 0 or restore_ordinary_conditioning:
+        if firmware_config is None:
+          model.lat_delay = get_lat_delay(params, sm["lateralDelay"].lateralDelay)
+        model.PLANPLUS_CONTROL = params.get("PlanplusControl", return_default=True)
+        camera_offset_helper.set_offset(params.get("CameraOffset", return_default=True))
+      if firmware_config is not None:
+        model.lat_delay = prediction_delay(v_ego)
+      lat_delay = model.lat_delay + model.LAT_SMOOTH_SECONDS
+    if (sm.updated["extrinsicsCalibration"] or restore_ordinary_conditioning) and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)
       dc = DEVICE_CAMERAS[(str(sm['deviceState'].deviceType), str(sm['narrowRoadCameraState'].sensor))]
-      main_intrinsics = dc.wide_road.intrinsics if main_wide_camera else dc.narrow_road.intrinsics
-      model_transform_main = get_warp_matrix(device_from_calib_euler, main_intrinsics, False).astype(np.float32)
-      model_transform_extra = get_warp_matrix(device_from_calib_euler, dc.wide_road.intrinsics, True).astype(np.float32)
-      model_transform_main, model_transform_extra = camera_offset_helper.update(model_transform_main, model_transform_extra, sm, main_wide_camera)
+      if native_bigv2:
+        model_transform_main, model_transform_extra = bigv2_warp_matrices(device_from_calib_euler, dc, main_wide_camera, use_extra_client)
+      else:
+        main_intrinsics = dc.wide_road.intrinsics if main_wide_camera else dc.narrow_road.intrinsics
+        model_transform_main = get_warp_matrix(device_from_calib_euler, main_intrinsics, False).astype(np.float32)
+        model_transform_extra = get_warp_matrix(device_from_calib_euler, dc.wide_road.intrinsics, True).astype(np.float32)
+        model_transform_main, model_transform_extra = camera_offset_helper.update(model_transform_main, model_transform_extra, sm, main_wide_camera)
       live_calib_seen = True
+      restore_ordinary_conditioning = False
 
     traffic_convention = np.zeros(2)
     traffic_convention[int(is_rhd)] = 1
@@ -707,6 +740,8 @@ def main(demo=False):
           'run_count': run_count, 'map_reason': getattr(nav_inputs, 'map_reason', 'unavailable'),
           'maneuver_reason': getattr(nav_inputs, 'maneuver_reason', 'unavailable'),
         }
+      if native_bigv2:
+        mt1 = time.perf_counter()  # Official execution timing starts after input preparation.
       send_chestnut = (chestnut_state is not None and
                        run_count % round(model.constants.MODEL_FREQ / SERVICE_LIST['chestnutGpuState'].frequency) == 0)
       model_output = model.run(bufs, transforms, inputs, chestnut_state.send if send_chestnut else None)
@@ -725,6 +760,14 @@ def main(demo=False):
           small_model.lat_delay = get_lat_delay(params, sm['lateralDelay'].lateralDelay)
         long_delay = CP.longitudinalActuatorDelay + small_model.LONG_SMOOTH_SECONDS
         navigation_runtime_state(params, 'small_loading', 'Big model failed; awaiting ordinary small-model predictions: ' + str(error))
+      if native_bigv2:
+        # Restore optional ordinary-model conditioning without inventing a new
+        # desire transition: carry the official helper's common state forward.
+        ordinary_desire = DesireHelper()
+        for name, value in vars(DH).items():
+          setattr(ordinary_desire, name, value)
+        DH = ordinary_desire
+        restore_ordinary_conditioning = live_calib_seen
       model = small_model
       if chestnut_state is not None:
         chestnut_state.big = False
@@ -739,29 +782,41 @@ def main(demo=False):
       posenet_send = messaging.new_message('cameraOdometry')
       mdv2sp_send = messaging.new_message('modelDataV2SP')
 
-      if not sm['carControl'].latActive:
+      if not native_bigv2 and not sm['carControl'].latActive:
         prev_action.desiredCurvature = sm['controlsState'].curvature
       action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
       prev_action = action
-      fill_model_msg(drivingdata_send, modelv2_send, model_output, action,
-                     publish_state, meta_main.frame_id, meta_extra.frame_id, frame_id,
-                     frame_drop_ratio, meta_main.timestamp_eof, model_execution_time, live_calib_seen, meta_constants)
+      if native_bigv2:
+        publish_bigv2_model(modelv2_send, model_output, action, publish_state,
+                            meta_main.frame_id, meta_extra.frame_id, frame_id,
+                            frame_drop_ratio, meta_main.timestamp_eof, model_execution_time, live_calib_seen)
+      else:
+        fill_model_msg(drivingdata_send, modelv2_send, model_output, action,
+                       publish_state, meta_main.frame_id, meta_extra.frame_id, frame_id,
+                       frame_drop_ratio, meta_main.timestamp_eof, model_execution_time, live_calib_seen, meta_constants)
       modelv2_send.modelV2.big = model.chestnut
 
       desire_state = modelv2_send.modelV2.meta.desireState
       l_lane_change_prob = desire_state[log.Desire.laneChangeLeft]
       r_lane_change_prob = desire_state[log.Desire.laneChangeRight]
       lane_change_prob = l_lane_change_prob + r_lane_change_prob
-      left_edge, right_edge = RELC.update_and_fill(modelv2_send.modelV2, mdv2sp_send.modelDataV2SP, v_ego)
-      DH.update(sm['carState'], sm['carControl'].latActive, lane_change_prob, left_edge, right_edge)
+      if native_bigv2:
+        DH.update(sm['carState'], sm['carControl'].latActive, lane_change_prob)
+      else:
+        left_edge, right_edge = RELC.update_and_fill(modelv2_send.modelV2, mdv2sp_send.modelDataV2SP, v_ego)
+        DH.update(sm['carState'], sm['carControl'].latActive, lane_change_prob, left_edge, right_edge)
       modelv2_send.modelV2.meta.laneChangeState = DH.lane_change_state
       modelv2_send.modelV2.meta.laneChangeDirection = DH.lane_change_direction
       mdv2sp_send.valid = modelv2_send.valid
-      mdv2sp_send.modelDataV2SP.laneTurnDirection = DH.lane_turn_direction
-      drivingdata_send.drivingModelData.meta.laneChangeState = DH.lane_change_state
-      drivingdata_send.drivingModelData.meta.laneChangeDirection = DH.lane_change_direction
+      mdv2sp_send.modelDataV2SP.laneTurnDirection = 'none' if native_bigv2 else DH.lane_turn_direction
+      if native_bigv2:
+        fill_driving_model_data(drivingdata_send, modelv2_send)
+      else:
+        drivingdata_send.drivingModelData.meta.laneChangeState = DH.lane_change_state
+        drivingdata_send.drivingModelData.meta.laneChangeDirection = DH.lane_change_direction
 
-      fill_pose_msg(posenet_send, model_output, meta_main.frame_id, vipc_dropped_frames, meta_main.timestamp_eof, live_calib_seen)
+      pose_publisher = fill_bigv2_pose_msg if native_bigv2 else fill_pose_msg
+      pose_publisher(posenet_send, model_output, meta_main.frame_id, vipc_dropped_frames, meta_main.timestamp_eof, live_calib_seen)
       pm.send('modelV2', modelv2_send)
       pm.send('drivingModelData', drivingdata_send)
       pm.send('cameraOdometry', posenet_send)

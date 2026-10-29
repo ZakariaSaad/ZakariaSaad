@@ -7,6 +7,8 @@ from contextlib import ExitStack
 from types import MethodType, SimpleNamespace
 import unittest
 import traceback
+
+from openpilot.selfdrive.navigation.tests.official_reference import source
 from unittest.mock import Mock, patch
 
 import numpy as np
@@ -26,12 +28,14 @@ class EndOfFrames(Exception):
 class TestNavigationPublication(unittest.TestCase):
   def test_actual_main_runs_one_selected_model_and_uses_small_only_after_failure(self):
     for transition in ('healthy', 'missing_navigation', 'route_change', 'destination_cleared', 'navigation_off',
-                       'selection_changed', 'legacy_flag_ignored', 'candidate_failure', 'candidate_nonfinite', 'small_failure', 'ordinary_selected'):
+                       'timing_change', 'eps_off', 'eps_off_timing_change', 'dropped_frames', 'selection_changed', 'legacy_flag_ignored',
+                       'candidate_failure', 'candidate_nonfinite', 'small_failure', 'ordinary_selected'):
       with self.subTest(transition=transition):
         self._exercise_transition(transition)
 
   def _exercise_transition(self, transition):
     with ExitStack() as stack:
+      presented_ids = [1, 2, 4, 5, 7, 8, 10, 11, 13, 16, 19, 22] if transition == 'dropped_frames' else [1, 2, 3]
       jits, metadata = fixture_data()
       # CPU state storage lets the normal warmup issue its real zero-fill kernels.
       # The driving graph itself remains the trusted synthetic writer below.
@@ -40,12 +44,16 @@ class TestNavigationPublication(unittest.TestCase):
       metadata['output_specs'] = {name: {'shape': list(shape), 'dtype': np.dtype(dtype).name, 'device': device}
                                   for name, (shape, dtype, device) in jits['output_specs'].items()}
       params, permit, _ = stack.enter_context(reviewed_fixture(jits['input_specs'], metadata))
-      params.values.update(NavigationEnabled=True, NavDestination={'latitude': 1., 'longitude': 2.})
+      params.values.update(NavigationEnabled=True, NavDestination={'latitude': 1., 'longitude': 2.}, CameraOffset=.22, PlanplusControl=.2)
       stack.enter_context(patch.object(modeld, 'load_model', return_value=jits))
       error_state = SimpleNamespace(host=SimpleNamespace(view=lambda **_: [0]))
       stack.enter_context(patch.object(modeld, 'Device', {'AMD': SimpleNamespace(error_state=error_state)}))
       candidate = modeld.NavigationModelState(1344, 760, chestnut=True, driving_permit=permit)
-      captured_inputs, candidate_calls, small_calls = [], [], []
+      captured_inputs, candidate_calls, small_calls, captured_transforms = [], [], [], []
+      offset = modeld.CameraOffsetHelper()
+      offset.update = Mock(wraps=offset.update)
+      offset.set_offset = Mock(wraps=offset.set_offset)
+      stack.enter_context(patch.object(modeld, 'CameraOffsetHelper', return_value=offset))
       reset_state = stack.enter_context(patch.object(candidate, 'reset_state', wraps=candidate.reset_state))
 
       def native_graph(host, output_buffers, **states):
@@ -67,6 +75,7 @@ class TestNavigationPublication(unittest.TestCase):
       def candidate_run(bufs, transforms, inputs, *args):
         candidate_calls.append(camera.frame_id)
         captured_inputs.append((camera.frame_id, {key: value.copy() for key, value in inputs.items()}))
+        captured_transforms.append((camera.frame_id, {key: value.copy() for key, value in transforms.items()}))
         if transition in ('candidate_failure', 'small_failure') and camera.frame_id == 2:
           raise RuntimeError('synthetic candidate inference failure')
         return real_candidate_run(bufs, transforms, inputs, *args)
@@ -104,15 +113,16 @@ class TestNavigationPublication(unittest.TestCase):
 
       class Camera:
         width, height, buffer_len = 1344, 760, 1622016
-        frame_id = timestamp_sof = timestamp_eof = 0
+        frame_id = timestamp_sof = timestamp_eof = frame_index = 0
 
         def connect(self, _):
           return True
 
         def recv(self):
-          self.frame_id += 1
-          if self.frame_id > 3:
+          self.frame_index += 1
+          if self.frame_index > len(presented_ids):
             raise EndOfFrames()
+          self.frame_id = presented_ids[self.frame_index - 1]
           self.timestamp_sof = 100_000_000_000 + self.frame_id * 50_000_000
           self.timestamp_eof = self.timestamp_sof + 10_000_000
           return SimpleNamespace(data=bytes(self.buffer_len))
@@ -129,7 +139,9 @@ class TestNavigationPublication(unittest.TestCase):
         frame = 0
         updated = {'extrinsicsCalibration': True}
         seen = {'narrowRoadCameraState': True, 'deviceState': True}
-        data = {'carState': SimpleNamespace(vEgo=10.), 'driverMonitoringState': SimpleNamespace(isRHD=False),
+        data = {'carState': SimpleNamespace(vEgo=10., leftBlinker=False, rightBlinker=False,
+                                                steeringPressed=False, steeringTorque=0., leftBlindspot=False, rightBlindspot=False),
+                'driverMonitoringState': SimpleNamespace(isRHD=False),
                 'narrowRoadCameraState': SimpleNamespace(frameId=0, sensor='os04c10'),
                 'deviceState': SimpleNamespace(deviceType='mici'), 'extrinsicsCalibration': SimpleNamespace(rpyCalib=[0., 0., 0.], height=[1.22]),
                 'lateralDelay': SimpleNamespace(lateralDelay=.1), 'carControl': SimpleNamespace(latActive=True),
@@ -138,6 +150,9 @@ class TestNavigationPublication(unittest.TestCase):
         def update(self, _):
           self.frame += 1
           self.data['narrowRoadCameraState'].frameId = camera.frame_id
+          self.updated['extrinsicsCalibration'] = camera.frame_id == 1
+          if transition in ('timing_change', 'eps_off_timing_change'):
+            self.data['lateralDelay'].lateralDelay = .1 + camera.frame_id * .01
           if camera.frame_id == 2:
             if transition == 'selection_changed':
               # Simulate corrupted/on-road state outside the guarded UI: reject it.
@@ -168,7 +183,8 @@ class TestNavigationPublication(unittest.TestCase):
                           'PubMaster': Mock(return_value=publisher), 'SubMaster': Mock(return_value=messages),
                           'ChestnutGpuState': Mock(return_value=gpu_state), 'DesireHelper': Mock(return_value=DH),
                           'RoadEdgeLaneChangeController': Mock(return_value=SimpleNamespace(update_and_fill=lambda *_: (0., 0.))),
-                          'load_meta_constants': Mock(return_value=Meta), 'drive_config_for_model': Mock(return_value=object())}.items():
+                          'load_meta_constants': Mock(return_value=Meta),
+                          'drive_config_for_model': Mock(return_value=None if transition.startswith('eps_off') else object())}.items():
         stack.enter_context(patch.object(modeld, name, value))
       stack.enter_context(patch.object(modeld.gc, 'disable'))
       stack.enter_context(patch.object(modeld.messaging, 'log_from_bytes', return_value=SimpleNamespace(brand='honda', longitudinalActuatorDelay=.2)))
@@ -185,12 +201,12 @@ class TestNavigationPublication(unittest.TestCase):
       failure = transition in ('candidate_failure', 'candidate_nonfinite', 'selection_changed', 'small_failure')
       small_failed = transition == 'small_failure'
       disabled = transition == 'ordinary_selected'
-      expected_ids = [1] if small_failed else [1, 3] if failure else [1, 2, 3]
+      expected_ids = [1] if small_failed else [1, 3] if failure else presented_ids
       self.assertEqual([message['frameId'] for message in published], expected_ids)
-      expected_big = [False] * 3 if disabled else [True] if small_failed else [True, False] if failure else [True] * 3
+      expected_big = [False] * 3 if disabled else [True] if small_failed else [True, False] if failure else [True] * len(presented_ids)
       self.assertEqual([message['big'] for message in published], expected_big)
       frame_candidate_calls = [frame for frame in candidate_calls if frame > 0]
-      expected_candidate_calls = [] if disabled else [1] if transition == 'selection_changed' else [1, 2] if failure else [1, 2, 3]
+      expected_candidate_calls = [] if disabled else [1] if transition == 'selection_changed' else [1, 2] if failure else presented_ids
       self.assertEqual(frame_candidate_calls, expected_candidate_calls)
       self.assertEqual([frame for frame, _ in small_calls], [1, 2, 3] if disabled else [3] if failure else [])
       # Normal selected-model warmup is separate from production frame execution.
@@ -210,8 +226,14 @@ class TestNavigationPublication(unittest.TestCase):
         self.assertEqual(first_inputs['navigation'][15], 1.)
         self.assertEqual(first_inputs['navigation'][46], 2.5)
         self.assertEqual(first_inputs['nav_map'][0, 0], 128.)
-        expected_lateral_horizon = modeld.prediction_delay(10.) + .05 + .025
+        expected_lateral_horizon = (modeld.prediction_delay(10.) if not transition.startswith('eps_off') else
+                                    .11 if transition == 'eps_off_timing_change' else .1) + .05 + .025
         np.testing.assert_allclose(first_inputs['action_t'], [expected_lateral_horizon, .2 + .3 + .05 + .025])
+        if transition in ('timing_change', 'eps_off_timing_change'):
+          for frame, inputs in captured_inputs:
+            if frame > 0:
+              expected_delay = .1 + frame*.01 if transition.startswith('eps_off') else modeld.prediction_delay(10.)
+              np.testing.assert_allclose(inputs['action_t'][0], expected_delay + .075)
         if transition in ('missing_navigation', 'destination_cleared', 'navigation_off'):
           for frame, inputs in captured_inputs:
             if frame >= 2:
@@ -225,6 +247,34 @@ class TestNavigationPublication(unittest.TestCase):
         state = params.get('NavigationModelRuntimeState')
         self.assertEqual(state['active_source'], None if small_failed else 'qcom' if failure else 'chestnut')
         self.assertEqual(state['role'], 'failed' if small_failed else 'ordinary_small' if failure else 'candidate')
+      if transition == 'dropped_frames':
+        # Execute the official frame-drop accounting against the actual main
+        # publications. Missing frame IDs cause no invented recurrent steps.
+        official = source('modeld')
+        start = official.index('    vipc_dropped_frames =')
+        end = official.index('    bufs =', start)
+        block = '\n'.join(line[4:] for line in official[start:end].splitlines())
+        context = {'meta_main': SimpleNamespace(frame_id=0), 'last_vipc_frame_id': 0, 'run_count': 0,
+                   'frame_dropped_filter': modeld.FirstOrderFilter(0., 10., 1. / 20)}
+        for message in published:
+          context['meta_main'].frame_id = message['frameId']
+          exec(compile(block, 'official_a03_frame_drop_accounting', 'exec'), context)
+          self.assertAlmostEqual(message['frameDropPerc'], context['frame_drop_ratio'] * 100, places=6)
+          context['last_vipc_frame_id'] = message['frameId']
+        self.assertTrue(all(np.all(tensor.numpy() == len(presented_ids)) for tensor in candidate.adapter.input_queues.values()))
+      if not disabled:
+        camera_config = modeld.DEVICE_CAMERAS[('mici', 'os04c10')]
+        expected_transforms = modeld.bigv2_warp_matrices(np.zeros(3, np.float32), camera_config, False, False)
+        for frame, transforms in captured_transforms:
+          if frame > 0:
+            np.testing.assert_array_equal(transforms['img'], expected_transforms[0])
+            np.testing.assert_array_equal(transforms['big_img'], expected_transforms[1])
+        if failure:
+          offset.set_offset.assert_called_once_with(.22)
+          offset.update.assert_called_once()
+        else:
+          offset.set_offset.assert_not_called()
+          offset.update.assert_not_called()
       if failure:
         if not small_failed:
           self.assertAlmostEqual(published[-1]['action']['desiredCurvature'], .02)

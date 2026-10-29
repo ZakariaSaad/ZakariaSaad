@@ -88,23 +88,6 @@ class TestManeuverContract(unittest.TestCase):
     self.assertAlmostEqual(msg.maneuverDistance, 875, delta=.01)  # existing UI distance unchanged
     self.assertAlmostEqual(msg.allManeuvers[0].distance, 75, delta=.01)  # model uses geometric distance
 
-  @parameterized.expand(['absent', 'missing_type', 'invalid_type', 'invalid_modifier'])
-  def test_incomplete_future_metadata_fails_closed_without_losing_ui(self, missing):
-    steps = [step((0, 0), (0, 100), 'depart'), step((0, 100), (100, 100), 'turn', 'right')]
-    if missing == 'absent':
-      steps[1].pop('maneuver')
-    elif missing == 'missing_type':
-      steps[1]['maneuver'].pop('type')
-    elif missing == 'invalid_type':
-      steps[1]['maneuver']['type'] = None
-    else:
-      steps[1]['maneuver']['modifier'] = []
-    engine, pm = engine_for(steps)
-    msg = instruction(engine, pm)
-    self.assertTrue(pm.send.call_args.args[1].valid)
-    self.assertFalse(list(msg.allManeuvers))
-    self.assertFalse(navigation_input(msg.allManeuvers, 0).any())
-
   def test_missing_route_clears_maneuver_list(self):
     engine, pm = engine_for([step((0, 0), (0, 100), 'depart'), step((0, 100), (100, 100), 'turn', 'left')])
     self.assertTrue(instruction(engine, pm).allManeuvers)
@@ -132,15 +115,15 @@ class TestManeuverContract(unittest.TestCase):
     sm.recv_time = dict.fromkeys(sm.valid, time.monotonic() - 3)
     sm.__getitem__.return_value = SimpleNamespace(hasFix=True)
     self.assertIsNone(latest_gps_source(sm))
-    # Encoding has no freshness context: the experimental consumer must reject stale physical source data.
+    # Official modeld uses navInstruction validity and receipt age, not raw GPS age.
     msg = messaging.new_message('navInstruction', valid=True)
     msg.navInstruction.allManeuvers = [{'type': 'turn', 'modifier': 'left', 'distance': 100}]
     self.assertEqual(navigation_input(msg.navInstruction.allManeuvers, 0)[15], 1)
 
-  def test_unknown_maneuver_never_fabricates_straight(self):
+  def test_unknown_maneuver_uses_official_default_straight(self):
     msg = messaging.new_message('navInstruction', valid=True)
     msg.navInstruction.allManeuvers = [{'type': 'unknown future type', 'modifier': 'unknown', 'distance': 100}]
-    self.assertFalse(navigation_input(msg.navInstruction.allManeuvers, 0).any())
+    self.assertEqual(navigation_input(msg.navInstruction.allManeuvers, 0)[8], 1.)
 
   def test_display_can_retain_route_during_gps_loss(self):
     steps = [step((0, 0), (0, 100), 'depart'), step((0, 100), (100, 100), 'turn', 'left')]
@@ -151,7 +134,7 @@ class TestManeuverContract(unittest.TestCase):
     engine.params.get.side_effect = lambda key: {'latitude': 100 * METER, 'longitude': 100 * METER} if key == 'NavDestination' else None
     engine.update()
     nav = [call.args[1] for call in pm.send.call_args_list if call.args[0] == 'navInstruction'][-1]
-    # The UI can retain the route through a tunnel; no maneuver/model GPS snapshot remains usable.
+    # Official navd republishes guidance from the retained route/position in a tunnel.
     self.assertTrue(nav.valid)
     self.assertEqual(nav.navInstruction.gpsSourceMonoTime, 0)
-    self.assertFalse(list(nav.navInstruction.allManeuvers))
+    self.assertTrue(list(nav.navInstruction.allManeuvers))

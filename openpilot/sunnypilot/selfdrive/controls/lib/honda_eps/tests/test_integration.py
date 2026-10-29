@@ -18,10 +18,11 @@ from openpilot.sunnypilot.selfdrive.controls.lib.latcontrol_torque_v0 import Lat
 from openpilot.selfdrive.car.helpers import convert_to_capnp
 from openpilot.sunnypilot.selfdrive.car import interfaces
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.latcontrol_fw import LatControlFirmware
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.geometry import desired_angle_no_offset
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import (
   FIRMWARE_SHA256, drive_config_for_model, get_drive_config, prepare_drive_config,
 )
-from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.timing import prediction_delay
+from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.timing import command_delay, prediction_delay
 
 
 def authorize(params, geometry='mvl', response=None):
@@ -199,6 +200,45 @@ def test_native_controlsd_update_and_log_publish(native_controls, geometry):
   assert published.output == pytest.approx(command.actuators.torque)
   assert published.epsFfFeedforward == pytest.approx(pid_log.epsFfFeedforward)
   assert published.commandDelay == pytest.approx(0.025)
+
+
+@pytest.mark.parametrize('geometry', ['mvl', 'james'])
+@pytest.mark.parametrize('model_curvature', [-.0001, .0001])
+def test_model_curvature_reaches_independent_firmware_command_delay(native_controls, monkeypatch, geometry, model_curvature):
+  # Synthetic model output exercises the real prediction-consumption interface.
+  # This does not establish how a learned model responds to different action_t.
+  controls = native_controls(geometry=geometry)
+  seed_control_state(controls)
+  model = controls.sm['modelV2'].as_builder()
+  model.big = True
+  model.action.desiredCurvature = model_curvature
+  controls.sm.data['modelV2'] = model.as_reader()
+  controls.sm.valid['lateralManeuverPlan'] = False
+  controls.lane_centering_enabled = False
+  command_history = []
+  original_delay = controls.LaC.cmd_delay.update
+
+  def capture_delay(curvature, delay):
+    delayed = original_delay(curvature, delay)
+    command_history.append((curvature, delay, delayed))
+    return delayed
+
+  core = Mock(wraps=controls.LaC.core.update)
+  monkeypatch.setattr(controls.LaC.cmd_delay, 'update', capture_delay)
+  monkeypatch.setattr(controls.LaC.core, 'update', core)
+  for _ in range(40):
+    command, pid_log = controls.state_control()
+
+  curvature, delay, delayed = command_history[-1]
+  speed, roll = controls.sm['carState'].vEgo, controls.sm['vehicleParameters'].roll
+  assert curvature == pytest.approx(model_curvature)
+  assert curvature == controls.desired_curvature == command.actuators.curvature
+  assert delay == command_delay(speed)
+  assert pid_log.commandDelay == pytest.approx(delay)
+  assert core.call_args.args[0] == pytest.approx(desired_angle_no_offset(controls.VM, speed, roll, delayed, geometry))
+  assert command.latActive and pid_log.active
+  assert 0 < abs(command.actuators.torque) <= 3840 / 4096
+  assert command.actuators.torque == pytest.approx(pid_log.output)
 
 
 @pytest.mark.parametrize('geometry', ['mvl', 'james'])

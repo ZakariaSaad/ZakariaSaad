@@ -1,0 +1,84 @@
+{
+  "revision": "a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9",
+  "license_sha256": "716ce815a0467219c59ec2433e6bce7f32efc45240725c6d3141a52b111d2558",
+  "files": {
+    "helpers": {
+      "path": "openpilot/selfdrive/navigation/helpers.py",
+      "sha256": "95c4942823da232d891552305727dc73305f698921bbac9cf8944745a2762d59",
+      "git_blob": "260884634b86d0dac531de039fe44a8cc588b2a4",
+      "bytes": 1925
+    },
+    "navd": {
+      "path": "openpilot/selfdrive/navigation/navd.py",
+      "sha256": "8a3e93eaf8d7f5d78c26bf1c90617f660b50400a0ed6392d89658d574578f00d",
+      "git_blob": "4ed0af5c3b76a9d9377ea095fd8fbf71f0325dcc",
+      "bytes": 9288
+    },
+    "mapsd": {
+      "path": "openpilot/selfdrive/navigation/mapsd.py",
+      "sha256": "77935d5335c3fc4fe740198324565ac015553b55c15953db035c2deba389578f",
+      "git_blob": "b84e904f989288f94f426856497603fe238d6b9e",
+      "bytes": 3377
+    },
+    "renderer": {
+      "path": "openpilot/selfdrive/navigation/renderer.py",
+      "sha256": "97149c4fc9e4b2c83b57eae6ac5063bd94b94f59a6058a81febbc1619b6bd64d",
+      "git_blob": "a0640a7cadc8d61021269eb3d58711b2d605893d",
+      "bytes": 11737
+    },
+    "route": {
+      "path": "openpilot/selfdrive/navigation/route.py",
+      "sha256": "269e305d17ba020be321129d362e938f3c77c8f12e213e36d2e89967551ba7ad",
+      "git_blob": "d1fc85aca76c4c8fa74be9efb2ca6d8a10b6ee43",
+      "bytes": 4071
+    },
+    "modeld": {
+      "path": "openpilot/selfdrive/modeld/modeld.py",
+      "sha256": "d1ee17937ef0c4d0e9f891fb303e771cdce6b8d8f1246e16c80c686458ab6c25",
+      "git_blob": "29e7ba207764fa9f6d7d4c97cc67a50921b2c5ca",
+      "bytes": 22735
+    },
+    "parse_model_outputs": {
+      "path": "openpilot/selfdrive/modeld/parse_model_outputs.py",
+      "sha256": "aefd4353cfd396f99abb017da0933b01fa18eea4eb6ca92f09c99751ab1731e7",
+      "git_blob": "839c20f7cc60d71ac561b263ba9efedead657751",
+      "bytes": 5222
+    },
+    "constants": {
+      "path": "openpilot/selfdrive/modeld/constants.py",
+      "sha256": "5d597d287df626d08b234a17db05e884302fead646ff4e7f0153079547c8010c",
+      "git_blob": "0fb09262d0192ee6ae38c2c7e94af052fea3c6a3",
+      "bytes": 2164
+    },
+    "desire_helper": {
+      "path": "openpilot/selfdrive/controls/lib/desire_helper.py",
+      "sha256": "d9df29acc2c4185e7fea17047cb3fcc37489e777fb20b288b2b91c30d076f323",
+      "git_blob": "3705823b7063d40ac314f11e4306fa3da6cb8823",
+      "bytes": 3569
+    },
+    "drive_helpers": {
+      "path": "openpilot/selfdrive/controls/lib/drive_helpers.py",
+      "sha256": "916bcd83c2a909a89795da58c7c43d7b168c9b82e1a6d281484bae45c667c01e",
+      "git_blob": "35ca45e56e28d6dc2acab17f2b7611fe79689eb6",
+      "bytes": 2739
+    },
+    "camera": {
+      "path": "openpilot/common/transformations/camera.py",
+      "sha256": "1de3f9e6147f28195c71673ae5c8ec38e65ede997ac98d2e1e3b114eda873ec4",
+      "git_blob": "17ac226cdbc6277217fecb5ddb9a87502ad4b76b",
+      "bytes": 6209
+    },
+    "model_transform": {
+      "path": "openpilot/common/transformations/model.py",
+      "sha256": "c87aad27074362fe9fe361a71da92c1fc90daf63bcfd4d8c47d65d3a936ec15e",
+      "git_blob": "ea1dff30e8fc4eabd5be0faf5822bb1279e88277",
+      "bytes": 2766
+    },
+    "fill_model_msg": {
+      "path": "openpilot/selfdrive/modeld/fill_model_msg.py",
+      "sha256": "2dde5e76457413d9a578cb1905e00a2060c392e38738eee389a0e842c1665717",
+      "git_blob": "055c182f6ced7fc24d67f8f6bfc8b54f0378fbd3",
+      "bytes": 9725
+    }
+  }
+}

@@ -15,6 +15,7 @@ from openpilot.selfdrive.navigation import activation, model_inputs
 from openpilot.selfdrive.navigation.candidate_identity import MODEL_ID
 from openpilot.selfdrive.navigation.tests.test_activation import ParamsStub, reviewed_fixture
 from openpilot.selfdrive.navigation.tests.test_model_input_admission import Client, Messages
+from openpilot.selfdrive.navigation.tests.official_reference import OfficialNavigationInputs
 from openpilot.sunnypilot.modeld_v2 import modeld
 from openpilot.sunnypilot.modeld_v2.tests.test_navigation_inputs import FIXTURES, native_fixture
 
@@ -105,27 +106,19 @@ class TestDrivingNavigation(unittest.TestCase):
           self.assertTrue(params.get_bool('OnroadCycleRequested'), 'Preserve existing SunnyPilot initialization recovery')
         modeld.PubMaster.assert_not_called()
 
-  def test_driving_reader_rejects_missing_unknown_or_malformed_upcoming_guidance(self):
+  def test_driving_reader_matches_official_missing_and_unknown_guidance(self):
     with reviewed_fixture() as (params, permit, _), patch.object(model_inputs, 'PC', False):
       params.values.update(NavigationEnabled=True, NavDestination={'latitude': 1., 'longitude': 2.})
-      cases = [([], 'missing_maneuver_metadata'),
-               ([SimpleNamespace(distance=10., type='unknown', modifier='left')], 'unsupported_upcoming_maneuver'),
-               ([SimpleNamespace(distance=float('nan'), type='turn', modifier='left')], 'invalid_maneuver_metadata')]
-      for maneuvers, reason in cases:
+      for maneuvers in ([], [SimpleNamespace(distance=10., type='unknown', modifier='left')],
+                        [SimpleNamespace(distance=10., type='turn', modifier='unknown')],
+                        [SimpleNamespace(distance=10., type='depart', modifier='straight')]):
         sm = Messages(100.)
         sm.data['navInstruction'].allManeuvers = maneuvers
         reader = model_inputs.NavigationInputs(params, Client(99_100_000_000), clock=lambda: 100., driving_permit=permit)
-        with self.subTest(reason=reason):
-          self.assertEqual(reader.read(sm, 0., 100_000_000_000), {})
-          self.assertEqual(reader.input_reason, reason)
-          self.assertIsNone(reader._map)
-      for kind in ('depart', 'arrive', 'merge'):
-        sm = Messages(100.)
-        sm.data['navInstruction'].allManeuvers = [SimpleNamespace(distance=10., type=kind, modifier='straight')]
-        reader = model_inputs.NavigationInputs(params, Client(99_100_000_000), clock=lambda: 100., driving_permit=permit)
-        inputs = reader.read(sm, 0., 100_000_000_000)
-        self.assertTrue(inputs)
-        self.assertFalse(inputs['navigation'].any())
+        expected = OfficialNavigationInputs().read(sm, Client(99_100_000_000), 100., 0.)
+        actual = reader.read_for_model(sm, 0., 100_000_000_000)
+        for name in expected:
+          np.testing.assert_array_equal(actual[name], expected[name])
 
   def test_actual_modelstate_approved_loading_guard_and_upstream_action_profile(self):
     jits, metadata = fixture_data()
@@ -239,7 +232,8 @@ class TestDrivingNavigation(unittest.TestCase):
       self.assertEqual(count[0], 4)
       self.assertEqual(observed[0]['navigation'][15], 1.)
       self.assertTrue(observed[1]['nav_map'].any(), 'A route identity change does not impose a model activation delay')
-      self.assertTrue(all(not item['nav_map'].any() and not item['navigation'].any() for item in observed[2:]))
+      self.assertTrue(all(item['nav_map'].any() and item['navigation'].any() for item in observed[2:]),
+                      'Official consumption follows delivered IPC/message freshness, not destination/setting gates')
 
   def test_actual_device_identity_gate_before_candidate_loading(self):
     specs = {'navigation': ((1, 47), 'float32', 'NPY')}

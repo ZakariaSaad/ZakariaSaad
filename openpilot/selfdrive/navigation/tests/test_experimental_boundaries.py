@@ -128,10 +128,10 @@ class TestExperimentalBoundaries(unittest.TestCase):
     from openpilot.selfdrive.modeld import modeld as stock
     from openpilot.sunnypilot.modeld_v2 import modeld as native
     cases = (
-      ('openpilot/selfdrive/modeld/modeld.py', stock, '_require_non_navigation_publication'),
-      ('openpilot/sunnypilot/modeld_v2/modeld.py', native, '_reject_navigation_publication'),
+      ('openpilot/selfdrive/modeld/modeld.py', stock, '_require_non_navigation_publication', '_require_non_navigation_publication'),
+      ('openpilot/sunnypilot/modeld_v2/modeld.py', native, '_reject_navigation_publication', 'load_selected_models'),
     )
-    for path, runtime, guard_name in cases:
+    for path, runtime, guard_name, boundary_name in cases:
       with self.subTest(path=path):
         module = ast.parse((Path(BASEDIR) / path).read_text())
         main = next(node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == 'main')
@@ -139,14 +139,28 @@ class TestExperimentalBoundaries(unittest.TestCase):
         # conditional. Do not descend into loader functions or if branches.
         statements = [node for statement in main.body for node in (statement.body if isinstance(statement, ast.Try) else [statement])]
         guards = [(index, node) for index, node in enumerate(statements)
-                  if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and
-                  isinstance(node.value.func, ast.Name) and node.value.func.id == guard_name]
+                  if isinstance(node, (ast.Expr, ast.Assign)) and isinstance(node.value, ast.Call) and
+                  isinstance(node.value.func, ast.Name) and node.value.func.id == boundary_name]
         pubs = [(index, node) for index, node in enumerate(statements)
                 if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) and
                 isinstance(node.value.func, ast.Name) and node.value.func.id == 'PubMaster']
         self.assertEqual(len(guards), 1, 'all main/demo paths must pass an unconditional publication guard')
         self.assertEqual(len(pubs), 1)
         self.assertLess(guards[0][0], pubs[0][0])
+        if boundary_name != guard_name:
+          # Native startup uses the ordinary shared loader. It must execute the
+          # real guard before its only successful return; a conditional guard
+          # inside the big-loader thread alone would not protect the small path.
+          helper = next(node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == boundary_name)
+          body = [node for statement in helper.body for node in (statement.body if isinstance(statement, ast.Try) else [statement])]
+          checked = [index for index, node in enumerate(body)
+                     if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and
+                     isinstance(node.value.func, ast.Name) and node.value.func.id == guard_name]
+          returns = [index for index, node in enumerate(body) if isinstance(node, ast.Return)]
+          self.assertEqual(len(checked), 1)
+          self.assertEqual(len(returns), 1)
+          self.assertEqual(sum(isinstance(node, ast.Return) for node in ast.walk(helper)), 1)
+          self.assertLess(checked[0], returns[0])
         publisher = MagicMock()
         guard = getattr(runtime, guard_name)
 

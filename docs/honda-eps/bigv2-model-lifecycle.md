@@ -5,6 +5,11 @@ Branch: `mvl-sp-steer-eps-nav`. Starting commit:
 Authoritative upstream lifecycle: MVL `sp-steer`
 `0f5085fc3f713da58d236ed3822b9d27bc0e9917`.
 
+The subsequent [official Bigv2 parity review](bigv2-official-parity.md) restores
+the checkpoint's navigation, camera, desire and output semantics while retaining
+this lifecycle and the required custom EPS prediction schedule. Its test results
+and execution limits are documented separately from the lifecycle results below.
+
 ## What changes
 
 Corrected Bigv2 now occupies `ModelManager_ActiveBundleChestnut`, the same canonical

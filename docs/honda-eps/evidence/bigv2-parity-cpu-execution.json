@@ -1,0 +1,50 @@
+{
+  "scope": "Attempted full-model CPU differential; not a physical AMD result",
+  "official_implementation": "a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9",
+  "source_onnx_sha256": "1d18c42ea4cd95c8bffab4635844b78b8e2d4e25b9de44a9c5ac2e0961371a2e",
+  "artifact": {
+    "sha256": "a280f8873a0391685bf4ea115504203b7448ce5a034b401788cc1e2921384790",
+    "size_bytes": 810356009,
+    "kind": "Existing CPU:LLVM original Bigv2 with sanitized data-only output slices",
+    "compiler_tinygrad_revision": "69fd4d34d4430036378aba2b43f9d339cdd6ea73",
+    "compiler_target": "CPU LLVM x86_64,native",
+    "corrected_amd_artifact": false,
+    "fp32_map_correction_present": false
+  },
+  "warp": {
+    "sha256": "556cdca4c1740434000e52a0c57f9d0027359d62502deb0c539735af82dc0337",
+    "size_bytes": 3661934,
+    "kind": "Existing CPU native NV12 1344x760 warp"
+  },
+  "execution_tinygrad_revision": "92b742f711c7d216fd3ed7a46a30a959e3c43bd4",
+  "backend_requested": "CPU:LLVM",
+  "host_architecture": "x86_64",
+  "method": [
+    "Verify existing CPU artifact against its retained metadata-sanitization hash and ONNX provenance.",
+    "Use exact official ModelState.pack_inputs/run definitions from SHA-bound a03 fixtures; substitute data-only native CPU warp/model loading for official pickle loading.",
+    "Compare the same CPU binaries through separate official-style warp/model execution and current fused NativeTinygradAdapter, from independent zero states.",
+    "Plan six continuous neutral/map-only/maneuver-only/both/republished/missing-input frames, with exact raw-output and recurrent-state equality required."
+  ],
+  "status": "blocked_before_differential_frames",
+  "failure": {
+    "operation": "load_model(existing_cpu_artifact, cache=False), verify=True default",
+    "shell_exit_status": 132,
+    "signal": "SIGILL",
+    "log_tail": "loading reference native CPU; Illegal instruction",
+    "cause": "Not established. The saved artifact targets an earlier native CPU/compiler runtime; no portable CPU ISA contract was recorded."
+  },
+  "differential_frames_completed": 0,
+  "raw_output_difference": null,
+  "recurrent_state_difference": null,
+  "recompiled": false,
+  "downloaded": false,
+  "artifact_modified": false,
+  "physical_amd_executed": false,
+  "limitations": [
+    "No full-model raw-output or recurrent-state equivalence was established by this attempt.",
+    "This is a historical CPU artifact, not the corrected AMD artifact; even successful CPU results would not prove corrected AMD equivalence.",
+    "The SIGILL is not evidence that the installed corrected AMD model or navigation port is defective.",
+    "Exact source/packing/parsed-output and current-host synthetic CPU state tests are reported separately."
+  ],
+  "untrusted_executable_pickle_execution": false
+}

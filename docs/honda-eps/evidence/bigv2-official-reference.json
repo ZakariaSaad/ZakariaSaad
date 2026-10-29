@@ -1,0 +1,211 @@
+{
+  "scope": "Official source identity for corrected Bigv2 behavior differential tests",
+  "official_repository": "https://github.com/commaai/openpilot",
+  "official_model_behavior_revision": "a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9",
+  "source_onnx": {
+    "path": "openpilot/selfdrive/modeld/models/big_driving_supercombo.onnx",
+    "sha256": "1d18c42ea4cd95c8bffab4635844b78b8e2d4e25b9de44a9c5ac2e0961371a2e",
+    "bytes": 814591106,
+    "git_blob": "851024f74c1e96344a11be756f922c81a3eb4a9a",
+    "pointer_sha256": "14797537fa3559831d213bf72f538a5b56697bf57e999176e1bdcf55a66bf00c",
+    "verified_via": "Official GitHub commit and git/blobs API, independently matched local Git object; no model weights downloaded",
+    "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/selfdrive/modeld/models/big_driving_supercombo.onnx"
+  },
+  "official_compiled_pickle_at_reference": {
+    "sha256": "20cae5d01d0c59352fa6bf23cb0bf2a9c6c7257f6b9997652f6ef64669e194f8",
+    "size": 822465506
+  },
+  "official_tinygrad_revision": "d3f09c9bbd542fbfbe68c8569a1173550c408969",
+  "distinct_shared_lifecycle_authority": {
+    "repository": "mvl-boston/openpilot",
+    "branch": "sp-steer",
+    "revision": "0f5085fc3f713da58d236ed3822b9d27bc0e9917",
+    "scope": "ordinary model selection/startup/fallback and longitudinal control, not Bigv2 input or prediction behavior"
+  },
+  "preserved_corrected_native_artifact": {
+    "sha256": "4f4c215db8ad33f2fa074fb6075e2a48ae5c8d766e3c2f9842acf8094c1a919c",
+    "format": "SPTGPLN1",
+    "exception": "Existing demonstrated FP32 map-overflow correction; not bit-identical to unspecified official compiled binary numerical behavior"
+  },
+  "relevant_history": [
+    {
+      "revision": "8b8ce13b407ddae14f2e415afad9c16f603bdb81",
+      "subject": "modeld wired",
+      "meaning": "Navigation model-facing source implementation inherited by a03."
+    },
+    {
+      "revision": "3ec09aed2ea589cbd3234137ae6fb74aecde3c4c",
+      "subject": "fix overflow inputs in map model",
+      "changes": [
+        "openpilot/selfdrive/modeld/models/big_driving_tinygrad.pkl"
+      ],
+      "meaning": "Parent of a03. A changed pickle pointer alone does not specify source ONNX precision or establish equivalence to the retained corrected native artifact."
+    },
+    {
+      "revision": "a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9",
+      "subject": "rl nav driving model (80eedcdd/12864)",
+      "changes": [
+        "openpilot/selfdrive/modeld/models/big_driving_supercombo.onnx",
+        "openpilot/selfdrive/modeld/models/big_driving_tinygrad.pkl"
+      ],
+      "meaning": "Exact source checkpoint pointer used for this project."
+    },
+    {
+      "revision": "afbf2e547e9319e2eb9f515e1e4330af63705cec",
+      "subject": "n16 nav-wm model",
+      "compiled_pickle": {
+        "sha256": "52205044e136efb64a6a841c9b016cf35b1db81186dd0f941b62eee5ebdcde24",
+        "size": 822465506
+      },
+      "meaning": "Later compiled variant. ONNX pointer remains 1d18c42e but changed binary/model provenance is not substituted for a03 behavior authority."
+    }
+  ],
+  "source_files": {
+    "helpers": {
+      "path": "openpilot/selfdrive/navigation/helpers.py",
+      "sha256": "95c4942823da232d891552305727dc73305f698921bbac9cf8944745a2762d59",
+      "git_blob": "260884634b86d0dac531de039fe44a8cc588b2a4",
+      "bytes": 1925,
+      "last_changed_commit": "8b8ce13b407ddae14f2e415afad9c16f603bdb81",
+      "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/selfdrive/navigation/helpers.py"
+    },
+    "navd": {
+      "path": "openpilot/selfdrive/navigation/navd.py",
+      "sha256": "8a3e93eaf8d7f5d78c26bf1c90617f660b50400a0ed6392d89658d574578f00d",
+      "git_blob": "4ed0af5c3b76a9d9377ea095fd8fbf71f0325dcc",
+      "bytes": 9288,
+      "last_changed_commit": "8b8ce13b407ddae14f2e415afad9c16f603bdb81",
+      "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/selfdrive/navigation/navd.py"
+    },
+    "mapsd": {
+      "path": "openpilot/selfdrive/navigation/mapsd.py",
+      "sha256": "77935d5335c3fc4fe740198324565ac015553b55c15953db035c2deba389578f",
+      "git_blob": "b84e904f989288f94f426856497603fe238d6b9e",
+      "bytes": 3377,
+      "last_changed_commit": "8b8ce13b407ddae14f2e415afad9c16f603bdb81",
+      "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/selfdrive/navigation/mapsd.py"
+    },
+    "renderer": {
+      "path": "openpilot/selfdrive/navigation/renderer.py",
+      "sha256": "97149c4fc9e4b2c83b57eae6ac5063bd94b94f59a6058a81febbc1619b6bd64d",
+      "git_blob": "a0640a7cadc8d61021269eb3d58711b2d605893d",
+      "bytes": 11737,
+      "last_changed_commit": "4c362ca3272c7418a068d43c402c84bd0544f35a",
+      "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/selfdrive/navigation/renderer.py"
+    },
+    "route": {
+      "path": "openpilot/selfdrive/navigation/route.py",
+      "sha256": "269e305d17ba020be321129d362e938f3c77c8f12e213e36d2e89967551ba7ad",
+      "git_blob": "d1fc85aca76c4c8fa74be9efb2ca6d8a10b6ee43",
+      "bytes": 4071,
+      "last_changed_commit": "4c362ca3272c7418a068d43c402c84bd0544f35a",
+      "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/selfdrive/navigation/route.py"
+    },
+    "modeld": {
+      "path": "openpilot/selfdrive/modeld/modeld.py",
+      "sha256": "d1ee17937ef0c4d0e9f891fb303e771cdce6b8d8f1246e16c80c686458ab6c25",
+      "git_blob": "29e7ba207764fa9f6d7d4c97cc67a50921b2c5ca",
+      "bytes": 22735,
+      "last_changed_commit": "8b8ce13b407ddae14f2e415afad9c16f603bdb81",
+      "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/selfdrive/modeld/modeld.py"
+    },
+    "parse_model_outputs": {
+      "path": "openpilot/selfdrive/modeld/parse_model_outputs.py",
+      "sha256": "aefd4353cfd396f99abb017da0933b01fa18eea4eb6ca92f09c99751ab1731e7",
+      "git_blob": "839c20f7cc60d71ac561b263ba9efedead657751",
+      "bytes": 5222,
+      "last_changed_commit": "f0d93eb32db9683986cfcafebec6d0f74a2a95da",
+      "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/selfdrive/modeld/parse_model_outputs.py"
+    },
+    "constants": {
+      "path": "openpilot/selfdrive/modeld/constants.py",
+      "sha256": "5d597d287df626d08b234a17db05e884302fead646ff4e7f0153079547c8010c",
+      "git_blob": "0fb09262d0192ee6ae38c2c7e94af052fea3c6a3",
+      "bytes": 2164,
+      "last_changed_commit": "5edc0bd89d0830bc1ac86ee923d1d08d2915b770",
+      "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/selfdrive/modeld/constants.py"
+    },
+    "desire_helper": {
+      "path": "openpilot/selfdrive/controls/lib/desire_helper.py",
+      "sha256": "d9df29acc2c4185e7fea17047cb3fcc37489e777fb20b288b2b91c30d076f323",
+      "git_blob": "3705823b7063d40ac314f11e4306fa3da6cb8823",
+      "bytes": 3569,
+      "last_changed_commit": "4532320fb3b76417df39c6b78a84f250da9a31ba",
+      "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/selfdrive/controls/lib/desire_helper.py"
+    },
+    "drive_helpers": {
+      "path": "openpilot/selfdrive/controls/lib/drive_helpers.py",
+      "sha256": "916bcd83c2a909a89795da58c7c43d7b168c9b82e1a6d281484bae45c667c01e",
+      "git_blob": "35ca45e56e28d6dc2acab17f2b7611fe79689eb6",
+      "bytes": 2739,
+      "last_changed_commit": "ea4dbc89364155c78d8e2d35d7b7fdcde88854f8",
+      "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/selfdrive/controls/lib/drive_helpers.py"
+    },
+    "camera": {
+      "path": "openpilot/common/transformations/camera.py",
+      "sha256": "1de3f9e6147f28195c71673ae5c8ec38e65ede997ac98d2e1e3b114eda873ec4",
+      "git_blob": "17ac226cdbc6277217fecb5ddb9a87502ad4b76b",
+      "bytes": 6209,
+      "last_changed_commit": "fedea9fe8d489fd73f3a93ef707656bf10c94eb9",
+      "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/common/transformations/camera.py"
+    },
+    "model_transform": {
+      "path": "openpilot/common/transformations/model.py",
+      "sha256": "c87aad27074362fe9fe361a71da92c1fc90daf63bcfd4d8c47d65d3a936ec15e",
+      "git_blob": "ea1dff30e8fc4eabd5be0faf5822bb1279e88277",
+      "bytes": 2766,
+      "last_changed_commit": "5edc0bd89d0830bc1ac86ee923d1d08d2915b770",
+      "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/common/transformations/model.py"
+    },
+    "fill_model_msg": {
+      "path": "openpilot/selfdrive/modeld/fill_model_msg.py",
+      "sha256": "2dde5e76457413d9a578cb1905e00a2060c392e38738eee389a0e842c1665717",
+      "git_blob": "055c182f6ced7fc24d67f8f6bfc8b54f0378fbd3",
+      "bytes": 9725,
+      "last_changed_commit": "79658800ce142a84009e83a7f98e1c5d3415ceee",
+      "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/selfdrive/modeld/fill_model_msg.py"
+    },
+    "pmtiles": {
+      "path": "openpilot/selfdrive/navigation/pmtiles.py",
+      "sha256": "8acfb2ee543a97acf13e7dee3d3c16a53e8b264345dacacf734f57b56cbc8e9a",
+      "git_blob": "127996322870672ccf0514db9e2ac828e69e77ed",
+      "bytes": 5096,
+      "last_changed_commit": "4c362ca3272c7418a068d43c402c84bd0544f35a",
+      "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/selfdrive/navigation/pmtiles.py",
+      "fixture_vendored": false
+    },
+    "vector_tile": {
+      "path": "openpilot/selfdrive/navigation/vector_tile.py",
+      "sha256": "8a0b5956edd7e609feaa1efead7a1f22dd91d080ec400264c1c1ac84593825fa",
+      "git_blob": "06439efa445bc7aaa4dfed838da4b5a36ad04a1f",
+      "bytes": 4373,
+      "last_changed_commit": "4c362ca3272c7418a068d43c402c84bd0544f35a",
+      "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/selfdrive/navigation/vector_tile.py",
+      "fixture_vendored": false
+    },
+    "nv12_info": {
+      "path": "openpilot/system/camerad/cameras/nv12_info.py",
+      "sha256": "b3f39bbfdd75c43d396b01f746d460068aa8e98862217d46bf3cd426cd034e1a",
+      "git_blob": "abd734ba50f38a69a3209f1da7478d1384a1dfd2",
+      "bytes": 819,
+      "last_changed_commit": "5edc0bd89d0830bc1ac86ee923d1d08d2915b770",
+      "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/system/camerad/cameras/nv12_info.py",
+      "fixture_vendored": false
+    },
+    "lagd": {
+      "path": "openpilot/selfdrive/locationd/lagd.py",
+      "sha256": "60a5e90984c8fe40af18c88d44c9d8479b10c724e4d0bed52da094bc10a5f385",
+      "git_blob": "a198ce915f5de3d3d04edd667affd9b4137d2170",
+      "bytes": 17763,
+      "last_changed_commit": "6d5d1f691708ae95896516e45089676e487c876e",
+      "official_url": "https://github.com/commaai/openpilot/blob/a03bb1d4e80050cae0007780ecb8eb7cf06d0cb9/openpilot/selfdrive/locationd/lagd.py",
+      "fixture_vendored": false
+    }
+  },
+  "reference_fixture_method": "Unmodified MIT-licensed source snapshots. Loader checks SHA256 and Git blob identity before compiling original AST definitions with explicitly injected test dependencies. Inline navigation consumer block is extracted unchanged from modeld source. No pickle deserialization or model execution in the reference loader.",
+  "limitations": [
+    "Source and checkpoint provenance do not establish numerical equivalence of distinct compiled artifacts.",
+    "CPU or mocked differential tests must be reported separately from physical AMD/Chestnut execution.",
+    "The source checkpoint was not downloaded again during this task."
+  ]
+}
