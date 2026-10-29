@@ -3,6 +3,10 @@
 Branch: `mvl-sp-steer-eps-nav`. Starting commit:
 `4100c6563e46fdf84be04c56a54d3de334ee259d`.
 
+The later [Blendful integration](blendful-integration.md) adds an optional
+upstream curvature correction after inference. It defaults OFF; OFF preserves
+the behavior reviewed here. Enabling it does not change model inputs or buffers.
+
 ## Two distinct authorities
 
 Bigv2 model behavior follows official comma.ai/openpilot

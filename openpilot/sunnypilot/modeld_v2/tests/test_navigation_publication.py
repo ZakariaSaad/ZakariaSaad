@@ -18,6 +18,8 @@ from openpilot.selfdrive.navigation.tests.test_activation import reviewed_fixtur
 from openpilot.sunnypilot.modeld_v2 import modeld
 from openpilot.sunnypilot.modeld_v2.constants import Meta, ModelConstants
 from openpilot.sunnypilot.modeld_v2.parse_model_outputs import Parser
+from openpilot.sunnypilot.modeld_v2.blendful import Blendful
+from openpilot.sunnypilot.modeld_v2.tests.test_blendful import frame as blendful_frame
 from openpilot.sunnypilot.modeld_v2.tests.test_driving_navigation import fixture_data
 
 
@@ -29,13 +31,17 @@ class TestNavigationPublication(unittest.TestCase):
   def test_actual_main_runs_one_selected_model_and_uses_small_only_after_failure(self):
     for transition in ('healthy', 'missing_navigation', 'route_change', 'destination_cleared', 'navigation_off',
                        'timing_change', 'eps_off', 'eps_off_timing_change', 'dropped_frames', 'selection_changed', 'legacy_flag_ignored',
-                       'candidate_failure', 'candidate_nonfinite', 'small_failure', 'ordinary_selected'):
+                       'candidate_failure', 'candidate_nonfinite', 'small_failure', 'ordinary_selected',
+                       'blendful_toggle', 'blendful_lane_change'):
       with self.subTest(transition=transition):
         self._exercise_transition(transition)
 
   def _exercise_transition(self, transition):
     with ExitStack() as stack:
       presented_ids = [1, 2, 4, 5, 7, 8, 10, 11, 13, 16, 19, 22] if transition == 'dropped_frames' else [1, 2, 3]
+      exercising_blendful = transition.startswith('blendful_')
+      if exercising_blendful:
+        presented_ids = list(range(1, 123))
       jits, metadata = fixture_data()
       # CPU state storage lets the normal warmup issue its real zero-fill kernels.
       # The driving graph itself remains the trusted synthetic writer below.
@@ -45,6 +51,17 @@ class TestNavigationPublication(unittest.TestCase):
                                   for name, (shape, dtype, device) in jits['output_specs'].items()}
       params, permit, _ = stack.enter_context(reviewed_fixture(jits['input_specs'], metadata))
       params.values.update(NavigationEnabled=True, NavDestination={'latitude': 1., 'longitude': 2.}, CameraOffset=.22, PlanplusControl=.2)
+      if exercising_blendful:
+        params.values['Blendful'] = True
+      blendful = Blendful()
+      blendful_updates = []
+      update_blendful = blendful.update
+      def record_blendful(output, speed, active, curvature, *, enabled=True):
+        correction = update_blendful(output, speed, active, curvature, enabled=enabled)
+        blendful_updates.append((camera.frame_id, active, enabled, curvature, correction))
+        return correction
+      blendful.update = Mock(side_effect=record_blendful)
+      stack.enter_context(patch.object(modeld, 'Blendful', return_value=blendful))
       stack.enter_context(patch.object(modeld, 'load_model', return_value=jits))
       error_state = SimpleNamespace(host=SimpleNamespace(view=lambda **_: [0]))
       stack.enter_context(patch.object(modeld, 'Device', {'AMD': SimpleNamespace(error_state=error_state)}))
@@ -78,7 +95,14 @@ class TestNavigationPublication(unittest.TestCase):
         captured_transforms.append((camera.frame_id, {key: value.copy() for key, value in transforms.items()}))
         if transition in ('candidate_failure', 'small_failure') and camera.frame_id == 2:
           raise RuntimeError('synthetic candidate inference failure')
-        return real_candidate_run(bufs, transforms, inputs, *args)
+        output = real_candidate_run(bufs, transforms, inputs, *args)
+        if exercising_blendful:
+          # Representative parsed predictions; no driving-model inference.
+          lanes = blendful_frame(center=.5, k=.04)
+          for name in ('lane_lines', 'lane_lines_stds', 'lane_lines_prob'):
+            output[name] = lanes[name]
+          output['plan'][:, :, :3] = lanes['plan']
+        return output
 
       stack.enter_context(patch.object(candidate, 'run', side_effect=candidate_run))
       candidate.warmup = Mock(wraps=candidate.warmup)
@@ -153,6 +177,12 @@ class TestNavigationPublication(unittest.TestCase):
           self.updated['extrinsicsCalibration'] = camera.frame_id == 1
           if transition in ('timing_change', 'eps_off_timing_change'):
             self.data['lateralDelay'].lateralDelay = .1 + camera.frame_id * .01
+          if exercising_blendful and camera.frame_id == 120:
+            params.put_bool('Blendful', False)
+          if transition == 'blendful_lane_change':
+            self.data['carState'].leftBlinker = 70 <= camera.frame_id < 85
+            self.data['carState'].steeringPressed = 72 <= camera.frame_id < 85
+            self.data['carState'].steeringTorque = 1. if 72 <= camera.frame_id < 85 else 0.
           if camera.frame_id == 2:
             if transition == 'selection_changed':
               # Simulate corrupted/on-road state outside the guarded UI: reject it.
@@ -280,6 +310,31 @@ class TestNavigationPublication(unittest.TestCase):
           self.assertAlmostEqual(published[-1]['action']['desiredCurvature'], .02)
         np.testing.assert_allclose(small_calls[0][1]['action_t'], [modeld.prediction_delay(10.) + .1 + .05 + .025, .2 + .2 + .05 + .025])
         self.assertIs(params.get('ChestnutActive'), False)
+      self.assertEqual(len(blendful_updates), len(published), 'Correction must run once per successfully published prediction')
+      if exercising_blendful:
+        self.assertEqual([row[0] for row in blendful_updates], presented_ids)
+        for frame, _active, enabled, curvature, correction in blendful_updates:
+          self.assertEqual(enabled, 60 <= frame < 120)
+          self.assertAlmostEqual(curvature, .04)
+          if not enabled:
+            self.assertEqual(correction, 0.)
+        self.assertTrue(any(row[4] != 0 for row in blendful_updates if 60 <= row[0] < 70))
+        if transition == 'blendful_lane_change':
+          self.assertTrue(any(not row[1] for row in blendful_updates if 71 <= row[0] < 85))
+        else:
+          self.assertTrue(all(row[1] for row in blendful_updates))
+        for message, row in zip(published, blendful_updates, strict=True):
+          self.assertAlmostEqual(message['action']['desiredCurvature'], .04 + row[4], places=7)
+        diagnostics = [message['modelDataV2SP'] for name, message in sent if name == 'modelDataV2SP']
+        self.assertTrue(any(message['blendfulCurvature'] != 0 for message in diagnostics[59:119]))
+        self.assertEqual(diagnostics[119]['blendfulCurvature'], 0.)
+        self.assertEqual(diagnostics[119]['blendfulTrust'], 0.)
+        # Feature configuration changes model-output consumption only; the
+        # existing custom-EPS action horizon remains byte-for-byte unchanged.
+        timing = [inputs['action_t'] for frame, inputs in captured_inputs if frame > 0]
+        self.assertTrue(all(np.array_equal(value, timing[0]) for value in timing))
+      else:
+        self.assertTrue(all(not row[2] and row[4] == 0 for row in blendful_updates))
       if transition == 'candidate_nonfinite':
         numerical_events.assert_called_once()
         event = numerical_events.call_args

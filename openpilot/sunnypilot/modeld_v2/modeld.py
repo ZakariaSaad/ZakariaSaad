@@ -7,6 +7,7 @@ See the LICENSE.md file in the root directory for more details.
 """
 
 from collections.abc import Callable
+from functools import partial
 import gc
 import os
 os.environ['GMMU'] = '0'
@@ -47,6 +48,7 @@ from openpilot.selfdrive.navigation.model_inputs import (NAV_INPUT_NAMES, Naviga
 
 from openpilot.sunnypilot.modeld_v2.fill_model_msg import fill_model_msg, fill_pose_msg, PublishState, get_curvature_from_output
 from openpilot.sunnypilot.modeld_v2.parse_model_outputs import Parser
+from openpilot.sunnypilot.modeld_v2.blendful import Blendful
 from openpilot.sunnypilot.modeld_v2.constants import ModelConstants, Plan
 from openpilot.sunnypilot.modeld_v2.meta_helper import load_meta_constants
 from openpilot.sunnypilot.modeld_v2.camera_offset_helper import CameraOffsetHelper
@@ -394,7 +396,8 @@ class ModelState(ModelStateBase):
       pass
 
   def get_action_from_model(self, model_output: dict[str, np.ndarray], prev_action: log.ModelDataV2.Action,
-                            lat_action_t: float, long_action_t: float, v_ego: float) -> log.ModelDataV2.Action:
+                            lat_action_t: float, long_action_t: float, v_ego: float,
+                            blendful: Callable[[float], float] | None = None) -> log.ModelDataV2.Action:
     if 'action' not in model_output:
       plan = model_output['plan'][0]
       desired_accel = get_accel_from_plan(plan[:, Plan.VELOCITY][:, 0], plan[:, Plan.ACCELERATION][:, 0], self.constants.T_IDXS,
@@ -406,6 +409,10 @@ class ModelState(ModelStateBase):
     else:
       desired_accel = model_output['action'][0, 1]
       desired_curvature = model_output['action'][0, 0] / (max(1.0, v_ego))**2
+    if blendful is not None:
+      correction = blendful(desired_curvature)
+      if correction:  # Preserve the disabled baseline exactly, including signed zero.
+        desired_curvature += correction
 
     stop = v_ego < 0.3 and desired_accel < 0.1
     desired_accel = smooth_value(desired_accel, prev_action.desiredAcceleration, self.LONG_SMOOTH_SECONDS)
@@ -428,11 +435,11 @@ class NavigationModelState(ModelState):
     self.LAT_SMOOTH_SECONDS = 0.0
     self.LONG_SMOOTH_SECONDS = 0.3
 
-  def get_action_from_model(self, model_output, prev_action, lat_action_t, long_action_t, v_ego):
+  def get_action_from_model(self, model_output, prev_action, lat_action_t, long_action_t, v_ego, blendful=None):
     from openpilot.selfdrive.modeld.modeld import get_action_from_model
     if 'action' not in model_output:
       raise NavigationModelDisabled('The reviewed navigation checkpoint requires its native action head')
-    return get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
+    return get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego, blendful)
 
 
 def load_navigation_model(params, cam_w, cam_h, permit):
@@ -630,6 +637,8 @@ def main(demo=False):
   DH = Bigv2DesireHelper() if navigation_permit is not None and model.chestnut else DesireHelper()
   meta_constants = load_meta_constants()
   RELC = RoadEdgeLaneChangeController()
+  blendful = Blendful()
+  blendful_enabled = False
 
   while True:
     # Keep receiving frames until we are at least 1 frame ahead of previous extra frame
@@ -670,6 +679,8 @@ def main(demo=False):
     is_rhd = sm["driverMonitoringState"].isRHD
     frame_id = sm["narrowRoadCameraState"].frameId
     v_ego = max(sm["carState"].vEgo, 0.)
+    if sm.frame % 60 == 0:
+      blendful_enabled = params.get_bool("Blendful")
     if native_bigv2:
       # Preserve the required firmware-controller prediction horizon. Without
       # that controller, use the checkpoint's current lateralDelay directly.
@@ -789,7 +800,9 @@ def main(demo=False):
 
       if not native_bigv2 and not sm['carControl'].latActive:
         prev_action.desiredCurvature = sm['controlsState'].curvature
-      action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
+      blendful_active = desire == log.Desire.none and DH.lane_change_state == log.LaneChangeState.off
+      action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego,
+                                           partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled))
       prev_action = action
       if native_bigv2:
         publish_bigv2_model(modelv2_send, model_output, action, publish_state,
@@ -814,6 +827,13 @@ def main(demo=False):
       modelv2_send.modelV2.meta.laneChangeDirection = DH.lane_change_direction
       mdv2sp_send.valid = modelv2_send.valid
       mdv2sp_send.modelDataV2SP.laneTurnDirection = 'none' if native_bigv2 else DH.lane_turn_direction
+      mdv2sp_send.modelDataV2SP.blendfulCurvature = blendful.curvature
+      mdv2sp_send.modelDataV2SP.blendfulTrust = float(blendful.trust)
+      mdv2sp_send.modelDataV2SP.modelCurvature = float(blendful.model_curvature)
+      mdv2sp_send.modelDataV2SP.blendfulGoingAround = bool(blendful.going_around)
+      mdv2sp_send.modelDataV2SP.blendfulLeftProb = blendful.l_prob
+      mdv2sp_send.modelDataV2SP.blendfulRightProb = blendful.r_prob
+      mdv2sp_send.modelDataV2SP.blendfulLaneWidth = float(blendful.lane_width.x)
       if native_bigv2:
         fill_driving_model_data(drivingdata_send, modelv2_send)
       else:

@@ -43,6 +43,7 @@ CAPABILITY_FIELDS = (
   "device_type",
   "subaru_has_sng",
   "hyundai_alpha_long_available",
+  "custom_model_active",
   "honda_eps_supported",
   "honda_eps_eligible",
   "honda_eps_requested",
@@ -70,12 +71,31 @@ CAPABILITY_LABELS: dict[str, str] = {
   "device_type": "Device type",
   "subaru_has_sng": "Subaru Stop-and-Go available",
   "hyundai_alpha_long_available": "Hyundai Alpha Longitudinal available",
+  "custom_model_active": "Non-Default model selected",
   "honda_eps_supported": "Supported Insight TXM-A040 EPS configuration",
   "honda_eps_eligible": "Insight EPS firmware confirmation and calibration ready",
   "honda_eps_requested": "Insight EPS controller requested",
   "honda_eps_effective": "Insight EPS controller selected for the current drive",
   "honda_eps_status": "Insight EPS requested and effective controller status",
 }
+
+# Fields read from the car (CarParams*, CarPlatformBundle). Until a car is seen these stay at
+# their defaults, so a rule failing on one of them means "start the vehicle", not a real reason.
+CAR_CAPABILITY_FIELDS = (
+  "has_longitudinal_control",
+  "has_icbm",
+  "icbm_available",
+  "torque_allowed",
+  "brand",
+  "pcm_cruise",
+  "alpha_long_available",
+  "steer_control_type",
+  "has_bsm",
+  "tesla_has_vehicle_bus",
+  "has_stop_and_go",
+  "subaru_has_sng",
+  "hyundai_alpha_long_available",
+)
 
 # Explicit defaults for non-boolean capability fields
 CAPABILITY_DEFAULTS: dict[str, bool | str | int] = {
@@ -143,6 +163,9 @@ def generate_capabilities(params: Params | None = None) -> dict:
   caps["is_sp_release"] = params.get_bool("IsReleaseSpBranch")
   caps["is_development"] = params.get_bool("IsDevelopmentBranch")
   caps["stock_longitudinal"] = params.get_bool("ToyotaEnforceStockLongitudinal")
+
+  # runner the manager launches (process_config.is_tinygrad_model); with a chestnut the big slot decides
+  caps["custom_model_active"] = params.get("ModelRunnerTypeCache") == custom.ModelManagerSP.Runner.tinygrad
 
   bundle = params.get("CarPlatformBundle")
   bundle_brand = _bundle_field(bundle, "brand")
