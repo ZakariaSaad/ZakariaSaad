@@ -216,9 +216,10 @@ class LegacyModelAdapter(BaseModelAdapter):
 
 
 class NativeTinygradAdapter(BaseModelAdapter):
-  def __init__(self, *args, diagnostic: bool = False, **kwargs):
+  def __init__(self, *args, diagnostic: bool = False, separate_recurrent_buffers: bool = False, **kwargs):
     super().__init__(*args, **kwargs)
     self.is_native = True
+    self.separate_recurrent_buffers = separate_recurrent_buffers
     self.input_specs = self.jits['input_specs']
 
     self.model_device = self.input_specs['new_img'][2]
@@ -253,9 +254,10 @@ class NativeTinygradAdapter(BaseModelAdapter):
     self.frames = self.packed_input[offsets['frames']:].reshape(2, self.warp_frame_size)
 
     self.outputs = {name: Tensor(np.zeros(shape, dtype=dtype), device=device).realize() for name, (shape, dtype, device) in self.jits['output_specs'].items()}
-    for name, next_name in self.state_pairs.items():
-      state = self.input_queues[name]
-      self.outputs[next_name] = input_view(state._buffer(), state.shape, state.dtype, 0)
+    if not self.separate_recurrent_buffers:
+      for name, next_name in self.state_pairs.items():
+        state = self.input_queues[name]
+        self.outputs[next_name] = input_view(state._buffer(), state.shape, state.dtype, 0)
 
   def copy_frames(self, bufs):
     for i, key in enumerate(self._vision_input_names):
@@ -272,9 +274,18 @@ class NativeTinygradAdapter(BaseModelAdapter):
     self.run_model(host=self.host, **self.input_queues, output_buffers=self.outputs)
     return self.outputs['outputs']
 
+  def advance_state(self) -> None:
+    # The caller accepts the inference after device/readback/finite checks,
+    # before parsing, as in comma b20a8e4. PlainJit binds these tensors per call.
+    if self.separate_recurrent_buffers:
+      for name, next_name in self.state_pairs.items():
+        self.input_queues[name], self.outputs[next_name] = self.outputs[next_name], self.input_queues[name]
 
-def get_model_adapter(jits, cam_w, cam_h, model_device, queue_device, warp_device, chestnut=False, diagnostic=False):
+
+def get_model_adapter(jits, cam_w, cam_h, model_device, queue_device, warp_device, chestnut=False, diagnostic=False,
+                      separate_recurrent_buffers=False):
   if 'input_specs' in jits:
-    return NativeTinygradAdapter(jits, cam_w, cam_h, model_device, queue_device, warp_device, chestnut=chestnut, diagnostic=diagnostic)
+    return NativeTinygradAdapter(jits, cam_w, cam_h, model_device, queue_device, warp_device, chestnut=chestnut,
+                                diagnostic=diagnostic, separate_recurrent_buffers=separate_recurrent_buffers)
   else:
     return LegacyModelAdapter(jits, cam_w, cam_h, model_device, queue_device, warp_device, chestnut=chestnut)

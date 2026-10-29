@@ -65,6 +65,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.timing import predict
 
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld_tinygrad"
 BIG_MODEL_TIMEOUT = 60
+LIGHT_SPEED_MODEL_REF = 'e4acf619d4eb8b726fc405c264109310ac2951df'
 
 
 def _pkl_exists(path):
@@ -223,6 +224,8 @@ class ModelState(ModelStateBase):
       assert self._diagnostic_backend is not None
       self.DEV = self.QUEUE_DEV = self.WARP_DEV = self._diagnostic_backend
     adapter_options = {'diagnostic': True} if getattr(self, 'diagnostic', False) or getattr(self, '_driving_permit', None) is not None else {}
+    if self.chestnut and bundle is not None and bundle.ref == LIGHT_SPEED_MODEL_REF:
+      adapter_options['separate_recurrent_buffers'] = True
     self.adapter = get_model_adapter(jits, cam_w, cam_h, self.DEV, self.QUEUE_DEV, self.WARP_DEV, self.chestnut, **adapter_options)
     self.vision_output_slices = self.adapter.vision_output_slices
     self.policy_output_slices = self.adapter.policy_output_slices
@@ -340,6 +343,8 @@ class ModelState(ModelStateBase):
       if self.chestnut and not np.all(np.isfinite(model_output)):
         self._log_nonfinite_output(model_output, inference_ms=(time.perf_counter() - inference_start) * 1000)
         raise RuntimeError("model output not finite")
+      if self.adapter.is_native:
+        self.adapter.advance_state()
       sliced = {k: model_output[np.newaxis, v] for k, v in self.vision_output_slices.items()}
       outputs = self.parser.parse_outputs(sliced)
       if getattr(self, '_driving_permit', None) is not None and os.getenv('SEND_RAW_PRED'):
