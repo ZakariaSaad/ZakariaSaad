@@ -34,8 +34,12 @@ def reference_action():
   deps = {'log': log, 'ModelConstants': ModelConstants, 'Plan': Plan,
           **{name: getattr(drive_helpers, name) for name in
              ('get_accel_from_plan', 'get_curvature_from_plan', 'should_stop', 'smooth_value')}}
-  return load_reference('modeld', names=('get_action_from_model', 'LAT_SMOOTH_SECONDS',
-                        'LONG_SMOOTH_SECONDS', 'MIN_LAT_CONTROL_SPEED'), namespace=deps).get_action_from_model
+  action = load_reference('modeld', names=('get_action_from_model', 'LAT_SMOOTH_SECONDS',
+                          'LONG_SMOOTH_SECONDS', 'MIN_LAT_CONTROL_SPEED'), namespace=deps).get_action_from_model
+  # Keep the pinned a03 source intact; apply only the subsequently reviewed
+  # PR #39174 (f7158299d80dd441b4edfb1f8fb1432587f46325) constant change.
+  action.__globals__['MIN_LAT_CONTROL_SPEED'] = 1.6
+  return action
 
 
 def native_state():
@@ -60,7 +64,7 @@ def test_native_parser_and_raw_action_match_official_checkpoint(seed):
   assert actual['action'].shape == (1, 4), 'Official native action is not reinterpreted as an MDN head'
   previous = log.ModelDataV2.Action(desiredCurvature=.012, desiredAcceleration=-.7)
   get_action = reference_action()
-  for speed in (0., .3, .30001, 1., 10., 30.):
+  for speed in (0., .3, .30001, 1., 1.6, 1.60001, 10., 30.):
     for lateral, longitudinal in ((.075, .575), (.245, .675), (.475, 1.25)):
       expected_action = get_action(expected, previous, lateral, longitudinal, speed)
       actual_action = state.get_action_from_model(actual, previous, lateral, longitudinal, speed)

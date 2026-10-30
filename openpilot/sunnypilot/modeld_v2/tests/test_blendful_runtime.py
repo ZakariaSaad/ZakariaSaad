@@ -41,8 +41,10 @@ def reference(name):
 
 
 def model_state(generation=12, lateral=.1, longitudinal=.3):
+  # Compare Blendful OFF at the same configured threshold, including the later
+  # PR #39174 update. The new threshold itself has dedicated boundary coverage.
   return SimpleNamespace(constants=ModelConstants(), generation=generation, LAT_SMOOTH_SECONDS=lateral,
-                         LONG_SMOOTH_SECONDS=longitudinal, MIN_LAT_CONTROL_SPEED=.3,
+                         LONG_SMOOTH_SECONDS=longitudinal, MIN_LAT_CONTROL_SPEED=stock.MIN_LAT_CONTROL_SPEED,
                          PLANPLUS_CONTROL=.7, mlsim=generation is not None and generation >= 11)
 
 
@@ -77,7 +79,7 @@ def test_off_ordinary_actions_match_starting_branch_exactly(kind, generation, la
   baseline = reference('baseline_ordinary')
   actual_previous = expected_previous = log.ModelDataV2.Action(desiredCurvature=-.001, desiredAcceleration=.3)
   blendful = Blendful()
-  for index, speed in enumerate((0., .3, .30001, 1., 4., 5., 10., 20., 30.)):
+  for index, speed in enumerate((0., .3, .30001, 1., 1.6, 1.60001, 4., 5., 10., 20., 30.)):
     output = outputs(kind, speed, index)
     callback = Mock(wraps=partial(blendful.update, output, speed, True, enabled=False))
     args = (.075 + index*.025, .575 + index*.01, speed)
@@ -104,7 +106,7 @@ def test_off_native_navigation_action_matches_starting_branch_exactly():
   baseline = reference('baseline_native')
   previous = log.ModelDataV2.Action(desiredCurvature=.003, desiredAcceleration=-.8)
   blendful = Blendful()
-  for index, speed in enumerate((0., .3, .30001, 1., 4., 5., 10., 20., 30.)):
+  for index, speed in enumerate((0., .3, .30001, 1., 1.6, 1.60001, 4., 5., 10., 20., 30.)):
     output = outputs('action', speed, index)
     callback = Mock(wraps=partial(blendful.update, output, speed, True, enabled=False))
     expected = baseline(output, previous, .15, .575, speed)

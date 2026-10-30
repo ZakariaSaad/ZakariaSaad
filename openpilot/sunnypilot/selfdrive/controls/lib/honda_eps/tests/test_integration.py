@@ -241,6 +241,19 @@ def test_model_curvature_reaches_independent_firmware_command_delay(native_contr
   assert command.actuators.torque == pytest.approx(pid_log.output)
 
 
+@pytest.mark.parametrize('speed', [1., 1.6])
+def test_model_calculation_threshold_does_not_disengage_eps(native_controls, speed):
+  controls = native_controls()
+  seed_control_state(controls)
+  state = controls.sm['carState'].as_builder()
+  state.vEgo = speed
+  state.standstill = False
+  controls.sm.data['carState'] = state.as_reader()
+  command, pid_log = controls.state_control()
+  assert command.latActive and pid_log.active
+  assert pid_log.commandDelay == pytest.approx(command_delay(speed))
+
+
 @pytest.mark.parametrize('geometry', ['mvl', 'james'])
 def test_native_controlsd_override_cuts_request_and_retains_recovery_history(native_controls, geometry):
   controls = native_controls(geometry=geometry, openpilotLongitudinalControl=True)
