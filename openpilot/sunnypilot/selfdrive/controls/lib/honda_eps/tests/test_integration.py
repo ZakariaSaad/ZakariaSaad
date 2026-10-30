@@ -241,7 +241,7 @@ def test_model_curvature_reaches_independent_firmware_command_delay(native_contr
   assert command.actuators.torque == pytest.approx(pid_log.output)
 
 
-@pytest.mark.parametrize('speed', [1., 1.6])
+@pytest.mark.parametrize('speed', [.5, .6])
 def test_model_calculation_threshold_does_not_disengage_eps(native_controls, speed):
   controls = native_controls()
   seed_control_state(controls)

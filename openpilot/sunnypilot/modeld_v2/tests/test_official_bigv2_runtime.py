@@ -36,10 +36,17 @@ def reference_action():
              ('get_accel_from_plan', 'get_curvature_from_plan', 'should_stop', 'smooth_value')}}
   action = load_reference('modeld', names=('get_action_from_model', 'LAT_SMOOTH_SECONDS',
                           'LONG_SMOOTH_SECONDS', 'MIN_LAT_CONTROL_SPEED'), namespace=deps).get_action_from_model
-  # Keep the pinned a03 source intact; apply only the subsequently reviewed
-  # PR #39174 (f7158299d80dd441b4edfb1f8fb1432587f46325) constant change.
-  action.__globals__['MIN_LAT_CONTROL_SPEED'] = 1.6
-  return action
+  # Keep the pinned a03 source intact; apply only the two reviewed calculations
+  # from PR #39182 (406048c253b29498f42a93a33f66e21f93515fbd), replacing #39174.
+  original = source('modeld')
+  definition = next(node for node in ast.parse(original).body
+                    if isinstance(node, ast.FunctionDef) and node.name == 'get_action_from_model')
+  body = ast.get_source_segment(original, definition)
+  assert body.count('max(1.0, v_ego)') == 1
+  namespace = action.__globals__
+  namespace['MIN_LAT_CONTROL_SPEED'] = .6
+  exec(compile(body.replace('max(1.0, v_ego)', 'max(2.5, v_ego)'), 'official_a03_with_pr39182', 'exec'), namespace)
+  return namespace['get_action_from_model']
 
 
 def native_state():
@@ -64,7 +71,7 @@ def test_native_parser_and_raw_action_match_official_checkpoint(seed):
   assert actual['action'].shape == (1, 4), 'Official native action is not reinterpreted as an MDN head'
   previous = log.ModelDataV2.Action(desiredCurvature=.012, desiredAcceleration=-.7)
   get_action = reference_action()
-  for speed in (0., .3, .30001, 1., 1.6, 1.60001, 10., 30.):
+  for speed in (0., .3, .6, .60001, 1., 2.49999, 2.5, 2.50001, 10., 30.):
     for lateral, longitudinal in ((.075, .575), (.245, .675), (.475, 1.25)):
       expected_action = get_action(expected, previous, lateral, longitudinal, speed)
       actual_action = state.get_action_from_model(actual, previous, lateral, longitudinal, speed)

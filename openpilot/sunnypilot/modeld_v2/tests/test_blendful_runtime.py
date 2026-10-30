@@ -1,7 +1,8 @@
 """Compare real action consumers with the pre-port branch and merged upstream.
 
-Reference function bodies are pinned source excerpts, not alternate local
-policies. Synthetic model predictions exercise software consumption; no model
+Reference function bodies are pinned source excerpts with the explicitly
+reviewed PR #39182 calculation update applied below. Synthetic model predictions
+exercise software consumption; no model
 inference, vehicle process or CAN transport runs here.
 """
 import ast
@@ -35,6 +36,10 @@ REFERENCE_HASHES = {
 def reference(name):
   source = (Path(__file__).with_name('fixtures') / f'blendful_{name}_action.txt').read_text()
   assert hashlib.sha256(source.encode()).hexdigest() == REFERENCE_HASHES[name]
+  # Preserve the historical fixtures; compare Blendful ON/OFF at the same
+  # direct-action calculation introduced by PR #39182 (406048c253b2).
+  assert source.count('max(1.0, v_ego)') == 1
+  source = source.replace('max(1.0, v_ego)', 'max(2.5, v_ego)')
   values = dict(vars(stock if name == 'baseline_native' else modeld), Callable=Callable)
   exec(compile(source, f'blendful_{name}_action', 'exec'), values)
   return values['get_action_from_model']
@@ -42,7 +47,7 @@ def reference(name):
 
 def model_state(generation=12, lateral=.1, longitudinal=.3):
   # Compare Blendful OFF at the same configured threshold, including the later
-  # PR #39174 update. The new threshold itself has dedicated boundary coverage.
+  # PR #39182 update. The new calculations have dedicated boundary coverage.
   return SimpleNamespace(constants=ModelConstants(), generation=generation, LAT_SMOOTH_SECONDS=lateral,
                          LONG_SMOOTH_SECONDS=longitudinal, MIN_LAT_CONTROL_SPEED=stock.MIN_LAT_CONTROL_SPEED,
                          PLANPLUS_CONTROL=.7, mlsim=generation is not None and generation >= 11)
@@ -79,7 +84,7 @@ def test_off_ordinary_actions_match_starting_branch_exactly(kind, generation, la
   baseline = reference('baseline_ordinary')
   actual_previous = expected_previous = log.ModelDataV2.Action(desiredCurvature=-.001, desiredAcceleration=.3)
   blendful = Blendful()
-  for index, speed in enumerate((0., .3, .30001, 1., 1.6, 1.60001, 4., 5., 10., 20., 30.)):
+  for index, speed in enumerate((0., .3, .6, .60001, 1., 2.49999, 2.5, 2.50001, 4., 5., 10., 20., 30.)):
     output = outputs(kind, speed, index)
     callback = Mock(wraps=partial(blendful.update, output, speed, True, enabled=False))
     args = (.075 + index*.025, .575 + index*.01, speed)
@@ -106,7 +111,7 @@ def test_off_native_navigation_action_matches_starting_branch_exactly():
   baseline = reference('baseline_native')
   previous = log.ModelDataV2.Action(desiredCurvature=.003, desiredAcceleration=-.8)
   blendful = Blendful()
-  for index, speed in enumerate((0., .3, .30001, 1., 1.6, 1.60001, 4., 5., 10., 20., 30.)):
+  for index, speed in enumerate((0., .3, .6, .60001, 1., 2.49999, 2.5, 2.50001, 4., 5., 10., 20., 30.)):
     output = outputs('action', speed, index)
     callback = Mock(wraps=partial(blendful.update, output, speed, True, enabled=False))
     expected = baseline(output, previous, .15, .575, speed)

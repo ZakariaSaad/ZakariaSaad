@@ -52,7 +52,7 @@ SEND_RAW_PRED = os.getenv('SEND_RAW_PRED')
 
 LAT_SMOOTH_SECONDS = 0.0
 LONG_SMOOTH_SECONDS = 0.3
-MIN_LAT_CONTROL_SPEED = 1.6
+MIN_LAT_CONTROL_SPEED = 0.6
 BIG_MODEL_TIMEOUT = 60
 
 
@@ -72,7 +72,7 @@ def get_action_from_model(model_output: dict[str, np.ndarray], prev_action: log.
                                                 lat_action_t)
   else:
     desired_accel = model_output['action'][0,1]
-    desired_curvature = model_output['action'][0,0] / (max(1.0, v_ego))**2
+    desired_curvature = model_output['action'][0,0] / (max(2.5, v_ego))**2
   # Native Bigv2 shares this action helper. Stock modeld never supplies this
   # callback; the tinygrad runner applies it once, before model-side smoothing.
   if blendful is not None:

@@ -7,16 +7,18 @@ The later [Blendful integration](blendful-integration.md) adds an optional
 upstream curvature correction after inference. It defaults OFF; OFF preserves
 the behavior reviewed here. Enabling it does not change model inputs or buffers.
 
-The later [openpilot PR #39174](https://github.com/commaai/openpilot/pull/39174)
-port, reviewed at `f7158299d80dd441b4edfb1f8fb1432587f46325`, changes the
-curvature-calculation hold threshold from 0.3 to 1.6 m/s. Standard modeld and
-native Bigv2 retain the previous desired curvature at or below 1.6 m/s.
+The later [openpilot PR #39182](https://github.com/commaai/openpilot/pull/39182)
+port, reviewed at `406048c253b29498f42a93a33f66e21f93515fbd`, supersedes the
+PR #39174 port in `38d9c104a01e832646dd2e1895bb413c1477c414`. Standard modeld
+and native Bigv2 retain the previous desired curvature at or below **0.6 m/s**.
+Direct-action curvature is `action[0, 0] / max(2.5, v_ego)**2`; the denominator
+floor applies only to the direct-action head, not plan-derived predictions.
 modeld_v2 uses the same threshold within its existing generation >= 10 gate,
 including Light Speed (generation 12 in Chestnut v28). Legacy generation handling,
 steering engagement, EPS prediction/command timing, longitudinal stop thresholds,
 Blendful/SPLC and recurrent buffers are unchanged. The pinned a03 source remains
-intact; action-reference tests explicitly apply only this subsequent constant
-change. No model recompilation or replacement is required.
+intact; action-reference tests explicitly apply only these two subsequent
+calculation changes. No model recompilation or replacement is required.
 
 ## Two distinct authorities
 
