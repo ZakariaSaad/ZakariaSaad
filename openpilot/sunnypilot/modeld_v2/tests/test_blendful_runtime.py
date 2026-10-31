@@ -167,4 +167,5 @@ def test_stock_default_runner_does_not_request_blendful_correction():
   tree = ast.parse(inspect.getsource(stock.main))
   calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'get_action_from_model']
   assert len(calls) == 1
-  assert len(calls[0].args) == 5 and not calls[0].keywords
+  assert len(calls[0].args) == 5
+  assert [keyword.arg for keyword in calls[0].keywords] == ['turn_signal_active']

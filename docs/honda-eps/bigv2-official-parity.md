@@ -20,6 +20,43 @@ Blendful/SPLC and recurrent buffers are unchanged. The pinned a03 source remains
 intact; action-reference tests explicitly apply only these two subsequent
 calculation changes. No model recompilation or replacement is required.
 
+### Turn-signal calculation adaptation
+
+The subsequent signal adaptation starts at `6288feee54e296aa05907bff40cf8680022fbae9`.
+Both model runners now choose the following calculation for each successful
+prediction, including native Bigv2, Light Speed and ordinary small-model fallback:
+
+| Fresh sustained vehicle signals | Curvature hold speed | Direct-action denominator |
+| --- | --- | --- |
+| Left, right, or both (hazards) | <= 0.3 m/s | `max(1.0, v_ego)**2` |
+| Both off, or missing/invalid/stale data | <= 0.6 m/s | `max(2.5, v_ego)**2` |
+
+The existing modeld_v2 generation >= 10 hold/smoothing gate remains intact.
+Plan/PlanPlus curvature keeps its original calculation; only its existing hold
+threshold follows the signal mode. The denominator applies only to action heads.
+Blendful still consumes raw curvature before existing smoothing/holding, and
+downstream SPLC ordering is unchanged. This does not change EPS timing, geometry,
+longitudinal output, engagement/override rules, safety limits or model state.
+
+`carState.leftBlinker/rightBlinker` are the existing sustained interface outputs.
+Honda derives them from `SCM_FEEDBACK` using `update_blinker_from_stalk(250, ...)`;
+its existing hold/cancellation behavior is preserved without another timer.
+Admission requires SubMaster seen/valid/alive and a nonfuture publisher timestamp
+younger than its existing 10-message-period budget (100 ms at carState's 100 Hz).
+This is checked when consuming the prediction, including after a slow inference;
+freshly receiving an old message does not make it eligible. No frequency warmup
+or lamp-phase state machine is added.
+
+**Transition limitation:** for identical direct-action output and zero existing
+smoothing, signalling at 1 m/s changes raw curvature by 6.25x; at 2 m/s by 1.5625x.
+At >= 2.5 m/s the denominators coincide. Cancelling between 0.3 and 0.6 m/s restores
+the hold rule and can retain the last turning target until speed exceeds 0.6 m/s
+or existing engagement handling updates it. No reset or extra smoothing hides
+this behavior. Existing 100 Hz curvature/angle limits, EPS torque cap and transport
+rate limits still apply, but do not guarantee a smooth raw target transition.
+Regression checks use synthetic inputs and isolated control/transport execution;
+they do not establish vehicle comfort or road safety.
+
 ## Two distinct authorities
 
 Bigv2 model behavior follows official comma.ai/openpilot

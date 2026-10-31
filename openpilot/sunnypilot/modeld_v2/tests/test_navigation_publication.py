@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 
 from openpilot.selfdrive.navigation.activation import validate_runtime_permit
+from openpilot.selfdrive.modeld import turn_signals
 from openpilot.selfdrive.navigation.tests.test_activation import reviewed_fixture
 from openpilot.sunnypilot.modeld_v2 import modeld
 from openpilot.sunnypilot.modeld_v2.constants import Meta, ModelConstants
@@ -36,7 +37,20 @@ class TestNavigationPublication(unittest.TestCase):
       with self.subTest(transition=transition):
         self._exercise_transition(transition)
 
-  def _exercise_transition(self, transition):
+  def test_signal_modes_reach_selected_model_and_small_fallback(self):
+    for transition, sequence in (
+      ('healthy', ('off', 'left', 'hazards')),
+      ('healthy', ('left', 'invalid', 'stale')),
+      ('healthy', ('right', 'missing', 'off')),
+      ('healthy', ('hazards', 'not_alive', 'right')),
+      ('candidate_failure', ('left', 'off', 'right')),
+      ('candidate_failure', ('right', 'hazards', 'off')),
+      ('ordinary_selected', ('off', 'left', 'hazards')),
+    ):
+      with self.subTest(transition=transition, signals=sequence):
+        self._exercise_transition(transition, signal_sequence=sequence)
+
+  def _exercise_transition(self, transition, signal_sequence=None):
     with ExitStack() as stack:
       presented_ids = [1, 2, 4, 5, 7, 8, 10, 11, 13, 16, 19, 22] if transition == 'dropped_frames' else [1, 2, 3]
       exercising_blendful = transition.startswith('blendful_')
@@ -122,6 +136,16 @@ class TestNavigationPublication(unittest.TestCase):
                               LAT_SMOOTH_SECONDS=.1, LONG_SMOOTH_SECONDS=.2, MIN_LAT_CONTROL_SPEED=.3,
                               PLANPLUS_CONTROL=1., generation=None, lat_delay=.1, run=small_run)
       small.get_action_from_model = MethodType(modeld.ModelState.get_action_from_model, small)
+      action_calls = []
+      if signal_sequence is not None:
+        def record_action(role, action):
+          def call(*args, **kwargs):
+            action_calls.append((camera.frame_id, role, kwargs.get('turn_signal_active')))
+            return action(*args, **kwargs)
+          return call
+        stack.enter_context(patch.object(candidate, 'get_action_from_model',
+                                         side_effect=record_action('candidate', candidate.get_action_from_model)))
+        small.get_action_from_model = Mock(side_effect=record_action('small', small.get_action_from_model))
       def read_inputs(*_):
         validate_runtime_permit(permit, params=params)
         neutral = transition in ('missing_navigation', 'destination_cleared', 'navigation_off') and camera.frame_id >= 2
@@ -152,6 +176,10 @@ class TestNavigationPublication(unittest.TestCase):
           return SimpleNamespace(data=bytes(self.buffer_len))
 
       camera = Camera()
+      if signal_sequence is not None:
+        # Keep the publisher age deterministic while the real CPU graph runs.
+        stack.enter_context(patch.object(turn_signals.time, 'monotonic_ns',
+                                         side_effect=lambda: 100_000_000_000 + camera.frame_id * 50_000_000))
       load_errors = []
       stack.enter_context(patch.object(modeld.cloudlog, 'exception',
                                        side_effect=lambda *args, **kwargs: load_errors.append((args, traceback.format_exc()))))
@@ -175,6 +203,16 @@ class TestNavigationPublication(unittest.TestCase):
           self.frame += 1
           self.data['narrowRoadCameraState'].frameId = camera.frame_id
           self.updated['extrinsicsCalibration'] = camera.frame_id == 1
+          if signal_sequence is not None:
+            signal = signal_sequence[camera.frame_index - 1]
+            self.seen['carState'] = signal != 'missing'
+            self.valid = {'carState': signal != 'invalid'}
+            self.alive = {'carState': signal != 'not_alive'}
+            self.logMonoTime = {'carState': turn_signals.time.monotonic_ns() - (1_000_000_000 if signal == 'stale' else 0)}
+            # Invalid/stale/missing messages deliberately retain an active bit;
+            # only proper admission may suppress the original calculation.
+            self.data['carState'].leftBlinker = signal not in ('off', 'right')
+            self.data['carState'].rightBlinker = signal in ('right', 'hazards')
           if transition in ('timing_change', 'eps_off_timing_change'):
             self.data['lateralDelay'].lateralDelay = .1 + camera.frame_id * .01
           if exercising_blendful and camera.frame_id == 120:
@@ -235,6 +273,10 @@ class TestNavigationPublication(unittest.TestCase):
       self.assertEqual([message['frameId'] for message in published], expected_ids)
       expected_big = [False] * 3 if disabled else [True] if small_failed else [True, False] if failure else [True] * len(presented_ids)
       self.assertEqual([message['big'] for message in published], expected_big)
+      if signal_sequence is not None:
+        expected_actions = [(frame, 'candidate' if big else 'small', signal_sequence[frame - 1] in ('left', 'right', 'hazards'))
+                            for frame, big in zip(expected_ids, expected_big, strict=True)]
+        self.assertEqual(action_calls, expected_actions)
       frame_candidate_calls = [frame for frame in candidate_calls if frame > 0]
       expected_candidate_calls = [] if disabled else [1] if transition == 'selection_changed' else [1, 2] if failure else presented_ids
       self.assertEqual(frame_candidate_calls, expected_candidate_calls)

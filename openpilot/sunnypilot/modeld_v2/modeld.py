@@ -49,6 +49,7 @@ from openpilot.selfdrive.navigation.model_inputs import (NAV_INPUT_NAMES, Naviga
 from openpilot.sunnypilot.modeld_v2.fill_model_msg import fill_model_msg, fill_pose_msg, PublishState, get_curvature_from_output
 from openpilot.sunnypilot.modeld_v2.parse_model_outputs import Parser
 from openpilot.sunnypilot.modeld_v2.blendful import Blendful
+from openpilot.selfdrive.modeld.turn_signals import fresh_turn_signal_active
 from openpilot.sunnypilot.modeld_v2.constants import ModelConstants, Plan
 from openpilot.sunnypilot.modeld_v2.meta_helper import load_meta_constants
 from openpilot.sunnypilot.modeld_v2.camera_offset_helper import CameraOffsetHelper
@@ -397,7 +398,7 @@ class ModelState(ModelStateBase):
 
   def get_action_from_model(self, model_output: dict[str, np.ndarray], prev_action: log.ModelDataV2.Action,
                             lat_action_t: float, long_action_t: float, v_ego: float,
-                            blendful: Callable[[float], float] | None = None) -> log.ModelDataV2.Action:
+                            blendful: Callable[[float], float] | None = None, *, turn_signal_active: bool = False) -> log.ModelDataV2.Action:
     if 'action' not in model_output:
       plan = model_output['plan'][0]
       desired_accel = get_accel_from_plan(plan[:, Plan.VELOCITY][:, 0], plan[:, Plan.ACCELERATION][:, 0], self.constants.T_IDXS,
@@ -408,7 +409,7 @@ class ModelState(ModelStateBase):
       desired_curvature = get_curvature_from_output(model_output, curvature_plan, v_ego, lat_action_t, self.mlsim)
     else:
       desired_accel = model_output['action'][0, 1]
-      desired_curvature = model_output['action'][0, 0] / (max(2.5, v_ego))**2
+      desired_curvature = model_output['action'][0, 0] / (max(1.0 if turn_signal_active else 2.5, v_ego))**2
     if blendful is not None:
       correction = blendful(desired_curvature)
       if correction:  # Preserve the disabled baseline exactly, including signed zero.
@@ -418,7 +419,7 @@ class ModelState(ModelStateBase):
     desired_accel = smooth_value(desired_accel, prev_action.desiredAcceleration, self.LONG_SMOOTH_SECONDS)
 
     if self.generation is not None and self.generation >= 10: # smooth curvature for post FOF models
-      if v_ego > self.MIN_LAT_CONTROL_SPEED:
+      if v_ego > (0.3 if turn_signal_active else self.MIN_LAT_CONTROL_SPEED):
         desired_curvature = smooth_value(desired_curvature, prev_action.desiredCurvature, self.LAT_SMOOTH_SECONDS)
       else:
         desired_curvature = prev_action.desiredCurvature
@@ -435,11 +436,12 @@ class NavigationModelState(ModelState):
     self.LAT_SMOOTH_SECONDS = 0.0
     self.LONG_SMOOTH_SECONDS = 0.3
 
-  def get_action_from_model(self, model_output, prev_action, lat_action_t, long_action_t, v_ego, blendful=None):
+  def get_action_from_model(self, model_output, prev_action, lat_action_t, long_action_t, v_ego, blendful=None, *, turn_signal_active=False):
     from openpilot.selfdrive.modeld.modeld import get_action_from_model
     if 'action' not in model_output:
       raise NavigationModelDisabled('The reviewed navigation checkpoint requires its native action head')
-    return get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego, blendful)
+    return get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego, blendful,
+                                 turn_signal_active=turn_signal_active)
 
 
 def load_navigation_model(params, cam_w, cam_h, permit):
@@ -802,7 +804,8 @@ def main(demo=False):
         prev_action.desiredCurvature = sm['controlsState'].curvature
       blendful_active = desire == log.Desire.none and DH.lane_change_state == log.LaneChangeState.off
       action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego,
-                                           partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled))
+                                           partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled),
+                                           turn_signal_active=fresh_turn_signal_active(sm))
       prev_action = action
       if native_bigv2:
         publish_bigv2_model(modelv2_send, model_output, action, publish_state,
