@@ -125,6 +125,7 @@ def test_model_acceleration_cannot_bypass_cruise_or_radar_candidate():
 
 
 def test_upstream_boost_cap_braking_scaling_and_disengagement_reset():
+  Params().put_bool('AccelBoostSP', False, block=True)
   sm = Messages(published_bigv2(0.))
   control = planner()
   for _ in range(50):
