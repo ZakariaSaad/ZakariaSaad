@@ -14,6 +14,8 @@ from unittest.mock import Mock, patch
 import numpy as np
 
 from openpilot.selfdrive.navigation.activation import validate_runtime_permit
+from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper as OrdinaryDesireHelper
+from openpilot.sunnypilot.selfdrive.controls.lib import auto_lane_change, lane_turn_desire
 from openpilot.selfdrive.modeld import turn_signals
 from openpilot.selfdrive.navigation.tests.test_activation import reviewed_fixture
 from openpilot.sunnypilot.modeld_v2 import modeld
@@ -50,7 +52,12 @@ class TestNavigationPublication(unittest.TestCase):
       with self.subTest(transition=transition, signals=sequence):
         self._exercise_transition(transition, signal_sequence=sequence)
 
-  def _exercise_transition(self, transition, signal_sequence=None):
+  def test_lane_change_state_survives_real_small_model_fallback(self):
+    for completed in (False, True):
+      with self.subTest(previous_auto_lane_change=completed):
+        self._exercise_transition('candidate_failure', fallback_lane_change=completed)
+
+  def _exercise_transition(self, transition, signal_sequence=None, fallback_lane_change=None):
     with ExitStack() as stack:
       presented_ids = [1, 2, 4, 5, 7, 8, 10, 11, 13, 16, 19, 22] if transition == 'dropped_frames' else [1, 2, 3]
       exercising_blendful = transition.startswith('blendful_')
@@ -64,7 +71,15 @@ class TestNavigationPublication(unittest.TestCase):
       metadata['output_specs'] = {name: {'shape': list(shape), 'dtype': np.dtype(dtype).name, 'device': device}
                                   for name, (shape, dtype, device) in jits['output_specs'].items()}
       params, permit, _ = stack.enter_context(reviewed_fixture(jits['input_specs'], metadata))
-      params.values.update(NavigationEnabled=True, NavDestination={'latitude': 1., 'longitude': 2.}, CameraOffset=.22, PlanplusControl=.2)
+      params.values.update(NavigationEnabled=True, NavDestination={'latitude': 1., 'longitude': 2.}, CameraOffset=.22, PlanplusControl=.2,
+                           AutoLaneChangeTimer=auto_lane_change.AutoLaneChangeMode.NUDGE, AutoLaneChangeBsmDelay=False,
+                           LaneTurnDesire=False, LaneTurnValue=20)
+      for module in (auto_lane_change, lane_turn_desire):
+        stack.enter_context(patch.object(module, 'Params', return_value=params))
+      if fallback_lane_change is not None:
+        params.values.update(AutoLaneChangeTimer=(auto_lane_change.AutoLaneChangeMode.NUDGELESS if fallback_lane_change else
+                                                 auto_lane_change.AutoLaneChangeMode.THREE_SECONDS), LaneTurnDesire=True)
+      before_fallback = {}
       if exercising_blendful:
         params.values['Blendful'] = True
       blendful = Blendful()
@@ -108,6 +123,8 @@ class TestNavigationPublication(unittest.TestCase):
         captured_inputs.append((camera.frame_id, {key: value.copy() for key, value in inputs.items()}))
         captured_transforms.append((camera.frame_id, {key: value.copy() for key, value in transforms.items()}))
         if transition in ('candidate_failure', 'small_failure') and camera.frame_id == 2:
+          if fallback_lane_change is not None:
+            before_fallback.update(vars(native_desire.alc))
           raise RuntimeError('synthetic candidate inference failure')
         output = real_candidate_run(bufs, transforms, inputs, *args)
         if exercising_blendful:
@@ -126,6 +143,15 @@ class TestNavigationPublication(unittest.TestCase):
 
       def small_run(bufs, transforms, inputs, *args):
         small_calls.append((camera.frame_id, {key: value.copy() for key, value in inputs.items()}))
+        if fallback_lane_change is not None:
+          # Assert before ordinary inference/update: handover must not reset the
+          # pending timer or forget an already completed automatic lane change.
+          self.assertIs(DH.alc, native_desire.alc)
+          self.assertIs(DH.alc.DH, DH)
+          self.assertEqual({key: value for key, value in vars(DH.alc).items() if key != 'DH'},
+                           {key: value for key, value in before_fallback.items() if key != 'DH'})
+          self.assertIsNot(DH.lane_turn_controller, native_desire.lane_turn_controller)
+          self.assertIs(DH.lane_turn_controller.DH, DH)
         if transition == 'small_failure':
           assert params.get('NavigationModelRuntimeState')['role'] == 'small_loading'
           raise RuntimeError('synthetic ordinary small inference failure')
@@ -192,7 +218,7 @@ class TestNavigationPublication(unittest.TestCase):
         updated = {'extrinsicsCalibration': True}
         seen = {'narrowRoadCameraState': True, 'deviceState': True}
         data = {'carState': SimpleNamespace(vEgo=10., leftBlinker=False, rightBlinker=False,
-                                                steeringPressed=False, steeringTorque=0., leftBlindspot=False, rightBlindspot=False),
+                                                steeringPressed=False, steeringTorque=0., leftBlindspot=False, rightBlindspot=False, brakePressed=False),
                 'driverMonitoringState': SimpleNamespace(isRHD=False),
                 'narrowRoadCameraState': SimpleNamespace(frameId=0, sensor='os04c10'),
                 'deviceState': SimpleNamespace(deviceType='mici'), 'extrinsicsCalibration': SimpleNamespace(rpyCalib=[0., 0., 0.], height=[1.22]),
@@ -203,6 +229,8 @@ class TestNavigationPublication(unittest.TestCase):
           self.frame += 1
           self.data['narrowRoadCameraState'].frameId = camera.frame_id
           self.updated['extrinsicsCalibration'] = camera.frame_id == 1
+          if fallback_lane_change is not None:
+            self.data['carState'].leftBlinker = True
           if signal_sequence is not None:
             signal = signal_sequence[camera.frame_index - 1]
             self.seen['carState'] = signal != 'missing'
@@ -239,6 +267,19 @@ class TestNavigationPublication(unittest.TestCase):
       sent = []
       publisher = SimpleNamespace(send=lambda name, message: sent.append((name, message.to_dict())))
       DH = SimpleNamespace(desire=0, lane_change_state=0, lane_change_direction=0, lane_turn_direction=0, update=Mock())
+      if fallback_lane_change is not None:
+        DH = OrdinaryDesireHelper()
+        native_desire = modeld.Bigv2DesireHelper()
+        native_desire.lane_change_state = modeld.log.LaneChangeState.preLaneChange
+        native_desire.lane_change_direction = modeld.log.LaneChangeDirection.left
+        native_desire.prev_one_blinker = True
+        native_desire.alc.lane_change_wait_timer = .4
+        native_desire.alc.prev_lane_change = fallback_lane_change
+        stack.enter_context(patch.object(modeld, 'Bigv2DesireHelper', return_value=native_desire))
+      edge_calls = []
+      def road_edges(*_):
+        edge_calls.append(camera.frame_id)
+        return (True, True) if fallback_lane_change is not None else (False, False)
       gpu_state = SimpleNamespace(big=False, send=Mock())
       for name, value in {'Params': Mock(return_value=params), 'setproctitle': Mock(),
                           'get_active_bundle': Mock(),
@@ -250,7 +291,7 @@ class TestNavigationPublication(unittest.TestCase):
                           'config_realtime_process': Mock(),
                           'PubMaster': Mock(return_value=publisher), 'SubMaster': Mock(return_value=messages),
                           'ChestnutGpuState': Mock(return_value=gpu_state), 'DesireHelper': Mock(return_value=DH),
-                          'RoadEdgeLaneChangeController': Mock(return_value=SimpleNamespace(update_and_fill=lambda *_: (0., 0.))),
+                          'RoadEdgeLaneChangeController': Mock(return_value=SimpleNamespace(update_and_fill=road_edges)),
                           'load_meta_constants': Mock(return_value=Meta),
                           'drive_config_for_model': Mock(return_value=None if transition.startswith('eps_off') else object())}.items():
         stack.enter_context(patch.object(modeld, name, value))
@@ -273,6 +314,18 @@ class TestNavigationPublication(unittest.TestCase):
       self.assertEqual([message['frameId'] for message in published], expected_ids)
       expected_big = [False] * 3 if disabled else [True] if small_failed else [True, False] if failure else [True] * len(presented_ids)
       self.assertEqual([message['big'] for message in published], expected_big)
+      self.assertEqual(edge_calls, [frame for frame, big in zip(expected_ids, expected_big, strict=True) if not big],
+                       'Native Bigv2 bypasses road edges; ordinary fallback retains the road-edge path')
+      if fallback_lane_change is not None:
+        self.assertEqual(DH.alc.param_read_counter, before_fallback['param_read_counter'] + 1)
+        self.assertAlmostEqual(DH.alc.lane_change_wait_timer, before_fallback['lane_change_wait_timer'] + modeld.DT_MDL)
+        self.assertEqual(DH.alc.prev_lane_change, fallback_lane_change)
+        self.assertFalse(DH.alc.auto_lane_change_allowed)
+        self.assertEqual(DH.lane_change_state, modeld.log.LaneChangeState.preLaneChange)
+        self.assertEqual(DH.lane_change_direction, modeld.log.LaneChangeDirection.left)
+        self.assertTrue(DH.lane_turn_controller.enabled, 'Saved ordinary lane-turn setting resumes on fallback')
+        self.assertEqual(DH.lane_turn_controller.param_read_counter, 1)
+        self.assertEqual([message['meta']['laneChangeState'] for message in published], ['preLaneChange', 'preLaneChange'])
       if signal_sequence is not None:
         expected_actions = [(frame, 'candidate' if big else 'small', signal_sequence[frame - 1] in ('left', 'right', 'hazards'))
                             for frame, big in zip(expected_ids, expected_big, strict=True)]

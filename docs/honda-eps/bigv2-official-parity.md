@@ -89,9 +89,14 @@ another branch, replace that lifecycle, or change the longitudinal controller.
   invalid. Route changes do not invent recurrent resets.
 - Restored the official maneuver encoder, including its unknown type/modifier
   behavior, distance normalization, ordering and number of encoded maneuvers.
-- Bigv2 now uses the official DesireHelper. SunnyPilot auto-lane-change,
-  road-edge lane-change gating and lane-turn conditioning remain available for
-  ordinary models but do not change Bigv2's desire pulses.
+- Bigv2 shares the current ordinary DesireHelper lane-change state machine and
+  AutoLaneChangeController: saved Off/Nudge/Nudgeless/delay modes, actual vehicle
+  blind spots, optional BSM delay, brake handling, cancellation and anti-repeat
+  behavior apply unchanged. Bigv2 alone still ignores road-edge gating, without
+  changing its saved setting. Its existing lane-change-only desire encoding and
+  low-speed turn conditioning remain unchanged; optional ordinary lane-turn
+  desires are not injected. Fallback retains ALC timers and latches and restores
+  the ordinary lane-turn controller. Nudge desire pulses still match a03.
 - Bigv2 uses the official camera selection/calibration transforms without
   CameraOffset tuning. Single-camera extra-stream intrinsics follow a03.
 - With custom EPS disabled, Bigv2 reads live `lateralDelay` each frame as a03

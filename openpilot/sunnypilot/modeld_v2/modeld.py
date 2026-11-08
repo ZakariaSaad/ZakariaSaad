@@ -779,11 +779,13 @@ def main(demo=False):
         long_delay = CP.longitudinalActuatorDelay + small_model.LONG_SMOOTH_SECONDS
         navigation_runtime_state(params, 'small_loading', 'Big model failed; awaiting ordinary small-model predictions: ' + str(error))
       if native_bigv2:
-        # Restore optional ordinary-model conditioning without inventing a new
-        # desire transition: carry the official helper's common state forward.
+        # Preserve lane-change timers and anti-repeat state on fallback, while
+        # restoring ordinary lane-turn conditioning with the new helper owner.
         ordinary_desire = DesireHelper()
         for name, value in vars(DH).items():
-          setattr(ordinary_desire, name, value)
+          if name != 'lane_turn_controller':
+            setattr(ordinary_desire, name, value)
+        ordinary_desire.alc.DH = ordinary_desire
         DH = ordinary_desire
         restore_ordinary_conditioning = live_calib_seen
       model = small_model

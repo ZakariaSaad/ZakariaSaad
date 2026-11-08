@@ -21,6 +21,8 @@ from tinygrad.uop.ops import UOp
 from openpilot.cereal import log, messaging
 from openpilot.common.constants import CV
 from openpilot.common.realtime import DT_MDL
+from openpilot.common.params import Params
+from openpilot.common.prefix import OpenpilotPrefix
 from openpilot.common.transformations.camera import DEVICE_CAMERAS
 from openpilot.selfdrive.controls.lib import drive_helpers
 from openpilot.selfdrive.modeld.constants import ModelConstants, Meta, Plan
@@ -78,34 +80,39 @@ def test_native_parser_and_raw_action_match_official_checkpoint(seed):
       assert actual_action.to_dict() == expected_action.to_dict()
 
 
-def test_desire_sequence_matches_official_without_optional_sp_conditions():
-  official = load_reference('desire_helper', namespace={'log': log, 'CV': CV, 'DT_MDL': DT_MDL}).DesireHelper()
-  actual = modeld.Bigv2DesireHelper()
-  state = SimpleNamespace(vEgo=22., leftBlinker=False, rightBlinker=False, steeringPressed=False,
-                          steeringTorque=0., leftBlindspot=False, rightBlindspot=False)
-  sequence = [({}, True, .5), ({'leftBlinker': True}, True, .5),
-              ({'steeringPressed': True, 'steeringTorque': 1., 'leftBlindspot': True}, True, .5),
-              ({'leftBlindspot': False}, True, .5)]
-  sequence += [({}, True, .01)] * 14
-  sequence += [({'leftBlinker': False}, True, .01), ({'rightBlinker': True, 'steeringTorque': -1.}, True, .01)]
-  sequence += [({}, True, .01)] * 14
-  sequence += [({}, False, 0.), ({'vEgo': 2.}, True, 0.)]
-  pulses, reference_pulses = [], []
-  previous = np.zeros(8, np.float32)
-  previous_ref = previous.copy()
-  for updates, active, probability in sequence:
-    for name, value in updates.items():
-      setattr(state, name, value)
-    official.update(state, active, probability)
-    actual.update(state, active, probability)
-    assert vars(actual) == vars(official)
-    desire = np.eye(8, dtype=np.float32)[int(actual.desire)]
-    desire_ref = np.eye(8, dtype=np.float32)[int(official.desire)]
-    desire[0] = desire_ref[0] = 0
-    pulses.append(np.where(desire - previous > .99, desire, 0))
-    reference_pulses.append(np.where(desire_ref - previous_ref > .99, desire_ref, 0))
-    previous[:], previous_ref[:] = desire, desire_ref
-  np.testing.assert_array_equal(pulses, reference_pulses)
+def test_nudge_desire_sequence_and_encoding_match_official():
+  with OpenpilotPrefix():
+    Params().put("AutoLaneChangeTimer", 0)
+    Params().put_bool("LaneTurnDesire", False)
+    official = load_reference('desire_helper', namespace={'log': log, 'CV': CV, 'DT_MDL': DT_MDL}).DesireHelper()
+    actual = modeld.Bigv2DesireHelper()
+    state = SimpleNamespace(vEgo=22., leftBlinker=False, rightBlinker=False, steeringPressed=False,
+                            steeringTorque=0., leftBlindspot=False, rightBlindspot=False, brakePressed=False)
+    sequence = [({}, True, .5), ({'leftBlinker': True}, True, .5),
+                ({'steeringPressed': True, 'steeringTorque': 1., 'leftBlindspot': True}, True, .5),
+                ({'leftBlindspot': False}, True, .5)]
+    sequence += [({}, True, .01)] * 14
+    sequence += [({'leftBlinker': False}, True, .01), ({'rightBlinker': True, 'steeringTorque': -1.}, True, .01)]
+    sequence += [({}, True, .01)] * 14
+    sequence += [({}, False, 0.), ({'vEgo': 2.}, True, 0.)]
+    pulses, reference_pulses = [], []
+    previous = np.zeros(8, np.float32)
+    previous_ref = previous.copy()
+    for updates, active, probability in sequence:
+      for name, value in updates.items():
+        setattr(state, name, value)
+      official.update(state, active, probability)
+      actual.update(state, active, probability)
+      # ALC state is intentionally added; the original nudge sequence and pulse
+      # encoding must still match the official checkpoint.
+      assert {name: getattr(actual, name) for name in vars(official)} == vars(official)
+      desire = np.eye(8, dtype=np.float32)[int(actual.desire)]
+      desire_ref = np.eye(8, dtype=np.float32)[int(official.desire)]
+      desire[0] = desire_ref[0] = 0
+      pulses.append(np.where(desire - previous > .99, desire, 0))
+      reference_pulses.append(np.where(desire_ref - previous_ref > .99, desire_ref, 0))
+      previous[:], previous_ref[:] = desire, desire_ref
+    np.testing.assert_array_equal(pulses, reference_pulses)
 
 
 @pytest.mark.parametrize('main_wide,use_extra', ((False, False), (False, True), (True, False)))
