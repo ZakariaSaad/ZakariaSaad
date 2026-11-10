@@ -453,6 +453,14 @@ struct BackupManagerSP @0xf98d843bfd7004a3 {
 
 struct CarStateSP @0xb86e6369214c01c8 {
   speedLimit @0 :Float32;
+  # Bosch-A object status paired with one radarTracks publication. Empty when disabled.
+  radarPointStatus @1 :List(RadarPointStatus);
+  radarTracksMonoTime @2 :UInt64;
+
+  struct RadarPointStatus {
+    trackId @0 :UInt64;
+    objectStatus @1 :UInt8;
+  }
 }
 
 struct LiveMapDataSP @0xf416ec09499d9d19 {

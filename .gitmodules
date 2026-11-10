@@ -20,4 +20,4 @@
 [submodule "opendbc_repo"]
 	path = opendbc_repo
 	url = https://github.com/ZakariaSaad/ZakariaSaad.git
-	branch = mvl-sp-steer-opendbc
+	branch = insight-bosch-a-long-opendbc

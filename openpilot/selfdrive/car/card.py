@@ -24,6 +24,8 @@ from openpilot.selfdrive.car.helpers import convert_carControlSP, convert_to_cap
 
 from openpilot.sunnypilot.mads.helpers import set_alternative_experience, set_car_specific_params
 from openpilot.sunnypilot.selfdrive.car import interfaces as sunnypilot_interfaces
+from openpilot.sunnypilot.selfdrive.controls.lib.bosch_a import gate as bosch_a_gate
+from openpilot.sunnypilot.selfdrive.controls.lib.bosch_a.radar import radar_point_status
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.driver_override import apply_firmware_driver_threshold
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import prepare_drive_config
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.transport import configure_firmware_transport
@@ -207,6 +209,8 @@ class Car:
     CS_SP = convert_to_capnp(CS_SP)
 
     # Update radar tracks from CAN
+    if bosch_a_gate.active_for(self.CP, self.CP_SP):
+      self.RI.v_ego = CS.vEgo
     RD: structs.RadarDataT | None = self.RI.update(can_list)
 
     self.sm.update(0)
@@ -260,6 +264,8 @@ class Car:
       tracks_msg = messaging.new_message('radarTracks')
       tracks_msg.valid = not any(RD.errors.to_dict().values())
       tracks_msg.radarTracks = RD
+      if bosch_a_gate.active_for(self.CP, self.CP_SP):
+        self.radar_point_status = (int(tracks_msg.logMonoTime), dict(getattr(self.RI, 'point_statuses', {})))
       self.pm.send('radarTracks', tracks_msg)
 
     # carParamsSP - logged every 50 seconds (> 1 per segment)
@@ -269,6 +275,8 @@ class Car:
       cp_sp_send.carParamsSP = self.CP_SP_capnp
       self.pm.send('carParamsSP', cp_sp_send)
 
+    if bosch_a_gate.active_for(self.CP, self.CP_SP) and getattr(self, 'radar_point_status', None) is not None:
+      radar_point_status.write(CS_SP, *self.radar_point_status)
     cs_sp_send = messaging.new_message('carStateSP')
     cs_sp_send.valid = CS.canValid
     cs_sp_send.carStateSP = CS_SP

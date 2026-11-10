@@ -307,11 +307,24 @@ class LongitudinalMpc:
     lead_xv = self.extrapolate_lead(x_lead, v_lead, a_lead, a_lead_tau)
     return lead_xv
 
-  def update(self, radarstate, personality=log.LongitudinalPersonality.standard):
+  def update(self, radarstate, personality=log.LongitudinalPersonality.standard, *,
+             acceleration_max=None, lead_paths=None, radar_fcw_enabled=False):
     t_follow = get_T_FOLLOW(personality)
 
     lead_xv_0 = self.process_lead(radarstate.leadOne)
     lead_xv_1 = self.process_lead(radarstate.leadTwo)
+    # Bosch-A HumanFollowing supplies only qualified model deltas anchored to
+    # the current lead. A missing/malformed path keeps raw radar extrapolation.
+    if lead_paths is not None:
+      paths = [lead_xv_0, lead_xv_1]
+      for i, lead in enumerate((radarstate.leadOne, radarstate.leadTwo)):
+        try:
+          candidate = np.asarray(lead_paths[i], dtype=np.float64)
+        except (IndexError, KeyError, TypeError, ValueError):
+          continue
+        if lead.present and candidate.shape == (N + 1, 2) and np.all(np.isfinite(candidate)):
+          paths[i] = candidate
+      lead_xv_0, lead_xv_1 = paths
 
     # To estimate a safe distance from a moving lead, we calculate how much stopping
     # distance that lead needs as a minimum. We can add that to the current distance
@@ -329,14 +342,16 @@ class LongitudinalMpc:
 
     self.params[:,0] = ACCEL_MIN
     self.params[:,1] = ACCEL_MAX
+    if acceleration_max is not None and np.isfinite(acceleration_max) and 0.0 <= acceleration_max <= ACCEL_MAX:
+      self.params[:,1] = acceleration_max
     self.params[:,2] = np.min(x_obstacles, axis=1)
     self.params[:,3] = np.copy(self.a_prev)
     self.params[:,4] = t_follow
     self.params[:,5] = LEAD_DANGER_FACTOR
 
     self.run()
-    if (np.any(lead_xv_0[FCW_IDXS,0] - self.x_sol[FCW_IDXS,0] < CRASH_DISTANCE) and
-            radarstate.leadOne.modelProb > 0.9):
+    fcw_authorized = (radarstate.leadOne.deprecated.fcw if radar_fcw_enabled else radarstate.leadOne.modelProb > 0.9)
+    if (np.any(lead_xv_0[FCW_IDXS,0] - self.x_sol[FCW_IDXS,0] < CRASH_DISTANCE) and fcw_authorized):
       self.crash_cnt += 1
     else:
       self.crash_cnt = 0

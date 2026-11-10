@@ -16,6 +16,9 @@ from openpilot.common.simple_kalman import KF1D
 from opendbc.car import structs
 from opendbc.car.hyundai.values import HyundaiFlags
 from opendbc.sunnypilot.car.hyundai.values import HyundaiFlagsSP
+from opendbc.car.honda.bosch_a_radar import BOSCH_A_FREQ_HZ
+from openpilot.sunnypilot.selfdrive.controls.lib.bosch_a import gate as bosch_a_gate
+from openpilot.sunnypilot.selfdrive.controls.lib.bosch_a.radar.bosch_a_lead_policy import BoschALeadPolicy, track_matches_vision
 
 
 # Default lead acceleration decay set to 50% at 1s
@@ -198,7 +201,8 @@ class RadarD:
 
     self.current_time = 0.0
     self.tracks: dict[int, Track] = {}
-    self.kalman_params = KalmanParams(DT_MDL)
+    self.bosch_a_policy = BoschALeadPolicy() if bosch_a_gate.active_for(CP, CP_SP) else None
+    self.kalman_params = KalmanParams(1.0 / BOSCH_A_FREQ_HZ if self.bosch_a_policy is not None else DT_MDL)
     self.lead_prob_filters = [FirstOrderFilter(0.0, 0.2, DT_MDL) for _ in range(2)]
 
     self.v_ego = 0.0
@@ -218,24 +222,27 @@ class RadarD:
       self.v_ego_hist.append(self.v_ego)
       self.last_v_ego_frame = sm.recv_frame['carState']
 
-    ar_pts = {pt.trackId: [pt.dRel, pt.yRel, pt.vRel] for pt in rr.points}
+    if self.bosch_a_policy is not None:
+      self.bosch_a_policy.update_tracks(sm, rr, self)
+    else:
+      ar_pts = {pt.trackId: [pt.dRel, pt.yRel, pt.vRel] for pt in rr.points}
 
-    # *** remove missing points from meta data ***
-    for ids in list(self.tracks.keys()):
-      if ids not in ar_pts:
-        self.tracks.pop(ids, None)
+      # *** remove missing points from meta data ***
+      for ids in list(self.tracks.keys()):
+        if ids not in ar_pts:
+          self.tracks.pop(ids, None)
 
-    # *** compute the tracks ***
-    for ids in ar_pts:
-      rpt = ar_pts[ids]
+      # *** compute the tracks ***
+      for ids in ar_pts:
+        rpt = ar_pts[ids]
 
-      # align v_ego by a fixed time to align it with the radar measurement
-      v_lead = rpt[2] + self.v_ego_hist[0]
+        # align v_ego by a fixed time to align it with the radar measurement
+        v_lead = rpt[2] + self.v_ego_hist[0]
 
-      # create the track if it doesn't exist or it's a new track
-      if ids not in self.tracks:
-        self.tracks[ids] = Track(ids, v_lead, self.kalman_params)
-      self.tracks[ids].update(rpt[0], rpt[1], rpt[2], v_lead)
+        # create the track if it doesn't exist or it's a new track
+        if ids not in self.tracks:
+          self.tracks[ids] = Track(ids, v_lead, self.kalman_params)
+        self.tracks[ids].update(rpt[0], rpt[1], rpt[2], v_lead)
 
     # *** publish radarState ***
     self.radar_state_valid = sm.all_checks()
@@ -256,6 +263,23 @@ class RadarD:
           self.lead_prob_filters[i].x = lead_prob
         else:
           self.lead_prob_filters[i].update(lead_prob)
+
+      if self.bosch_a_policy is not None:
+        lead_one, lead_two = self.bosch_a_policy.leads(sm, self, model_v_ego)
+        self.radar_state.leadOne = lead_one
+        self.radar_state.leadTwo = lead_two
+        # PR #27 FCW authority: strict vision match of the published radar lead.
+        # Relaxed/kept leads retain braking authority without claiming strict FCW.
+        for index, (lead_dict, published) in enumerate(((lead_one, self.radar_state.leadOne), (lead_two, self.radar_state.leadTwo))):
+          probability = self.lead_prob_filters[index].x
+          track = self.tracks.get(int(lead_dict.get('radarTrackId', -1)))
+          published.deprecated.fcw = bool(
+            self.ready and math.isfinite(probability) and probability > .9 and
+            lead_dict.get('present', False) and lead_dict.get('radar', False) and track is not None and
+            track_matches_vision(track, leads_v3[index], self.v_ego,
+                                 dist_scale=.25, dist_floor=5., vel_limit=10., y_std_scale=1., y_floor=1.)
+          )
+        return
 
       self.radar_state.leadOne = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[0], model_v_ego, self.lead_prob_filters[0].x,
                                           self.CP, self.CP_SP, low_speed_override=True)
@@ -285,7 +309,10 @@ def main() -> None:
   cloudlog.info("radard got CarParamsSP")
 
   # *** setup messaging
-  sm = messaging.SubMaster(['modelV2', 'carState', 'radarTracks'], poll='modelV2')
+  # Optional status supplements a radar point; it never substitutes for valid radarTracks.
+  status_carrier = ['carStateSP'] if bosch_a_gate.active_for(CP, CP_SP) else []
+  sm = messaging.SubMaster(['modelV2', 'carState', 'radarTracks'] + status_carrier, poll='modelV2',
+                           ignore_alive=status_carrier, ignore_avg_freq=status_carrier, ignore_valid=status_carrier)
   pm = messaging.PubMaster(['radarState'])
 
   RD = RadarD(CP, CP_SP, CP.radarDelay)
