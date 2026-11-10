@@ -26,6 +26,8 @@ from openpilot.sunnypilot.mads.helpers import set_alternative_experience, set_ca
 from openpilot.sunnypilot.selfdrive.car import interfaces as sunnypilot_interfaces
 from openpilot.sunnypilot.selfdrive.controls.lib.bosch_a import gate as bosch_a_gate
 from openpilot.sunnypilot.selfdrive.controls.lib.bosch_a.radar import radar_point_status
+from openpilot.sunnypilot.selfdrive.controls.lib.bosch_a.observation import BoschAObservation, SERVICE as OBSERVATION_SERVICE
+from opendbc.car.honda.bosch_a_observation import observation_enabled
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.driver_override import apply_firmware_driver_threshold
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import prepare_drive_config
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.transport import configure_firmware_transport
@@ -154,6 +156,17 @@ class Car:
     # Injected interfaces retain their supplied RI: replay/test callers own its
     # construction. Final CP/CP_SP and optional hooks still obey the gates above.
 
+    # A separate parser and log-only service preserve the stock RI, radarTracks,
+    # RadarD inputs and authority. It never calls CarInterface.init or sends CAN.
+    self.bosch_a_observer = None
+    self.observation_pm = None
+    if observation_enabled(self.CP, self.CP_SP):
+      try:
+        self.bosch_a_observer = BoschAObservation(self.CP, self.CP_SP)
+        self.observation_pm = messaging.PubMaster([OBSERVATION_SERVICE])
+      except Exception as error:
+        self._disable_bosch_a_observer(error)
+
     if self.CP.secOcRequired:
       # Copy user key if available
       try:
@@ -202,10 +215,19 @@ class Car:
     # card is driven by can recv, expected at 100Hz
     self.rk = Ratekeeper(100, print_delay_threshold=None)
 
+  def _disable_bosch_a_observer(self, error: Exception) -> None:
+    # Optional logging must not take down the existing vehicle/control process.
+    # No retries in the control loop; missing observer data and this error are
+    # blockers in the parked check. A normal restart is needed after repair.
+    self.bosch_a_observer = self.observation_pm = None
+    cloudlog.error("Bosch-A observation disabled after %s", type(error).__name__)
+
   def state_update(self) -> tuple[car.CarState, custom.CarStateSP, structs.RadarDataT | None]:
     """carState update loop, driven by can"""
 
     can_strs = messaging.drain_sock_raw(self.can_sock, wait_for_one=True)
+    observer = getattr(self, 'bosch_a_observer', None)
+    observation_receive_ns = time.monotonic_ns() if observer is not None else 0
     can_list = can_capnp_to_list(can_strs)
 
     # Update carState from CAN
@@ -221,6 +243,12 @@ class Car:
     if bosch_a_gate.active_for(self.CP, self.CP_SP):
       self.RI.v_ego = CS.vEgo
     RD: structs.RadarDataT | None = self.RI.update(can_list)
+
+    if observer is not None:
+      try:
+        observer.update(can_list, CS, observation_receive_ns)
+      except Exception as error:
+        self._disable_bosch_a_observer(error)
 
     self.sm.update(0)
 
@@ -290,6 +318,15 @@ class Car:
     cs_sp_send.valid = CS.canValid
     cs_sp_send.carStateSP = CS_SP
     self.pm.send('carStateSP', cs_sp_send)
+
+    observer = getattr(self, 'bosch_a_observer', None)
+    if observer is not None:
+      try:
+        observation_msg = observer.message(CS, self.sm, car_state_mono_time=int(cs_send.logMonoTime))
+        if observation_msg is not None:
+          self.observation_pm.send(OBSERVATION_SERVICE, observation_msg)
+      except Exception as error:
+        self._disable_bosch_a_observer(error)
 
   def controls_update(self, CS: car.CarState, CC: car.CarControl, CC_SP: custom.CarControlSP):
     """control update loop, driven by carControl"""

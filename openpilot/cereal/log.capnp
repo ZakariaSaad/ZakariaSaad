@@ -2663,7 +2663,7 @@ struct Event {
     liveMapDataSP @115 :Custom.LiveMapDataSP;
     modelDataV2SP @116 :Custom.ModelDataV2SP;
     navModelStateSP @136 :Custom.NavModelStateSP;
-    customReserved11 @137 :Custom.CustomReserved11;
+    boschARadarObservation @137 :Custom.BoschARadarObservation;
     customReserved12 @138 :Custom.CustomReserved12;
     customReserved13 @139 :Custom.CustomReserved13;
     customReserved14 @140 :Custom.CustomReserved14;

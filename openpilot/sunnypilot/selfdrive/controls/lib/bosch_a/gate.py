@@ -4,6 +4,7 @@ The interface sets BOSCH_A_LONG only for an opted-in supported platform using
 openpilot longitudinal. Missing CarParamsSP never enables this integration.
 """
 from opendbc.car.honda.values import HONDA_BOSCH_A
+from opendbc.car.honda.bosch_a_observation import observation_config_supported
 from opendbc.sunnypilot.car.honda.values_ext import HondaFlagsSP
 
 
@@ -33,6 +34,10 @@ def finalize_startup(CP, CP_SP) -> None:
     CP_SP.flags = int(CP_SP.flags) & ~int(HondaFlagsSP.BOSCH_A_LONG)
     if CP.carFingerprint in HONDA_BOSCH_A:
       CP.radarUnavailable = True
+  # Logging has a separate stock-ACC contract. Recheck after late passive and
+  # speed-control setup; never repair or grant authority to an invalid preset.
+  if CP.brand == 'honda' and CP_SP is not None and not observation_config_supported(CP, CP_SP):
+    CP_SP.flags = int(CP_SP.flags) & ~int(HondaFlagsSP.BOSCH_A_RADAR_OBSERVATION)
 
 
 def active_for(CP, CP_SP=None) -> bool:

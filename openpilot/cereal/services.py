@@ -94,6 +94,9 @@ _services: dict[str, tuple] = {
   "carParamsSP": (True, 0.02, 1),
   "carControlSP": (True, 100., 10),
   "carStateSP": (True, 100., 10),
+  # Isolated stock-ACC observer: distinct samples around 14.35 Hz, 1 Hz health
+  # heartbeat if no sample. Full rlog only; never an input to controls/radard.
+  "boschARadarObservation": (True, 0.),
   "liveMapDataSP": (True, 1., 1),
   "modelDataV2SP": (True, 20., 10, QueueSize.BIG),
   "liveLocationKalman": (True, 20.),

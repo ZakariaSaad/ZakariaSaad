@@ -1,4 +1,5 @@
 using Cxx = import "/include/c++.capnp";
+using Car = import "/car.capnp";
 $Cxx.namespace("cereal");
 
 @0xb526ba661d550a59;
@@ -500,7 +501,46 @@ struct NavModelStateSP @0xcb9fd56c7057593a {
   renderMonoTime @4 :UInt64;
 }
 
-struct CustomReserved11 @0xc2243c65e0340384 {
+struct BoschARadarObservation @0xc2243c65e0340384 {
+  # Receive-only stock-ACC observer; never consumed by RadarD or controls.
+  enabled @0 :Bool;
+  hasSample @1 :Bool;
+  sampleUpdated @2 :Bool;
+  sequence @3 :UInt64;
+  sampleMonoTime @4 :UInt64;
+  statusSampleMonoTime @5 :UInt64;
+  sourceCanMonoTime @6 :UInt64;
+  sourceCanFirstMonoTime @7 :UInt64;
+  triggerMonoTime @8 :UInt64;
+  batchReceiveMonoTime @9 :UInt64;
+  decodeStartMonoTime @10 :UInt64;
+  decodeEndMonoTime @11 :UInt64;
+  publicationMonoTime @12 :UInt64;
+  sampleValid @13 :Bool;
+  carStateValid @14 :Bool;
+  stale @15 :Bool;
+  data @16 :Car.RadarData;
+  # Decoder snapshot status; a coasted point can retain an earlier F0 status.
+  pointStatus @17 :List(CarStateSP.RadarPointStatus);
+  statusComplete @18 :Bool;
+  exceptionCount @19 :UInt32;
+  exceptionType @20 :Text;
+  decoderSha256 @21 :Text;
+  dbcSha256 @22 :Text;
+  parserBus @23 :UInt8;
+  modelSeen @24 :Bool;
+  modelMonoTime @25 :UInt64;
+  modelReceiveMonoTime @26 :UInt64;
+  modelValid @27 :Bool;
+  modelAlive @28 :Bool;
+  modelFreqOk @29 :Bool;
+  modelFrameId @30 :UInt32;
+  modelTimestampEof @31 :UInt64;
+  receiver @32 :Text;
+  statusDiscardedCount @33 :UInt32;
+  statusMissingCount @34 :UInt32;
+  egoSpeedUsed @35 :Float32;
+  sampleCarStateMonoTime @36 :UInt64;
 }
 
 struct CustomReserved12 @0x9ccdc8676701b412 {
