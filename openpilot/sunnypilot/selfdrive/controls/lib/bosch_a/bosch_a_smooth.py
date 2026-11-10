@@ -1,4 +1,4 @@
-"""Bosch-A brake release smoothing and short plan read-ahead (always on for Bosch-A Hondas, no toggle).
+"""Brake release smoothing and short plan read-ahead in the opted-in Bosch-A planner.
 
 Ported from openpilot-radar ns-bosch-radar-testing, where these were tuned against mvl's sp-honda-dev planner:
   ffe967495d  brake release limit: while braking, the target rises at most BRAKE_RELEASE_JERK per second.

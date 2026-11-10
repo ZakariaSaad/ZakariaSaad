@@ -48,7 +48,7 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     self.fcw = False
     self.dt = dt
     self.accel_boost = AccelBoost()
-    self.bosch_a_wired = gate.vehicle_supported(CP, CP_SP)
+    self.bosch_a_wired = gate.active_for(CP, CP_SP)
     if self.bosch_a_wired:
       self.bosch_a_long = HondaBoschALongEnhancement(CP, dt, CP_SP=CP_SP)
       self.bosch_a_coast_first = BoschACoastFirst(CP, dt, CP_SP=CP_SP)
@@ -162,7 +162,12 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
         self.a_cruise = min(self.a_cruise, float(np.clip(v_cruise - v_ego, A_CRUISE_MIN, ACCEL_MAX)))
       lead_one, lead_two = planner_radar_state.leadOne, planner_radar_state.leadTwo
       standstill = bool(sm['carState'].standstill)
-      stop_target = output_a_target if self.output_should_stop else None
+      selected_should_stop = self.output_should_stop
+      # The minimum MPC/cruise/model candidate owns braking authority. Donor
+      # comfort stages can otherwise raise a negative target even when no stop
+      # flag is set. Preserve that selected request without importing a new
+      # Insight brake calibration; helpers may still add braking or hold it.
+      braking_target = output_a_target if output_a_target < 0.0 or selected_should_stop else None
       output_a_target = self.bosch_a_long.step(
         lead_one=lead_one, lead_two=lead_two, prev=float(a_prev), target=float(output_a_target), v_ego=v_ego,
         stopping=bool(self.output_should_stop), standstill=standstill, reset_state=bool(reset_state))
@@ -180,8 +185,9 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
       output_a_target, self.output_should_stop = self.bosch_a_stop_gap.step(
         lead_one=lead_one, lead_two=lead_two, target=float(output_a_target), should_stop=bool(self.output_should_stop),
         v_ego=v_ego, standstill=standstill, reset_state=bool(reset_state))
-      if stop_target is not None:
-        output_a_target = min(output_a_target, stop_target)
+      self.output_should_stop = selected_should_stop or self.output_should_stop
+      if braking_target is not None:
+        output_a_target = min(output_a_target, braking_target)
       output_a_target = min(output_a_target, bosch_a_mpc['acceleration_max'])
     self.output_a_target = np.clip(output_a_target, ACCEL_MIN, ACCEL_MAX)
 

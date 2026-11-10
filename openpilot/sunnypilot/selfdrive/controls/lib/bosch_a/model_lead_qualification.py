@@ -1,9 +1,9 @@
 """Model-lead freshness / frame-age qualification for HumanFollowing.
 
-Copied verbatim from SOURCE selfdrive/controls/lib/longitudinal_mpc_lib/long_mpc.py (`_model_lead_clock_pair_ns`,
-`LeadHorizon`, `HorizonVelocity`, `ModelHorizon`, `ModelLeadHistory`, `qualified_model_leads`). The planner hands
-`qualified_model_leads(sm, now_ns, history)` to `human_following.upstream_lead_paths`; None (stale, mismatched or
-unqualified model / radar / car frame) means the raw aLeadK extrapolation, which is never softer.
+Adapted from the donor longitudinal MPC model-history helpers. The planner hands
+`qualified_model_leads(sm, now_ns, history)` to `human_following.upstream_lead_paths`;
+None (stale, mismatched or unqualified model / radar / car frame) selects ordinary
+radar extrapolation. Publication, receipt and encoded frame times have distinct roles.
 """
 import math
 import time

@@ -1,7 +1,9 @@
-"""Honda Bosch A Long Enhancement: longitudinal behavior that is active whenever the Bosch-A radar is on.
+"""Honda Bosch A Long Enhancement for the explicitly opted-in Bosch-A integration.
 
-NRDR port (verbatim logic): the BoschAStockBrakeFeel owner toggle is removed (permanently on, `stock_brake_feel` defaults
-True) and active_for delegates to bosch_a/gate.py. Everything below that mentions the toggle is the SOURCE history.
+The imported helper defaults `stock_brake_feel` to True, but runs only under bosch_a/gate.py.
+The target planner preserves its selected negative acceleration and incoming stop after all helpers;
+donor comfort shaping therefore cannot weaken that braking request. Historical source comments below
+describe donor tuning and evidence, not independent Insight calibration or target integration validation.
 
 Ported from openpilot-radar (ns-bosch-radar-testing @ 567495f4ad + 6db22115e8, selfdrive/controls/lib/longitudinal_planner.py).
 Active only when `active_for(CP)`: a Honda on a Bosch-A platform (VERIFIED_BOSCH_A_CARS, same as
@@ -20,8 +22,8 @@ The planner calls `step()` once per cycle, after every other target owner and be
 here only shapes how a brake builds or lets off; the emergency latch passes the planner's target through untouched,
 so the car never brakes harder than the planner would without this module. Replay and limited road evidence only.
 
-HumanFollowing and HumanAcceleration are separate modules (human_following.py, human_acceleration.py) because they
-also run with the radar off (vision-only).
+HumanFollowing and HumanAcceleration are separate modules (human_following.py, human_acceleration.py).
+The target planner gates the whole integration on explicit opt-in and radar availability.
 """
 import numpy as np
 
@@ -94,7 +96,7 @@ RADAR_LEAD_RECOVERY = False
 
 
 def active_for(CP, CP_SP=None) -> bool:
-  """Same gate as radard's BoschALeadPolicy: Bosch-A Honda (classic or alt-radar), radar on, openpilot longitudinal."""
+  """Same explicit platform/flag/radar gate as radard's BoschALeadPolicy."""
   from openpilot.sunnypilot.selfdrive.controls.lib.bosch_a.gate import active_for as _gate_active_for
   return _gate_active_for(CP, CP_SP)
 
@@ -237,7 +239,7 @@ class HondaBoschALongEnhancement:
     self.enabled = self.stock_feel or self.stop_ease
     self.newborn_hold = NewbornLeadHold() if active and RADAR_LEAD_RECOVERY else None
     # Implausible-drop bound (D-041/D-042; owner bookmark route a2 seg 50, 2026-11-07): same gate as the other active
-    # checks in this module (Bosch-A supported, radar available); default ON, no toggle.
+    # checks in this module (explicitly opted-in Bosch-A, radar available).
     self.drop_bound = ImplausibleDropBound() if active else None
     self.dt = dt
     self.reset()

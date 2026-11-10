@@ -4,31 +4,33 @@ from types import SimpleNamespace
 import pytest
 
 from opendbc.car import structs
-from opendbc.car.honda.bosch_a_radar import BOSCH_A_FREQ_HZ
+from opendbc.car.honda.bosch_a_radar import BOSCH_A_FREQ_HZ, BOSCH_A_NUM_SLOTS, BOSCH_A_TRIGGER_MSG
 from opendbc.car.honda.hondacan import CanBus
-from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.radar_interface import RadarInterface
-from opendbc.car.honda.tests.test_bosch_a_radar import sweep as decoder_sweep
+from opendbc.car.honda.tests.test_bosch_a_decoder import sweep as decoder_sweep
+from opendbc.car.honda.tests.test_bosch_a_integration import parameters
 from opendbc.car.honda.values import CAR
-from opendbc.sunnypilot.car.tests.runtime_config import make_test_car_config
 from openpilot.cereal import messaging
-from openpilot.sunnypilot.selfdrive.controls.lib.bosch_a.tests.test_radar_lead_bound import ReplaySubMaster, bosch_a_radard
+from openpilot.sunnypilot.selfdrive.controls.lib.bosch_a.tests.test_radar_lead_bound import ReplaySubMaster, bosch_a_radard, companion
 from openpilot.selfdrive.controls.radard import RadarD
 
 
 def sweep(cp, index, t_nanos):
-  """One valid Bosch-A track (id 1, range_raw 227, angle 1024) in slot 0, on cp's camera bus.
+  """All 80 IDs, with one valid track in slot 0 and invalid objects elsewhere."""
+  frames = []
+  for slot in range(BOSCH_A_NUM_SLOTS):
+    (stamp, slot_frames), = decoder_sweep(slot, index % 16, 7 if slot == 0 else 15,
+      227, 1024, 1 + index * 2, t_nanos, with_aux=True,
+      direct_vrel_raw=864, direct_vrel_uncertainty_raw=0)
+    frames.extend(frame._replace(src=CanBus(cp).camera) for frame in slot_frames
+                  if slot == BOSCH_A_NUM_SLOTS - 1 or frame.address != BOSCH_A_TRIGGER_MSG)
+  assert len(frames) == len({frame.address for frame in frames}) == 80
+  return [(stamp, frames)]
 
-  nrdr's opendbc test helper builds a sweep per slot (not the whole bank the Biscuit-Labs helper did), with
-  the trigger frame added; the bus is rebound to the platform under test.
-  """
-  (stamp, frames), = decoder_sweep(0, index, 7, 227, 1024, 1 + index * 2, t_nanos, with_aux=True,
-                                   direct_vrel_raw=864, direct_vrel_uncertainty_raw=0)
-  return [(stamp, [frame._replace(src=CanBus(cp).camera) for frame in frames])]
 
-
-def source_tick(sm, tick, rr=None, speed=0.0, probability=0.0, distance=10.0, standstill=False):
-  stamp = 1_000_000_000 + tick * 50_000_000
+def source_tick(sm, tick, rr=None, speed=0.0, probability=0.0, distance=10.0, standstill=False,
+                *, stamp=None, statuses=None):
+  stamp = 1_000_000_000 + tick * 50_000_000 if stamp is None else stamp
   model_event = messaging.new_message('modelV2', valid=True)
   model_event.logMonoTime = stamp
   model = model_event.modelV2
@@ -47,10 +49,12 @@ def source_tick(sm, tick, rr=None, speed=0.0, probability=0.0, distance=10.0, st
   car_event.carState.standstill = standstill
   events = [model_event.as_reader(), car_event.as_reader()]
   if rr is not None:
-    radar_event = messaging.new_message('radarTracks', valid=True)
+    radar_event = messaging.new_message('radarTracks', valid=not any(rr.errors.to_dict().values()))
     radar_event.logMonoTime = stamp
     radar_event.radarTracks = rr
     events.append(radar_event.as_reader())
+    if statuses is not None:
+      events.append(companion(stamp, statuses))
   sm.update_msgs(stamp / 1e9, events)
 
 
@@ -96,28 +100,40 @@ def test_non_honda_radard_keeps_ordinary_duplicate_measurement_behavior():
   assert radar.kalman_params.A[0][1] == 0.05
 
 
-@pytest.mark.parametrize('identity', (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G))
+@pytest.mark.parametrize('identity', (CAR.HONDA_INSIGHT, CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G))
 def test_actual_decoder_radard_maturity_stale_retirement_and_recovery(identity):
-  # nrdr gates the Bosch-A radar on a runtime config (HondaBoschARadar), not on the fingerprint alone
-  cp = CarInterface.get_non_essential_params(identity, make_test_car_config(bosch_a_radar=True))
-  cp_sp = structs.CarParamsSP()
+  cp, cp_sp = parameters(identity, enabled=True)
   decoder = RadarInterface(cp, cp_sp)
-  radar = RadarD(cp, SimpleNamespace(flags=0), cp.radarDelay)
-  sm = ReplaySubMaster(['modelV2', 'carState', 'radarTracks'])
+  radar = RadarD(cp, cp_sp, cp.radarDelay)
+  assert radar.bosch_a_policy is not None
+  sm = ReplaySubMaster(['modelV2', 'carState', 'radarTracks', 'carStateSP'])
+  period = round(1e9 / BOSCH_A_FREQ_HZ)
   for index in range(4):
-    rr = decoder.update(sweep(cp, index, 1_000_000_000 + index * 66_666_667))
-    source_tick(sm, index, rr)
+    stamp = 1_000_000_000 + index * period
+    rr = decoder.update(sweep(cp, index, stamp))
+    assert not any(rr.errors.to_dict().values())
+    source_tick(sm, index, rr, stamp=stamp, statuses=decoder.point_statuses)
     radar.update(sm, sm['radarTracks'])
     if index < 3:
       assert not radar.radar_state.leadOne.present
   assert radar.radar_state.leadOne.present and radar.radar_state.leadOne.radar
   assert radar.radar_state.leadOne.radarTrackId == 1
+  assert radar.tracks[1].objectStatus == 7
+  assert radar.radar_state_valid
   stale = decoder.update([(1_500_000_000, [])])
   assert stale.errors.radarUnavailableTemporary and not stale.points
-  source_tick(sm, 4, stale)
+  source_tick(sm, 4, stale, stamp=1_500_000_000, statuses=decoder.point_statuses)
   radar.update(sm, sm['radarTracks'])
   assert not radar.tracks and not radar.radar_state.leadOne.present
-  rr = decoder.update(sweep(cp, 5, 1_566_666_667))
-  source_tick(sm, 5, rr)
-  radar.update(sm, sm['radarTracks'])
-  assert not radar.tracks
+  assert not radar.radar_state_valid
+  assert radar.radar_state.radarErrors.radarUnavailableTemporary
+  for index in range(4):
+    stamp = 1_500_000_000 + (index + 1) * period
+    rr = decoder.update(sweep(cp, index + 5, stamp))
+    source_tick(sm, index + 5, rr, stamp=stamp, statuses=decoder.point_statuses)
+    radar.update(sm, sm['radarTracks'])
+    if index < 3:
+      assert not radar.radar_state.leadOne.present
+  assert radar.radar_state_valid
+  assert not any(radar.radar_state.radarErrors.to_dict().values())
+  assert radar.radar_state.leadOne.present and radar.radar_state.leadOne.radar

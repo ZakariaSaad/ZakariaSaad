@@ -134,10 +134,11 @@ class FakeSM(dict):
   def __init__(self, events):
     super().__init__({event.which(): getattr(event, event.which()) for event in events})
     self.logMonoTime = {event.which(): event.logMonoTime for event in events}
+    self.valid = {event.which(): event.valid for event in events}
 
 
-def companion(stamp, statuses, tracks_stamp=None):
-  event = messaging.new_message('carStateSP', valid=True)
+def companion(stamp, statuses, tracks_stamp=None, *, valid=True):
+  event = messaging.new_message('carStateSP', valid=valid)
   event.logMonoTime = stamp
   radar_point_status.write(event.carStateSP, stamp if tracks_stamp is None else tracks_stamp, statuses)
   return event.as_reader()
@@ -152,10 +153,20 @@ def tracks(stamp):
 def test_point_status_round_trip_and_pairing():
   stamp = 5_000_000_000
   assert radar_point_status.read(FakeSM([tracks(stamp), companion(stamp, {60: 7, 55: 9})])) == {55: 9, 60: 7}
-  late = stamp + radar_point_status.PAIR_TOLERANCE_NS + 1
-  assert radar_point_status.read(FakeSM([tracks(late), companion(stamp, {55: 9})])) == {}
+  assert radar_point_status.read(FakeSM([tracks(stamp + 1), companion(stamp, {55: 9})])) == {}
+  assert radar_point_status.read(FakeSM([tracks(stamp - 1), companion(stamp, {55: 9})])) == {}
   assert radar_point_status.read(FakeSM([tracks(stamp), companion(stamp, {55: 9}, tracks_stamp=0)])) == {}
   assert radar_point_status.read(FakeSM([tracks(stamp)])) == {}  # no carrier: other radars, older logs
+  assert radar_point_status.read(FakeSM([tracks(stamp), companion(stamp, {55: 9}, valid=False)])) == {}
+
+
+def test_point_status_uses_referenced_sweep_not_companion_publication_time():
+  stamp = 5_000_000_000
+  # card repeats the same sweep reference in subsequent 100 Hz carStateSP messages.
+  repeated = companion(stamp + 30_000_000, {55: 9}, tracks_stamp=stamp)
+  assert radar_point_status.read(FakeSM([tracks(stamp), repeated])) == {55: 9}
+  # A later sweep can reuse the wire identity with a different status.
+  assert radar_point_status.read(FakeSM([tracks(stamp + 70_000_000), repeated])) == {}
 
 
 class FakePM:
@@ -190,7 +201,8 @@ def card_publish(statuses, radar_data):
 
 
 def test_card_sends_the_statuses_on_car_state_sp_stamped_with_the_tracks_they_describe():
-  # The status carrier shares the existing publication order: merge the statuses into the one carStateSP per frame (no second carStateSP message); order is unchanged
+  # Merge statuses into the existing single carStateSP publication per frame;
+  # adding the carrier does not change the publication order.
   card = card_publish({55: 9}, one_point())
   assert [service for service, _ in card.pm.sent] == ['carOutput', 'carState', 'radarTracks', 'carStateSP']
   status_msg = dict(card.pm.sent)['carStateSP']
@@ -207,6 +219,29 @@ def test_card_sends_no_statuses_for_other_radars():
   assert status_msg.carStateSP.radarTracksMonoTime == 0 and len(status_msg.carStateSP.radarPointStatus) == 0
 
 
+def test_card_repeats_last_sweep_reference_without_republishing_radar_tracks():
+  card = card_publish({55: 9}, one_point())
+  original_tracks = dict(card.pm.sent)['radarTracks']
+  card.pm.sent.clear()
+  card.sm.frame = 2
+  card.state_publish(structs.CarState(canValid=True), custom.CarStateSP(), None)
+  assert [service for service, _ in card.pm.sent] == ['carOutput', 'carState', 'carStateSP']
+  status_msg = dict(card.pm.sent)['carStateSP']
+  assert status_msg.carStateSP.radarTracksMonoTime == original_tracks.logMonoTime
+  assert radar_point_status.read(FakeSM([original_tracks, status_msg])) == {55: 9}
+
+
+def test_card_preserves_decoder_error_and_clears_status_for_retired_points():
+  rr = structs.RadarData()
+  rr.errors.radarUnavailableTemporary = True
+  card = card_publish({}, rr)
+  messages = dict(card.pm.sent)
+  assert not messages['radarTracks'].valid
+  assert messages['radarTracks'].radarTracks.errors.radarUnavailableTemporary
+  assert messages['carStateSP'].carStateSP.radarTracksMonoTime == messages['radarTracks'].logMonoTime
+  assert not messages['carStateSP'].carStateSP.radarPointStatus
+
+
 class ReplaySubMaster:
   """SubMaster stand-in fed by update_msgs, with no sockets (the real one needs a live msgq).
 
@@ -218,6 +253,7 @@ class ReplaySubMaster:
     self.recv_frame = dict.fromkeys(services, 0)
     self.logMonoTime = dict.fromkeys(services, 0)
     self.seen = dict.fromkeys(services, False)
+    self.valid = dict.fromkeys(services, False)
 
   def __getitem__(self, service):
     return self.data[service]
@@ -231,9 +267,13 @@ class ReplaySubMaster:
         self.recv_frame[service] = self.frame
         self.logMonoTime[service] = event.logMonoTime
         self.seen[service] = True
+        self.valid[service] = bool(event.valid)
 
-  def all_checks(self, *_args, **_kwargs):
-    return True
+  def all_checks(self, service_list=None):
+    # Match radard's optional carrier configuration. Core envelope validity is
+    # real fixture data; optional status cannot make invalid radarTracks valid.
+    services = service_list if service_list is not None else [s for s in self.data if s != 'carStateSP']
+    return all(self.seen[s] and self.valid[s] for s in services)
 
 
 def bosch_a_radard(delay=0.0):

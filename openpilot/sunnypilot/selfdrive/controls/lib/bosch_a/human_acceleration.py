@@ -1,8 +1,8 @@
 """HumanAcceleration: throttle shaping by set speed, ported from openpilot-radar (STATUS 68/118), which follows
 FrogPilot-Testing 728f65472 frogpilot_acceleration.py.
 
-Only the throttle side: `cap()` never goes below 0, so braking targets pass through. Enabled with
-gate.human_following_enabled(CP) (radar on or vision-only; permanently on, no toggle).
+Only the throttle side: `cap()` never goes below 0, so braking targets pass through. The planner calls it
+only in the explicitly opted-in Bosch-A path with radar available.
 FrogPilot's launch half (the starting state outputs a_target instead of startAccel) is not ported: Honda has no
 CP.startingState, so it never affected the Civic, and it would change other cars. Unit-test and replay evidence only; not road-validated on this tree.
 """

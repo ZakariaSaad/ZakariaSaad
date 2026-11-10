@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import time
+from numbers import Real
 import numpy as np
 from openpilot.cereal import log
 from opendbc.car.interfaces import ACCEL_MIN, ACCEL_MAX
@@ -320,7 +321,7 @@ class LongitudinalMpc:
       for i, lead in enumerate((radarstate.leadOne, radarstate.leadTwo)):
         try:
           candidate = np.asarray(lead_paths[i], dtype=np.float64)
-        except (IndexError, KeyError, TypeError, ValueError):
+        except (IndexError, KeyError, TypeError, ValueError, OverflowError):
           continue
         if lead.present and candidate.shape == (N + 1, 2) and np.all(np.isfinite(candidate)):
           paths[i] = candidate
@@ -342,8 +343,16 @@ class LongitudinalMpc:
 
     self.params[:,0] = ACCEL_MIN
     self.params[:,1] = ACCEL_MAX
-    if acceleration_max is not None and np.isfinite(acceleration_max) and 0.0 <= acceleration_max <= ACCEL_MAX:
-      self.params[:,1] = acceleration_max
+    # Optional input failures retain the baseline envelope. In particular, a
+    # non-scalar array must not turn the validity check into an ambiguous truth
+    # value, and a boolean is not an acceleration calibration.
+    if isinstance(acceleration_max, Real) and not isinstance(acceleration_max, bool):
+      try:
+        cap = float(acceleration_max)
+      except OverflowError:
+        cap = float('nan')
+      if np.isfinite(cap) and 0.0 <= cap <= ACCEL_MAX:
+        self.params[:,1] = cap
     self.params[:,2] = np.min(x_obstacles, axis=1)
     self.params[:,3] = np.copy(self.a_prev)
     self.params[:,4] = t_follow

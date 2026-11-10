@@ -117,9 +117,12 @@ class Car:
       self.CI = get_car(*self.can_callbacks, obd_callback(self.params), alpha_long_allowed, is_release, cached_params,
                         fixed_fingerprint, init_params_list_sp, is_release_sp)
       sunnypilot_interfaces.setup_interfaces(self.CI, self.params)
-      self.RI = interfaces[self.CI.CP.carFingerprint].RadarInterface(self.CI.CP, self.CI.CP_SP)
       self.CP = self.CI.CP
       self.CP_SP = self.CI.CP_SP
+      # Only the optional Bosch-A path must wait for the final passive decision.
+      # Keep the existing constructor order for all other radar configurations.
+      self.RI = (None if bosch_a_gate.startup_selected(self.CP, self.CP_SP) else
+                 interfaces[self.CP.carFingerprint].RadarInterface(self.CP, self.CP_SP))
 
       # continue onto next fingerprinting step in pandad
       self.params.put_bool("FirmwareQueryDone", True, block=True)
@@ -144,6 +147,12 @@ class Car:
       safety_config = structs.CarParams.SafetyConfig()
       safety_config.safetyModel = structs.CarParams.SafetyModel.noOutput
       self.CP.safetyConfigs = [safety_config]
+
+    bosch_a_gate.finalize_startup(self.CP, self.CP_SP)
+    if CI is None and self.RI is None:
+      self.RI = interfaces[self.CP.carFingerprint].RadarInterface(self.CP, self.CP_SP)
+    # Injected interfaces retain their supplied RI: replay/test callers own its
+    # construction. Final CP/CP_SP and optional hooks still obey the gates above.
 
     if self.CP.secOcRequired:
       # Copy user key if available

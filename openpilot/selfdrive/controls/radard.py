@@ -274,6 +274,7 @@ class RadarD:
           probability = self.lead_prob_filters[index].x
           track = self.tracks.get(int(lead_dict.get('radarTrackId', -1)))
           published.deprecated.fcw = bool(
+            self.radar_state_valid and not any(rr.errors.to_dict().values()) and
             self.ready and math.isfinite(probability) and probability > .9 and
             lead_dict.get('present', False) and lead_dict.get('radar', False) and track is not None and
             track_matches_vision(track, leads_v3[index], self.v_ego,

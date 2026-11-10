@@ -11,8 +11,9 @@ from types import SimpleNamespace
 
 from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.controls.radard import KalmanParams
-from openpilot.sunnypilot.selfdrive.controls.lib.bosch_a.radar.bosch_a_lead_policy import (RADAR_TO_CAMERA, BoschALeadPolicy, Track, get_lead, in_path_radar_keep,
-                                                match_vision_to_track)
+from openpilot.sunnypilot.selfdrive.controls.lib.bosch_a.radar.bosch_a_lead_policy import (
+  RADAR_TO_CAMERA, BoschALeadPolicy, Track, get_lead, in_path_radar_keep, match_vision_to_track,
+)
 
 
 def make_track(identifier: int, d_rel: float, y_rel: float, v_rel: float, cnt: int, v_ego: float = 25.0) -> Track:
@@ -86,7 +87,7 @@ def _drive_one_frame(policy: BoschALeadPolicy, lead, lead_prob: float, model_v_e
   lead_dict = get_lead(
     policy.v_ego, policy.ready, policy.tracks, lead, model_v_ego, policy.starpilot_toggles,
     low_speed_override=False, lead_prob=lead_prob, preferred_track_id=policy.prev_lead_track_ids[0],
-    vision_state=policy.vision_state,
+    vision_state=policy.vision_states[0],
   )
   if lead_dict.get('present', False) and lead_dict.get('radar', False):
     identifier = int(lead_dict.get('radarTrackId', -1))

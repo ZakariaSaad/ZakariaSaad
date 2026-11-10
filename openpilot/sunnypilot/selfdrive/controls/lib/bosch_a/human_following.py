@@ -1,9 +1,9 @@
 """HumanFollowing: the MPC lead path follows the model's lead trajectory instead of the aLeadK extrapolation.
 
-Ported from openpilot-radar (ns-bosch-radar-testing, STATUS 62/63/118/120), which follows FrogPilot-Testing
-728f65472 `process_lead`. NRDR port: the planner calls `upstream_lead_paths()` when `gate.human_following_enabled(CP)` and MVL is off, and hands
-the result to LongitudinalMpc.update(lead_paths=...). The SOURCE `install()` and `enabled_for(CP, toggle)` are dropped:
-the toggle is permanently on and the nrdr MPC takes the paths as an argument.
+Ported through the pinned NRDR implementation from openpilot-radar (ns-bosch-radar-testing,
+STATUS 62/63/118/120), which follows FrogPilot-Testing 728f65472 `process_lead`.
+This integration calls it only in the explicitly opted-in Bosch-A path with radar available.
+The existing MVL planner remains in control and supplies qualified model history to the native MPC.
 
 Differences from StarPilot's builder:
 - The model lead counts above LEAD_DETECTION_PROBABILITY (0.35) rather than 0.5.
@@ -13,7 +13,7 @@ Differences from StarPilot's builder:
 - Forward movement is bounded by the distance the lead's speed can cover (x_lead_max).
 
 Kept from StarPilot: the model-horizon freshness check (`lead_horizon_matches` geometry, model_t equality).
-A failed check returns None, so the raw extrapolation is used, which is never softer.
+A failed check returns None, so the ordinary radar extrapolation is used.
 
 Known cost (STATUS 120, replay): later than stock ACC on 0262 379.4 (+1.05 s) and 25e 1002.0 (+0.35 s), where
 the model has the lead speeding up while radar aLeadK reads -1 to -2. Replay evidence only; not road-validated.
@@ -109,8 +109,8 @@ def build_trajectory(model_lead, radar_lead, v_ego, model_v_ego=None):
 def upstream_lead_paths(model, radar_state, v_ego):
   """(path for leadOne, path for leadTwo) for the upstream MPC; None for a lead keeps its raw aLeadK extrapolation.
 
-  `model` is the live modelV2 message (nrdr has no StarPilot qualified_model_leads frame-age history, so no freshness
-  check is made here beyond the horizon match in build_trajectory); None gives (None, None).
+  `model` is the frame selected by qualified_model_leads, including its freshness and radar-frame checks;
+  None gives (None, None). This builder also checks the horizon and lead geometry.
   Mirrors StarPilot's long_mpc.update pairing: model leadsV3[0] with leadOne, [1] with leadTwo, and
   model_v_ego = model.velocity.x[0]."""
   if model is None:
@@ -123,4 +123,3 @@ def upstream_lead_paths(model, radar_state, v_ego):
                  for i, lead in enumerate((radar_state.leadOne, radar_state.leadTwo)))
   except (AttributeError, IndexError, TypeError, ValueError):
     return None, None
-
