@@ -15,6 +15,8 @@ class HondaFlagsSP(IntFlag):
   HAS_CAMERA_MESSAGES = 8
   STOCK_LONGITUDINAL = 16
   BOSCH_A_LONG = 32  # Development radar/planner path; no Panda safety flag or limit change
+  # Bit 64 is reserved by the separate, unpublished stop-command proposal.
+  BOSCH_A_RADAR_OBSERVATION = 128  # Receive-only logging; no Panda permission
 
 
 class HondaSafetyFlagsSP:

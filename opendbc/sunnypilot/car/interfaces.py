@@ -16,6 +16,7 @@ from opendbc.car.chrysler.values import ChryslerFlags
 from opendbc.car.ford.values import FordFlags
 from opendbc.car.gm.values import GMFlags
 from opendbc.car.honda.values import HONDA_BOSCH_A, HondaFlags
+from opendbc.car.honda.bosch_a_observation import observation_config_supported
 from opendbc.car.hyundai.values import HyundaiFlags
 from opendbc.car.subaru.values import SubaruFlags
 from opendbc.car.toyota.values import ToyotaFlags
@@ -204,6 +205,14 @@ def _initialize_honda(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params_
       # Keep the donor and existing Honda delay; cadence is handled separately
       # by radard from BOSCH_A_FREQ_HZ, not by treating this as a frame period.
       CP.radarDelay = 0.1
+
+    # Independent receive-only logging. Never repair conflicting authority
+    # settings here: alpha-long and ICBM configurations must be selected off.
+    CP_SP.flags = int(CP_SP.flags) & ~int(HondaFlagsSP.BOSCH_A_RADAR_OBSERVATION)
+    if (int(params_dict.get("BoschARadarObservationEnabled", 0)) == 1 and
+        int(params_dict.get("BoschALongitudinalEnabled", 0)) == 0 and
+        observation_config_supported(CP, CP_SP)):
+      CP_SP.flags |= HondaFlagsSP.BOSCH_A_RADAR_OBSERVATION.value
 
 
 def _initialize_toyota(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params_dict: dict[str, str]) -> None:
