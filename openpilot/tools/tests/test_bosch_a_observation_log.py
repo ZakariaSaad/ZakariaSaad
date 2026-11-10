@@ -305,3 +305,30 @@ def test_invalid_camera_index_or_referenced_can_cannot_qualify_recording(kind):
   assert result['result'] == 'incomplete'
   assert result['invalid_events'][kind] == 2
   assert result['longest_healthy_window_seconds'] == 0
+
+
+@pytest.mark.parametrize('destination', ['rlog', 'video', 'symlink', 'hardlink', 'malformed_video'])
+def test_output_collision_preserves_all_inputs_and_reports_to_stdout(tmp_path, monkeypatch, capsys, destination):
+  rlog, video = tmp_path / 'rlog.bz2', tmp_path / 'qcamera.ts'
+  original_log, original_video = b'preserved rlog bytes', b'preserved video bytes'
+  rlog.write_bytes(original_log)
+  video.write_bytes(original_video)
+  if destination in ('symlink', 'hardlink'):
+    output = tmp_path / 'summary.json'
+    if destination == 'symlink':
+      output.symlink_to(video)
+    else:
+      output.hardlink_to(rlog)
+  else:
+    output = rlog if destination == 'rlog' else video
+
+  def must_not_read(*args, **kwargs):
+    raise AssertionError('Input/output aliases must be rejected before reading or probing inputs')
+
+  monkeypatch.setattr(checker, 'LogReader', must_not_read)
+  monkeypatch.setattr(checker, 'probe_video', must_not_read)
+  video_arg = str(video) if destination == 'malformed_video' else f'0={video}'
+  assert checker.main([str(rlog), '--qcamera', video_arg, '--output', str(output)]) == 2
+  report = json.loads(capsys.readouterr().out)
+  assert report['result'] == 'incomplete' and 'aliases an input' in report['incomplete'][0]
+  assert rlog.read_bytes() == original_log and video.read_bytes() == original_video

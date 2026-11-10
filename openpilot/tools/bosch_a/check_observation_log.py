@@ -395,7 +395,20 @@ def main(argv=None) -> int:
                       help='Contiguous healthy parked capture required (default10s diagnostic criterion, not a calibration/safety threshold)')
   parser.add_argument('--output', type=Path, help='Write the JSON summary; defaults to stdout')
   args = parser.parse_args(argv)
+  output_checked = args.output is None
   try:
+    if args.output is not None:
+      output = args.output.expanduser().resolve()
+      # A malformed bare video path is still an input to preserve when the
+      # later argument-format check reports its error.
+      input_names = args.rlog + [value.split('=', 1)[-1] for value in args.qcamera]
+      for name in input_names:
+        source = Path(name).expanduser().resolve()
+        if output == source or (output.exists() and source.exists() and output.samefile(source)):
+          raise ValueError('Output path aliases an input rlog or qcamera file; summary is printed to stdout without writing')
+      # Errors before this point must also go to stdout: an unchecked output
+      # path must never overwrite an input while reporting another failure.
+      output_checked = True
     if not math.isfinite(args.min_healthy_seconds) or args.min_healthy_seconds < 0:
       raise ValueError('--min-healthy-seconds must be finite and nonnegative')
     paths = [local_file(name) for name in args.rlog]
@@ -420,7 +433,7 @@ def main(argv=None) -> int:
   except (OSError, ValueError, KeyError, capnp.KjException, subprocess.SubprocessError) as exc:
     report = {'result': 'incomplete', 'errors': [], 'incomplete': [str(exc)]}
   text = json.dumps(report, indent=2, sort_keys=True) + '\n'
-  if args.output:
+  if args.output and output_checked:
     args.output.write_text(text)
   else:
     print(text, end='')
