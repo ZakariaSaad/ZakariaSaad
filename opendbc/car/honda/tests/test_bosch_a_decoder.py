@@ -1,7 +1,7 @@
 """Bosch-A decoder tests, ported from Honda-PTM-Testing (tests/test_bosch_a_decoder.py) with the decoder.
 
-Adapted to nrdr: the decoder is opendbc.car.honda.bosch_a_radar.BoschARadar (RadarInterface(CP, CP_SP).bosch_a), point
-flags are in RadarPoint.deprecated, and there is no BoschARadar params toggle. Tests of what the port leaves out (the
+The decoder is opendbc.car.honda.bosch_a_radar.BoschARadar (RadarInterface(CP, CP_SP).bosch_a),
+point flags are in RadarPoint.deprecated, and the fixture uses this branch's startup opt-in. Tests of omitted outputs (the
 NORMALIZED_CLOSING outputs, RadarPoint.existence/recovered, the DBC CHECKSUM/COUNTER and the wider Bosch-A car gate)
 are removed; the newborn-publish tests switch it on explicitly, since it is off on 7.0.
 """
@@ -11,8 +11,6 @@ import random
 import pytest
 
 from opendbc.can.dbc import DBC as DbcFile
-from opendbc.can.parser import get_raw_value
-from opendbc.car import structs
 from opendbc.car.can_definitions import CanData
 from opendbc.car.honda.hondacan import CanBus
 from opendbc.car.honda.interface import CarInterface
@@ -122,10 +120,9 @@ def make_radar_interface():
   return CarInterface.RadarInterface(CP, CP_SP).bosch_a
 
 
-# The DBC now declares the Honda CHECKSUM (last byte bits 3:0) and the 2-bit rolling COUNTER
-# (bits 5:4), so opendbc enforces both. Synthesized frames must therefore carry real framing or
-# every message is rejected before any signal reaches the parser. Verified on real captures:
-# 361,360/361,360 checksum pass and 214,400/214,400 sequential counter transitions.
+# Retain the donor fixture's byte-7 framing. This Bosch-A DBC intentionally does
+# not declare CHECKSUM/COUNTER, so these bytes are not parser-validity evidence.
+# Parser health is tested with message presence/timing and actual error outputs.
 _TEST_COUNTERS: dict[int, int] = {}
 
 
@@ -211,17 +208,17 @@ class TestDbcBitGeometry:
     for _ in range(500):
       b = [rng.randint(0, 255) for _ in range(8)]
       dat = bytes(b)
-      assert get_raw_value(dat, msg.sigs['STATUS']) == (b[1] >> 4) & 0x0F
-      assert get_raw_value(dat, msg.sigs['FRAME_IDX']) == b[3] & 0x0F
-      assert get_raw_value(dat, msg.sigs['RANGE_RAW']) == (b[2] << 4) | (b[3] >> 4)
-      assert get_raw_value(dat, msg.sigs['AZIMUTH_RAW']) == (b[4] << 3) | (b[5] >> 5)
+      assert msg.sigs['STATUS'].get_raw_value(dat) == (b[1] >> 4) & 0x0F
+      assert msg.sigs['FRAME_IDX'].get_raw_value(dat) == b[3] & 0x0F
+      assert msg.sigs['RANGE_RAW'].get_raw_value(dat) == (b[2] << 4) | (b[3] >> 4)
+      assert msg.sigs['AZIMUTH_RAW'].get_raw_value(dat) == (b[4] << 3) | (b[5] >> 5)
 
   def test_f1_frame_idx(self):
     msg = self.dbc.msgs[0x281]
     rng = random.Random(1)
     for _ in range(500):
       b = [rng.randint(0, 255) for _ in range(8)]
-      assert get_raw_value(bytes(b), msg.sigs['FRAME_IDX']) == (b[3] >> 1) & 0x0F
+      assert msg.sigs['FRAME_IDX'].get_raw_value(bytes(b)) == (b[3] >> 1) & 0x0F
 
   def test_f2_fields(self):
     msg = self.dbc.msgs[0x282]
@@ -229,8 +226,8 @@ class TestDbcBitGeometry:
     for _ in range(500):
       b = [rng.randint(0, 255) for _ in range(8)]
       dat = bytes(b)
-      assert get_raw_value(dat, msg.sigs['FRAME_IDX']) == b[1] & 0x0F
-      assert get_raw_value(dat, msg.sigs['LIFECYCLE_RAW']) == (b[0] << 4) | (b[1] >> 4)
+      assert msg.sigs['FRAME_IDX'].get_raw_value(dat) == b[1] & 0x0F
+      assert msg.sigs['LIFECYCLE_RAW'].get_raw_value(dat) == (b[0] << 4) | (b[1] >> 4)
 
   def test_f3_fields(self):
     msg = self.dbc.msgs[0x283]
@@ -238,10 +235,10 @@ class TestDbcBitGeometry:
     for _ in range(500):
       b = [rng.randint(0, 255) for _ in range(8)]
       dat = bytes(b)
-      assert get_raw_value(dat, msg.sigs['AZIMUTH_EDGE_A_RAW']) == (b[0] << 3) | (b[1] >> 5)
-      assert get_raw_value(dat, msg.sigs['FRAME_IDX']) == (b[1] >> 1) & 0x0F
-      assert get_raw_value(dat, msg.sigs['AZIMUTH_EDGE_B_RAW']) == (b[2] << 3) | (b[3] >> 5)
-      assert get_raw_value(dat, msg.sigs['AZIMUTH_EDGE_SIGMA_A_RAW']) == (b[4] << 2) | (b[5] >> 6)
+      assert msg.sigs['AZIMUTH_EDGE_A_RAW'].get_raw_value(dat) == (b[0] << 3) | (b[1] >> 5)
+      assert msg.sigs['FRAME_IDX'].get_raw_value(dat) == (b[1] >> 1) & 0x0F
+      assert msg.sigs['AZIMUTH_EDGE_B_RAW'].get_raw_value(dat) == (b[2] << 3) | (b[3] >> 5)
+      assert msg.sigs['AZIMUTH_EDGE_SIGMA_A_RAW'].get_raw_value(dat) == (b[4] << 2) | (b[5] >> 6)
 
   def test_track_id_is_f3_byte6_and_does_not_overlap_existing_fields(self):
     def affected_bits(signal):
@@ -250,7 +247,7 @@ class TestDbcBitGeometry:
         for bit in range(8):
           data = bytearray(8)
           data[byte] = 1 << bit
-          if get_raw_value(bytes(data), signal) != 0:
+          if signal.get_raw_value(bytes(data)) != 0:
             bits.add((byte, bit))
       return bits
 
@@ -274,7 +271,7 @@ class TestDbcBitGeometry:
     msg = self.dbc.msgs[BOSCH_A_MAIN_IDS[0][3]]
     for _ in range(500):
       data = bytes(rng.randint(0, 255) for _ in range(8))
-      assert get_raw_value(data, msg.sigs['TRACK_ID']) == data[6]
+      assert msg.sigs['TRACK_ID'].get_raw_value(data) == data[6]
 
   def test_aux_fields(self):
     msg = self.dbc.msgs[0x2C8]
@@ -282,13 +279,13 @@ class TestDbcBitGeometry:
     for _ in range(500):
       b = [rng.randint(0, 255) for _ in range(8)]
       dat = bytes(b)
-      assert get_raw_value(dat, msg.sigs['FRAME_IDX']) == (b[1] >> 1) & 0x0F
-      assert get_raw_value(dat, msg.sigs['REL_VELOCITY_RAW']) == (b[0] << 3) | (b[1] >> 5)
-      assert get_raw_value(dat, msg.sigs['REL_VELOCITY_UNCERTAINTY_RAW']) == (b[2] << 2) | (b[3] >> 6)
-      assert get_raw_value(dat, msg.sigs['FW_LID_00C9_RAW']) == (b[4] << 2) | (b[5] >> 6)
-      assert get_raw_value(dat, msg.sigs['FW_LID_00CA_RAW']) == (b[6] << 2) | (b[7] >> 6)
-      assert get_raw_value(dat, msg.sigs['AZIMUTH_EDGE_SIGMA_B_RAW']) == (b[4] << 2) | (b[5] >> 6)
-      assert get_raw_value(dat, msg.sigs['RANGE_RATIO_RAW']) == (b[6] << 2) | (b[7] >> 6)
+      assert msg.sigs['FRAME_IDX'].get_raw_value(dat) == (b[1] >> 1) & 0x0F
+      assert msg.sigs['REL_VELOCITY_RAW'].get_raw_value(dat) == (b[0] << 3) | (b[1] >> 5)
+      assert msg.sigs['REL_VELOCITY_UNCERTAINTY_RAW'].get_raw_value(dat) == (b[2] << 2) | (b[3] >> 6)
+      assert msg.sigs['FW_LID_00C9_RAW'].get_raw_value(dat) == (b[4] << 2) | (b[5] >> 6)
+      assert msg.sigs['FW_LID_00CA_RAW'].get_raw_value(dat) == (b[6] << 2) | (b[7] >> 6)
+      assert msg.sigs['AZIMUTH_EDGE_SIGMA_B_RAW'].get_raw_value(dat) == (b[4] << 2) | (b[5] >> 6)
+      assert msg.sigs['RANGE_RATIO_RAW'].get_raw_value(dat) == (b[6] << 2) | (b[7] >> 6)
 
   def test_semantic_quality_aliases_exist_on_every_slot(self):
     for slot in range(BOSCH_A_NUM_SLOTS):
@@ -348,7 +345,7 @@ class TestDbcBitGeometry:
             for bit in range(8):
               data = bytearray(8)
               data[byte] = 1 << bit
-              if get_raw_value(bytes(data), signal) != 0:
+              if signal.get_raw_value(bytes(data)) != 0:
                 bits.add((byte, bit))
           return bits
 
@@ -2325,3 +2322,25 @@ class TestU11FloorUnmeasured:
       rr = self._sweep(ri, i, 1700 - 20 * i, BOSCH_A_DIRECT_VREL_MIN_RAW)
     assert rr.points[0].vRel == pytest.approx(-12.0)
     assert rr.points[0].deprecated.measured
+
+
+def test_saturation_entry_after_invalid_life_preserves_reconfirmation_boundary():
+  """An invalid 0xFFF sample is not made valid by the later saturated lifetime.
+
+  This sequence occurs in the preserved route evidence. The first 0xFFE does
+  not satisfy ordinary lifetime continuity from retained 0xFFD and starts a new
+  history; the second saturated observation confirms it. This records current
+  behavior without treating source constants as physical identity ground truth.
+  """
+  ri = make_radar_interface()
+  results = []
+  for index, (life, raw_range) in enumerate(zip((0xFFB, 0xFFD, 0xFFF, 0xFFE, 0xFFE),
+                                              (247, 252, 257, 263, 268), strict=True)):
+    results.append(ri.update(sweep(
+      0, index, 7, raw_range, 1024, life,
+      1_000_000_000 + round(index * 1e9 / BOSCH_A_FREQ_HZ),
+      with_aux=True, direct_vrel_raw=864, direct_vrel_uncertainty_raw=0,
+    )))
+  assert [bool(result.points) for result in results] == [False, True, False, False, True]
+  assert results[-1].points[0].deprecated.measured
+  assert results[-1].points[0].dRel == pytest.approx(268 / 16 + bosch_a_range_offset_m(CP.carFingerprint))

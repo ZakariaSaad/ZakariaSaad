@@ -1,20 +1,15 @@
-"""Radar-interface tests ported from Honda-PTM-Testing (tests/test_bosch_a_radar.py).
-
-Left out: the card-startup/HondaBoschARadar param test and the ALT_RADAR_STOCK (stock_aol) set checks, which depend on
-StarPilot-only modules this repo does not have. The nrdr RadarInterface is still selected by DBC name + CP.radarUnavailable.
-"""
+"""Receive-only parser/interface tests using this branch's explicit startup opt-in."""
 import pytest
 
-from opendbc.car import structs
 from opendbc.car.can_definitions import CanData
-from opendbc.car.honda.bosch_a_radar import VERIFIED_BOSCH_A_CARS, bosch_a_range_offset_m, bosch_a_radar_platform
+from opendbc.car.honda.bosch_a_radar import BOSCH_A_FREQ_HZ, VERIFIED_BOSCH_A_CARS, bosch_a_range_offset_m, bosch_a_radar_platform
 from opendbc.car.honda.hondacan import CanBus
 from opendbc.car.honda.radar_interface import RadarInterface
 from opendbc.car.honda.values import CAR
 from opendbc.car.honda.tests.test_bosch_a_integration import parameters
 
 BOSCH_A_DIRECT_VREL_INVALID = 0x7FE
-CP_SP = structs.CarParamsSP()
+DT_NS = round(1e9 / BOSCH_A_FREQ_HZ)
 
 
 def make_f0(frame_idx=0, status=7, range_raw=0, angle_raw=0, range_sigma_raw=1):
@@ -70,51 +65,52 @@ def sweep(bus, index, timestamp, with_aux=True, status=7):
   return [(timestamp, frames)]
 
 
-@pytest.mark.parametrize("identity", (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G))
+@pytest.mark.parametrize("identity", (CAR.HONDA_INSIGHT, CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G))
 def test_actual_parser_points_silence_retires_and_new_track_recovers(identity):
-  cp = parameters(identity, enabled=True)[0]
+  cp, cp_sp = parameters(identity, enabled=True)
   assert not cp.radarUnavailable
-  ri = RadarInterface(cp, CP_SP)
+  ri = RadarInterface(cp, cp_sp)
   bus = CanBus(cp).camera
   first = ri.update(sweep(bus, 0, 1_000_000_000))
   assert first is not None and not first.points
-  second = ri.update(sweep(bus, 1, 1_066_666_667))
+  second = ri.update(sweep(bus, 1, 1_000_000_000 + DT_NS))
   assert not second.errors.canError
   assert len(second.points) == 1
-  # firmware range: raw/16 minus the car's ROM offset n0/128 (Civic 346, CR-V 341)
+  # Decoder constants: raw/16 plus the source offset. Insight inherits Civic's
+  # offset; this fixture does not independently calibrate Insight range.
   assert second.points[0].dRel == pytest.approx(1000 / 16 + bosch_a_range_offset_m(identity))
   assert second.points[0].yRel == pytest.approx(0.0)
   stale = ri.update([(1_400_000_000, [])])
   assert stale is not None and not stale.points and stale.errors.radarUnavailableTemporary
-  assert not ri.update(sweep(bus, 2, 1_466_666_667)).points
-  assert len(ri.update(sweep(bus, 3, 1_533_333_334)).points) == 1
+  assert not ri.update(sweep(bus, 2, 1_400_000_000 + DT_NS)).points
+  assert len(ri.update(sweep(bus, 3, 1_400_000_000 + 2 * DT_NS)).points) == 1
 
 
-@pytest.mark.parametrize("identity", (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G))
+@pytest.mark.parametrize("identity", (CAR.HONDA_INSIGHT, CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G))
 def test_point_status_is_the_status_nibble_of_its_latest_observation(identity):
-  # route 34 T479: the phantom lead's track was STATUS 9 for its first ~4 s, then 7
-  cp = parameters(identity, enabled=True)[0]
-  ri = RadarInterface(cp, CP_SP)
+  # The carrier describes the latest published point, including status transitions.
+  cp, cp_sp = parameters(identity, enabled=True)
+  ri = RadarInterface(cp, cp_sp)
   bus = CanBus(cp).camera
   assert ri.point_statuses == {}
   ri.update(sweep(bus, 0, 1_000_000_000, status=9))
-  unconfirmed = ri.update(sweep(bus, 1, 1_066_666_667, status=9))
+  unconfirmed = ri.update(sweep(bus, 1, 1_000_000_000 + DT_NS, status=9))
   assert ri.point_statuses == {p.trackId: 9 for p in unconfirmed.points} and len(unconfirmed.points) == 1
-  confirmed = ri.update(sweep(bus, 2, 1_133_333_334))
+  confirmed = ri.update(sweep(bus, 2, 1_000_000_000 + 2 * DT_NS))
   assert ri.point_statuses == {p.trackId: 7 for p in confirmed.points} and len(confirmed.points) == 1
 
 
 def test_point_status_is_none_without_a_bosch_a_radar():
-  cp = parameters(CAR.HONDA_CIVIC, enabled=True)[0]
-  assert RadarInterface(cp, CP_SP).point_statuses is None
+  cp, cp_sp = parameters(CAR.HONDA_CIVIC, enabled=True)
+  assert RadarInterface(cp, cp_sp).point_statuses is None
 
 
-@pytest.mark.parametrize("identity", (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G))
+@pytest.mark.parametrize("identity", (CAR.HONDA_INSIGHT, CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G))
 def test_wrong_bus_cannot_create_radar_points(identity):
-  cp = parameters(identity, enabled=True)[0]
-  ri = RadarInterface(cp, CP_SP)
+  cp, cp_sp = parameters(identity, enabled=True)
+  ri = RadarInterface(cp, cp_sp)
   for index in range(3):
-    assert ri.update(sweep(CanBus(cp).camera + 1, index, 1_000_000_000 + index * 66_666_667)) is None
+    assert ri.update(sweep(CanBus(cp).camera + 1, index, 1_000_000_000 + index * DT_NS)) is None
   assert not ri.bosch_a.pts
 
 
@@ -128,16 +124,16 @@ def test_verified_bosch_a_cars_are_all_platform_cars():
 
 @pytest.mark.parametrize("identity", (CAR.HONDA_CIVIC_2022, CAR.HONDA_ACCORD_11G, CAR.HONDA_HRV_3G, CAR.ACURA_MDX_4G_MMR))
 def test_non_bosch_a_platform_factory_has_no_radar_decoder(identity):
-  cp = parameters(identity, enabled=True)[0]
+  cp, cp_sp = parameters(identity, enabled=True)
   assert cp.radarUnavailable
-  assert RadarInterface(cp, CP_SP).rcp is None
+  assert RadarInterface(cp, cp_sp).rcp is None
 
 
-@pytest.mark.parametrize("candidate", (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G))
+@pytest.mark.parametrize("candidate", (CAR.HONDA_INSIGHT, CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G))
 def test_selected_bosch_a_direct_update_uses_its_actual_protocol(candidate):
-  cp = parameters(candidate, enabled=True)[0]
+  cp, cp_sp = parameters(candidate, enabled=True)
   cp.radarUnavailable = False
-  radar = RadarInterface(cp, CP_SP)
+  radar = RadarInterface(cp, cp_sp)
   assert radar.bosch_a is not None
   assert radar.update([]) is None
   result = radar._update([radar.trigger_msg])
