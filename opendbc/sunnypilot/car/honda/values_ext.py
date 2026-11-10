@@ -14,6 +14,7 @@ class HondaFlagsSP(IntFlag):
   HYBRID_ALT_BRAKEHOLD = 4
   HAS_CAMERA_MESSAGES = 8
   STOCK_LONGITUDINAL = 16
+  BOSCH_A_LONG = 32  # Development radar/planner path; no Panda safety flag or limit change
 
 
 class HondaSafetyFlagsSP:

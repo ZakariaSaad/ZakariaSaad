@@ -511,6 +511,13 @@ class CAR(Platforms):
   )
 
 
+# Bosch-A object-bank receive support. Mapping alone does not enable the radar:
+# the startup feature gate in setup_interfaces controls CP.radarUnavailable.
+HONDA_BOSCH_A = frozenset(c for c in CAR if c.config.flags & HondaFlags.BOSCH and
+                          not c.config.flags & (HondaFlags.BOSCH_RADARLESS | HondaFlags.BOSCH_CANFD | HondaFlags.BOSCH_ALT_RADAR))
+for _bosch_a_car in HONDA_BOSCH_A:
+  _bosch_a_car.config.dbc_dict[Bus.radar] = 'honda_bosch_a_radar'
+
 DBC = CAR.create_dbc_map()
 
 HONDA_BOSCH = frozenset(c for c in CAR if c.config.flags & HondaFlags.BOSCH)

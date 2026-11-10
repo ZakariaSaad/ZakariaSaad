@@ -15,7 +15,7 @@ from opendbc.car.can_definitions import CanRecvCallable, CanSendCallable
 from opendbc.car.chrysler.values import ChryslerFlags
 from opendbc.car.ford.values import FordFlags
 from opendbc.car.gm.values import GMFlags
-from opendbc.car.honda.values import HondaFlags
+from opendbc.car.honda.values import HONDA_BOSCH_A, HondaFlags
 from opendbc.car.hyundai.values import HyundaiFlags
 from opendbc.car.subaru.values import SubaruFlags
 from opendbc.car.toyota.values import ToyotaFlags
@@ -191,6 +191,19 @@ def _initialize_honda(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params_
       CP.openpilotLongitudinalControl = False
       CP_SP.flags |= HondaFlagsSP.STOCK_LONGITUDINAL.value
       CP_SP.safetyParam |= HondaSafetyFlagsSP.STOCK_LONGITUDINAL
+
+    # Startup-only, opt-in development integration. Stock ACC and unsupported
+    # hardware retain their previous radar/control configuration. Do not infer
+    # validated radar detections from the DBC mapping or a matching CAN ID.
+    if (int(params_dict.get("BoschALongitudinalEnabled", 0)) == 1 and
+        CP.carFingerprint in HONDA_BOSCH_A and CP.openpilotLongitudinalControl and
+        not CP_SP.flags & HondaFlagsSP.STOCK_LONGITUDINAL and
+        not (CP.passive or CP.dashcamOnly or CP.notCar)):
+      CP_SP.flags |= HondaFlagsSP.BOSCH_A_LONG.value
+      CP.radarUnavailable = False
+      # Keep the donor and existing Honda delay; cadence is handled separately
+      # by radard from BOSCH_A_FREQ_HZ, not by treating this as a frame period.
+      CP.radarDelay = 0.1
 
 
 def _initialize_toyota(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params_dict: dict[str, str]) -> None:
