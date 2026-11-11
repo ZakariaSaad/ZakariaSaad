@@ -1,3 +1,5 @@
+import math
+
 from opendbc.car import CanBusBase
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.honda.values import (HondaFlags, CAR)
@@ -76,13 +78,24 @@ def create_brake_command(packer, CAN, apply_brake, pump_on, pcm_override, pcm_ca
   return packer.make_can_msg("BRAKE_COMMAND", CAN.pt, values)
 
 
-def create_acc_commands(packer, CAN, enabled, active, accel, gas, stopping_counter, CP, gas_force):
+BOSCH_STAR7_MIN_GAS_ACCEL = -0.2
+
+
+def create_acc_commands(packer, CAN, enabled, active, accel, gas, stopping_counter, CP, gas_force, braking=None):
   commands = []
 
   control_on = 5 if enabled else 0
-  gas_command = gas if active and gas_force > 0 else -30000
+  if braking is None:
+    # Preserve the existing command classification for other paths.
+    gas_active = active and gas_force > 0
+    braking = active and gas_force < 0
+  else:
+    # NRDR Bosch-A owns brake hysteresis/hold and uses the donor gas floor.
+    braking = active and bool(braking)
+    gas_active = active and math.isfinite(gas_force) and gas_force > BOSCH_STAR7_MIN_GAS_ACCEL and not braking
+  gas_command = gas if gas_active else -30000
   accel_command = accel if active else 0
-  braking = 1 if active and gas_force < 0 else 0
+  braking = int(braking)
   standstill = 1 if active and stopping_counter > 0 else 0
   standstill_release = 1 if active and stopping_counter == 0 else 0
 

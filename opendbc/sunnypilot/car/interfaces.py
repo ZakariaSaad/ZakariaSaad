@@ -15,7 +15,7 @@ from opendbc.car.can_definitions import CanRecvCallable, CanSendCallable
 from opendbc.car.chrysler.values import ChryslerFlags
 from opendbc.car.ford.values import FordFlags
 from opendbc.car.gm.values import GMFlags
-from opendbc.car.honda.values import HondaFlags
+from opendbc.car.honda.values import HONDA_BOSCH_A, HondaFlags, HondaSafetyFlags
 from opendbc.car.hyundai.values import HyundaiFlags
 from opendbc.car.subaru.values import SubaruFlags
 from opendbc.car.toyota.values import ToyotaFlags
@@ -187,10 +187,29 @@ def _initialize_honda(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params_
   if CP.brand == 'honda':
     honda_stock_long = int(params_dict.get("HondaEnforceStockLongitudinal", 0)) == 1
 
+    # Equivalent to NRDR's typed interface_config startup snapshot. The host
+    # supplies HondaBoschARadar's default and initializes HondaLiveLearningGas.
+    CP.flags &= ~HondaFlags.MVL_LONGITUDINAL.value
+    if int(params_dict.get("HondaLiveLearningGas", 0)) == 1 and CP.openpilotLongitudinalControl and not honda_stock_long:
+      CP.flags |= HondaFlags.MVL_LONGITUDINAL.value
+    if CP.carFingerprint in HONDA_BOSCH_A:
+      CP.radarUnavailable = int(params_dict.get("HondaBoschARadar", 0)) != 1
+
+    if (CP.carFingerprint in HONDA_BOSCH_A and
+        CP.openpilotLongitudinalControl and not honda_stock_long and not CP.flags & HondaFlags.MVL_LONGITUDINAL):
+      # NRDR's legacy longitudinal PID consumes these defaults. The target's
+      # newer generic interface omits them, so seed only the imported path.
+      CP.longitudinalTuning.deprecated.kpBP = [0.]
+      CP.longitudinalTuning.deprecated.kpV = [0.]
+
     if honda_stock_long:
       CP.openpilotLongitudinalControl = False
+      CP.pcmCruise = True
       CP_SP.flags |= HondaFlagsSP.STOCK_LONGITUDINAL.value
       CP_SP.safetyParam |= HondaSafetyFlagsSP.STOCK_LONGITUDINAL
+      # As in NRDR, force-stock runs after the base interface chose safety.
+      if CP.flags & HondaFlags.BOSCH:
+        CP.safetyConfigs[-1].safetyParam &= ~HondaSafetyFlags.BOSCH_LONG.value
 
 
 def _initialize_toyota(CP: structs.CarParams, CP_SP: structs.CarParamsSP, params_dict: dict[str, str]) -> None:

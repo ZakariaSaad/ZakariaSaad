@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 from opendbc.can import CANParser
 from opendbc.car import Bus, structs
-from opendbc.car.interfaces import RadarInterfaceBase
+from opendbc.car.honda.bosch_a_radar import BOSCH_A_DBC_NAME, BoschARadar
 from opendbc.car.honda.values import DBC
+from opendbc.car.interfaces import RadarInterfaceBase
 
 
 def _create_nidec_can_parser(car_fingerprint):
@@ -17,19 +18,39 @@ class RadarInterface(RadarInterfaceBase):
     self.radar_fault = False
     self.radar_wrong_config = False
     self.radar_off_can = CP.radarUnavailable
+    self.bosch_a_radar = (not self.radar_off_can and Bus.radar in DBC[CP.carFingerprint] and
+                          DBC[CP.carFingerprint][Bus.radar] == BOSCH_A_DBC_NAME)
+    # The Bosch-A object-bank decoder lives in bosch_a_radar.BoschARadar; this class only selects and delegates.
+    self.bosch_a = None
+    # Ego speed, set by card before each update; the Bosch-A decoder's reversing-coast bound reads it.
+    self.v_ego: float | None = None
 
-    # Nidec
     if self.radar_off_can:
       self.rcp = None
+      self.trigger_msg = 0x445
+    elif self.bosch_a_radar:
+      self.bosch_a = BoschARadar(CP, CP_SP)
+      self.rcp = self.bosch_a.rcp
+      self.trigger_msg = self.bosch_a.trigger_msg
     else:
+      # Nidec
       self.rcp = _create_nidec_can_parser(CP.carFingerprint)
-    self.trigger_msg = 0x445
+      self.trigger_msg = 0x445
+      self.track_id = 0
+
     self.updated_messages = set()
 
+  @property
+  def point_statuses(self) -> dict[int, int] | None:
+    """Bosch-A F0 STATUS per point of the last RadarData returned; None for other radars."""
+    return self.bosch_a.point_statuses if self.bosch_a is not None else None
+
   def update(self, can_strings):
-    # in Bosch radar and we are only steering for now, so sleep 0.05s to keep
-    # radard at 20Hz and return no points
-    if self.radar_off_can:
+    if self.bosch_a is not None:
+      self.bosch_a.v_ego = self.v_ego
+      return self.bosch_a.update(can_strings)
+
+    if self.radar_off_can or self.rcp is None:
       return super().update(None)
 
     vls = self.rcp.update(can_strings)
@@ -43,6 +64,12 @@ class RadarInterface(RadarInterfaceBase):
     return rr
 
   def _update(self, updated_messages):
+    if self.bosch_a is not None:
+      self.bosch_a.v_ego = self.v_ego
+      return self.bosch_a._update_bosch_a(updated_messages)
+    return self._update_nidec(updated_messages)
+
+  def _update_nidec(self, updated_messages):
     ret = structs.RadarData()
 
     for ii in sorted(updated_messages):

@@ -108,6 +108,7 @@ class HondaFlags(IntFlag):
   BOSCH_TJA_CONTROL = 4096
   LKAS_MINSPEED_CUTOFF = 8192
   HYBRID_ALT_BRAKEHOLD = 16384  # Some Nidec Hybrids use a different brakehold
+  MVL_LONGITUDINAL = 131072  # Donor startup command law; not a Panda safety flag.
 
 
 # Car button codes
@@ -510,6 +511,13 @@ class CAR(Platforms):
     flags=HondaFlags.NIDEC_ALT_SCM_MESSAGES | HondaFlags.HAS_ALL_DOOR_STATES,
   )
 
+
+# NRDR's classic Bosch-A harness selection; the receive-only object bank is
+# independent of whether factory ACC or openpilot controls longitudinal.
+HONDA_BOSCH_A = {c for c in CAR if c.config.flags & HondaFlags.BOSCH and
+                 not (c.config.flags & (HondaFlags.BOSCH_RADARLESS | HondaFlags.BOSCH_CANFD | HondaFlags.BOSCH_ALT_RADAR))}
+for _bosch_a_car in HONDA_BOSCH_A:
+  _bosch_a_car.config.dbc_dict[Bus.radar] = 'honda_bosch_a_radar'
 
 DBC = CAR.create_dbc_map()
 
