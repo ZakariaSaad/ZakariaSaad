@@ -94,6 +94,10 @@ def _cleanup_unsupported_params(CP: structs.CarParams, CP_SP: structs.CarParamsS
 def setup_interfaces(CI: CarInterfaceBase, params: Params | None = None) -> None:
   if params is None:
     params = Params()
+  # Match NRDR's Honda-only first-use initialization. The immutable startup
+  # snapshot below already supplied the same True choice before CI creation.
+  if CI.CP.brand == "honda" and params.get("HondaLiveLearningGas") is None:
+    params.put_bool("HondaLiveLearningGas", True, block=True)
   firmware_config = prepare_drive_config(params, CI.CP, CI.CP_SP)
   configure_firmware_transport(CI, firmware_config)
   enforce_torque = _enforce_torque_lateral_control(CI.CP, params)
@@ -116,6 +120,8 @@ def initialize_params(params) -> list[dict[str, Any]]:
   # honda
   keys.extend([
     "HondaEnforceStockLongitudinal",
+    "HondaBoschARadar",
+    "HondaLiveLearningGas",
   ])
 
   # hyundai
@@ -141,4 +147,9 @@ def initialize_params(params) -> list[dict[str, Any]]:
     "ToyotaStopAndGoHack",
   ])
 
-  return [{k: params.get(k, return_default=True)} for k in keys]
+  values = {k: params.get(k, return_default=True) for k in keys}
+  # get_car identifies the vehicle after this snapshot is constructed. Forward
+  # the donor's fresh-Honda default without writing a Honda choice on other cars.
+  if values["HondaLiveLearningGas"] is None:
+    values["HondaLiveLearningGas"] = True
+  return [{k: value} for k, value in values.items()]

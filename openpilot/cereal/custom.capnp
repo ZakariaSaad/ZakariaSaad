@@ -348,7 +348,7 @@ struct OnroadEventSP @0xda96579883444c35 {
     silentParkBrake @11;
     controlsMismatchLateral @12;
     hyundaiRadarTracksConfirmed @13;
-    experimentalModeSwitchedDEPRECATED @14;
+    experimentalModeSwitched @14;
     wrongCarModeAlertOnly @15;
     pedalPressedAlertOnly @16;
     laneTurnLeft @17;
@@ -453,6 +453,15 @@ struct BackupManagerSP @0xf98d843bfd7004a3 {
 
 struct CarStateSP @0xb86e6369214c01c8 {
   speedLimit @0 :Float32;
+  # Honda Bosch-A: F0 STATUS paired with the radarTracks message. The target
+  # does not carry NRDR's unrelated CMBS fields, so these use its next ordinals.
+  radarPointStatus @1 :List(RadarPointStatus);
+  radarTracksMonoTime @2 :UInt64;
+
+  struct RadarPointStatus {
+    trackId @0 :UInt64;
+    objectStatus @1 :UInt8;
+  }
 }
 
 struct LiveMapDataSP @0xf416ec09499d9d19 {

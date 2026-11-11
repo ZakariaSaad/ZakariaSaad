@@ -146,6 +146,7 @@ enum LongitudinalPersonality {
   aggressive @0;
   standard @1;
   relaxed @2;
+  econ @3;
 }
 
 struct InitData {
@@ -822,6 +823,7 @@ struct SelfdriveState {
   alertHudVisual @12 :Car.CarControl.HUDControl.VisualAlert;
 
   # configurable driving settings
+  experimentalMode @10 :Bool;
   personality @11 :LongitudinalPersonality;
 
   enum AudibleAlert {
@@ -865,7 +867,6 @@ struct SelfdriveState {
 
   deprecated :group {
     alertSound @8 :Car.CarControl.HUDControl.AudibleAlert;
-    experimentalMode @10 :Bool;
   }
 }
 
@@ -1248,6 +1249,12 @@ struct LongitudinalPlan @0xe00b5b3eba12876c {
   allowThrottle @38: Bool;
   allowBrake @39: Bool;
   accelBoost @40 :Float32;
+
+  # Donor MPC lead trajectories. Preserve this branch's accelBoost ordinal.
+  leadTrajectoryX0 @41 :List(Float32);
+  leadTrajectoryV0 @42 :List(Float32);
+  leadTrajectoryX1 @43 :List(Float32);
+  leadTrajectoryV1 @44 :List(Float32);
 
 
   solverExecutionTime @35 :Float32;

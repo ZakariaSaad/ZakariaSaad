@@ -23,6 +23,8 @@ from openpilot.selfdrive.car.cruise import VCruiseHelper
 from openpilot.selfdrive.car.helpers import convert_carControlSP, convert_to_capnp
 
 from openpilot.sunnypilot.mads.helpers import set_alternative_experience, set_car_specific_params
+from openpilot.nrdr.features.radar import radar_point_status
+from openpilot.nrdr.features.longitudinal.bosch_a.learning_params import attach as attach_bosch_learning_params
 from openpilot.sunnypilot.selfdrive.car import interfaces as sunnypilot_interfaces
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.driver_override import apply_firmware_driver_threshold
 from openpilot.sunnypilot.selfdrive.controls.lib.honda_eps.selection import prepare_drive_config
@@ -130,6 +132,10 @@ class Car:
     self.firmware_config = prepare_drive_config(self.params, self.CP, self.CP_SP)
     configure_firmware_transport(self.CI, self.firmware_config)
 
+    # The donor actuator's learner owns its own persistence file, independently
+    # of the existing HondaGasFactorParams/HondaWindFactorParams writers.
+    attach_bosch_learning_params(self.CI)
+
     self.CP.alternativeExperience = 0
     # mads
     set_alternative_experience(self.CP, self.CP_SP, self.params)
@@ -207,6 +213,8 @@ class Car:
     CS_SP = convert_to_capnp(CS_SP)
 
     # Update radar tracks from CAN
+    if hasattr(self.RI, 'v_ego'):
+      self.RI.v_ego = CS.vEgo
     RD: structs.RadarDataT | None = self.RI.update(can_list)
 
     self.sm.update(0)
@@ -248,6 +256,25 @@ class Car:
     co_send.carOutput.actuatorsOutput = self.last_actuators_output
     self.pm.send('carOutput', co_send)
 
+    tracks_msg = None
+    if RD is not None:
+      # Construct the radar event before carStateSP so the companion carries
+      # the exact event timestamp, retaining the donor's publication order.
+      tracks_msg = messaging.new_message('radarTracks')
+      tracks_msg.valid = not any(RD.errors.to_dict().values())
+      tracks_msg.radarTracks = RD
+      statuses = getattr(getattr(self, 'RI', None), 'point_statuses', None)
+      if statuses is not None:
+        self.radar_point_status = (int(tracks_msg.logMonoTime), dict(statuses))
+
+    if getattr(self, 'radar_point_status', None) is not None:
+      radar_point_status.write(CS_SP, *self.radar_point_status)
+
+    cs_sp_send = messaging.new_message('carStateSP')
+    cs_sp_send.valid = CS.canValid
+    cs_sp_send.carStateSP = CS_SP
+    self.pm.send('carStateSP', cs_sp_send)
+
     # kick off controlsd step while we actuate the latest carControl packet
     cs_send = messaging.new_message('carState')
     cs_send.valid = CS.canValid
@@ -256,10 +283,7 @@ class Car:
     cs_send.carState.cumLagMs = -self.rk.remaining * 1000.
     self.pm.send('carState', cs_send)
 
-    if RD is not None:
-      tracks_msg = messaging.new_message('radarTracks')
-      tracks_msg.valid = not any(RD.errors.to_dict().values())
-      tracks_msg.radarTracks = RD
+    if tracks_msg is not None:
       self.pm.send('radarTracks', tracks_msg)
 
     # carParamsSP - logged every 50 seconds (> 1 per segment)
@@ -268,11 +292,6 @@ class Car:
       cp_sp_send.valid = True
       cp_sp_send.carParamsSP = self.CP_SP_capnp
       self.pm.send('carParamsSP', cp_sp_send)
-
-    cs_sp_send = messaging.new_message('carStateSP')
-    cs_sp_send.valid = CS.canValid
-    cs_sp_send.carStateSP = CS_SP
-    self.pm.send('carStateSP', cs_sp_send)
 
   def controls_update(self, CS: car.CarState, CC: car.CarControl, CC_SP: custom.CarControlSP):
     """control update loop, driven by carControl"""

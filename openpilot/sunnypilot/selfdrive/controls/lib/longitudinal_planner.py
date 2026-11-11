@@ -5,7 +5,7 @@ This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
 
-from openpilot.cereal import messaging, custom
+from openpilot.cereal import messaging, custom, log
 from opendbc.car import structs
 from openpilot.common.constants import CV
 from openpilot.selfdrive.car.cruise import V_CRUISE_MAX
@@ -63,16 +63,33 @@ class LongitudinalPlannerSP:
       LongitudinalPlanSource.speedLimitAssist: (self.sla.output_v_target, self.sla.output_a_target),
     }
 
+    # Donor Bosch-A path ignores a stale SCC-V target when the feature is off
+    # or inactive. Other modes retain the target branch's existing arbitration.
+    if getattr(self, "use_bosch_a_nrdr", False) and not (self.scc.vision.enabled and self.scc.vision.is_active):
+      targets.pop(LongitudinalPlanSource.sccVision)
     self.source = min(targets, key=lambda k: targets[k][0])
     self.output_v_target, self.output_a_target = targets[self.source]
     return self.output_v_target, self.output_a_target
 
   def update(self, sm: messaging.SubMaster) -> None:
-    if self.accel_boost_sp.update_params() and self.openpilot_longitudinal:
+    if getattr(self, "use_bosch_a_nrdr", False):
+      self.accel_boost_sp.update_params()
+    elif self.accel_boost_sp.update_params() and self.openpilot_longitudinal:
       self.accel_boost = self.accel_boost_sp if self.accel_boost_sp.enabled else AccelBoost()
 
     self.events_sp.clear()
     self.e2e_alerts_helper.update(sm, self.events_sp)
+
+  def apply_accel_boost(self, sm, e2e_accel, mpc_accel, cruise_accel):
+    # Donor path: explicitly enabled SP boost only; disabled remains identity.
+    # The baseline path still uses its original AccelBoost/PAB lifecycle above.
+    if self.accel_boost_sp is not None and self.accel_boost_sp.enabled and self.openpilot_longitudinal:
+      # The donor's Econ personality bypasses SP boost and clears its state.
+      if sm['selfdriveState'].personality == log.LongitudinalPersonality.econ:
+        self.accel_boost_sp.boost = self.accel_boost_sp.total_boost = 0.0
+        return e2e_accel
+      return self.accel_boost_sp.update(sm, e2e_accel, mpc_accel, cruise_accel)
+    return e2e_accel
 
   def publish_longitudinal_plan_sp(self, sm: messaging.SubMaster, pm: messaging.PubMaster) -> None:
     plan_sp_send = messaging.new_message('longitudinalPlanSP')

@@ -1,12 +1,15 @@
 from openpilot.cereal import log
 from openpilot.common.params import Params, UnknownKeyName
 from openpilot.system.ui.widgets import Widget
-from openpilot.system.ui.widgets.list_view import ListItem, multiple_button_item, toggle_item
+from openpilot.system.ui.widgets.list_view import ListItem, RIGHT_ITEM_PADDING, multiple_button_item, toggle_item
 from openpilot.system.ui.widgets.scroller_tici import Scroller
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.multilang import tr, tr_noop
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.layouts.settings.initial_cruise_speed import InitialCruiseSpeedControl
+from openpilot.nrdr.ui.honda_longitudinal import (
+  EXPERIMENTAL_DESCRIPTION, donor_bosch_a_mode, personality_value, save_experimental_choice,
+)
 
 if gui_app.sunnypilot_ui():
   from openpilot.system.ui.sunnypilot.widgets.list_view import toggle_item_sp as toggle_item
@@ -46,6 +49,12 @@ class TogglesLayout(Widget):
 
     # param, title, desc, icon, needs_restart
     self._toggle_defs = {
+      "ExperimentalMode": (
+        lambda: tr("Experimental Mode"),
+        EXPERIMENTAL_DESCRIPTION,
+        "chffr_wheel.png",
+        False,
+      ),
       "OpenpilotEnabledToggle": (
         lambda: tr("Enable sunnypilot"),
         DESCRIPTIONS["OpenpilotEnabledToggle"],
@@ -90,13 +99,14 @@ class TogglesLayout(Widget):
       ),
     }
 
+    self._personality_buttons = [lambda: tr("Aggressive"), lambda: tr("Standard"), lambda: tr("Relaxed"), lambda: tr("Econ")]
     self._long_personality_setting = multiple_button_item(
       lambda: tr("Following Distance"),
       lambda: tr(DESCRIPTIONS["LongitudinalPersonality"]),
-      buttons=[lambda: tr("Aggressive"), lambda: tr("Standard"), lambda: tr("Relaxed")],
-      button_width=300,
+      buttons=self._personality_buttons,
+      button_width=220,
       callback=self._set_longitudinal_personality,
-      selected_index=self._params.get("LongitudinalPersonality", return_default=True),
+      selected_index=personality_value(ui_state.CP, self._params.get("LongitudinalPersonality", return_default=True)),
       icon="speed_limit.png"
     )
 
@@ -136,6 +146,8 @@ class TogglesLayout(Widget):
         self._locked_toggles.add(param)
 
       self._toggles[param] = toggle
+      if param == "ExperimentalMode":
+        toggle.set_visible(lambda: donor_bosch_a_mode(ui_state.CP))
 
       # insert longitudinal personality after NDOG toggle
       if param == "DisengageOnAccelerator":
@@ -147,8 +159,9 @@ class TogglesLayout(Widget):
     ui_state.add_engaged_transition_callback(self._update_toggles)
 
   def _update_state(self):
+    self._update_personality_choices()
     if ui_state.sm.updated["selfdriveState"]:
-      personality = PERSONALITY_TO_INT[ui_state.sm["selfdriveState"].personality]
+      personality = personality_value(ui_state.CP, PERSONALITY_TO_INT[ui_state.sm["selfdriveState"].personality])
       if personality != ui_state.personality and ui_state.started:
         self._long_personality_setting.action_item.set_selected_button(personality)
       ui_state.personality = personality
@@ -161,6 +174,10 @@ class TogglesLayout(Widget):
   def _update_toggles(self):
     ui_state.update_params()
     self._initial_cruise_speed.action_item.refresh()
+    donor_mode = self._update_personality_choices()
+    action = self._long_personality_setting.action_item
+    action.set_selected_button(personality_value(ui_state.CP, self._params.get("LongitudinalPersonality", return_default=True)))
+    self._toggles["ExperimentalMode"].action_item.set_enabled(donor_mode)
 
     if ui_state.CP is not None:
       self._long_personality_setting.action_item.set_enabled(ui_state.has_longitudinal_control)
@@ -175,10 +192,29 @@ class TogglesLayout(Widget):
       if self._toggle_defs[toggle_def][3] and toggle_def not in self._locked_toggles:
         self._toggles[toggle_def].action_item.set_enabled(not ui_state.engaged)
 
+  def _update_personality_choices(self):
+    donor_mode = donor_bosch_a_mode(ui_state.CP)
+    count, width = (4, 220) if donor_mode else (3, 300)
+    action = self._long_personality_setting.action_item
+    layout_changed = len(action.buttons) != count or action.button_width != width
+    action.buttons = self._personality_buttons[:count]
+    action.button_width = width
+    # MultipleButtonAction caches its width in its rectangle. Keep layout and
+    # hit testing in sync when a new vehicle/startup mode changes the choices.
+    action.rect.width = count * width + (count - 1) * RIGHT_ITEM_PADDING
+    action.set_selected_button(personality_value(ui_state.CP, action.get_selected_button()))
+    if layout_changed and hasattr(action, "_anim_x"):
+      action._anim_x = None
+    return donor_mode
+
   def _render(self, rect):
     self._scroller.render(rect)
 
   def _toggle_callback(self, state: bool, param: str):
+    if param == "ExperimentalMode":
+      save_experimental_choice(ui_state, state)
+      self._update_toggles()
+      return
     self._params.put_bool(param, state, block=True)
     if param == "IsMetric":
       self._update_toggles()
@@ -187,4 +223,4 @@ class TogglesLayout(Widget):
       self._params.put_bool("OnroadCycleRequested", True, block=True)
 
   def _set_longitudinal_personality(self, button_index: int):
-    self._params.put("LongitudinalPersonality", button_index, block=True)
+    self._params.put("LongitudinalPersonality", personality_value(ui_state.CP, button_index), block=True)

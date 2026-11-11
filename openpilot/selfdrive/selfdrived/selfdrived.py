@@ -32,6 +32,8 @@ from openpilot.sunnypilot.selfdrive.car.car_specific import CarSpecificEventsSP
 from openpilot.sunnypilot.selfdrive.car.intelligent_cruise_button_management.controller import IntelligentCruiseButtonManagement
 from openpilot.sunnypilot.selfdrive.selfdrived.button_state_tracker import ButtonStateTracker
 from openpilot.sunnypilot.selfdrive.selfdrived.events import EventsSP
+from openpilot.nrdr.features.longitudinal.driver_controls import BoschADriverControls, imported_mode, initialize_experimental
+from openpilot.nrdr.features.longitudinal.policy import longitudinal_personality
 
 REPLAY = "REPLAY" in os.environ
 SIMULATION = "SIMULATION" in os.environ
@@ -122,6 +124,9 @@ class SelfdriveD:
     # cleanup old params
     if not self.CP.alphaLongitudinalAvailable:
       self.params.remove("AlphaLongitudinalEnabled")
+    initialize_experimental(self.CP, self.params)
+    self.bosch_a_controls = BoschADriverControls(self.CP, self.params) if imported_mode(self.CP) else None
+    self.experimental_mode = False
 
     self.CS_prev = car.CarState.new_message()
     self.AM = AlertManager()
@@ -144,6 +149,7 @@ class SelfdriveD:
       max(log.LongitudinalPersonality.schema.enumerants.values()),
       self.params
     )
+    self.personality = longitudinal_personality(self.personality, self.bosch_a_controls is not None)
     self.recalibrating_seen = False
     self.dm_lockout_set = False
     self.dm_uncertain_alerted = False
@@ -512,7 +518,10 @@ class SelfdriveD:
       self.events.remove(EventName.canBusMissing)
 
     # Decrement personality on distance button press
-    if self.CP.openpilotLongitudinalControl:
+    if self.bosch_a_controls is not None:
+      if self.bosch_a_controls.update(self, CS):
+        self.events.add(EventName.personalityChanged)
+    elif self.CP.openpilotLongitudinalControl:
       if any(not be.pressed and be.type == ButtonType.gapAdjustCruise for be in CS.buttonEvents):
         self.personality = (self.personality - 1) % 3
         self.params.put('LongitudinalPersonality', self.personality)
@@ -579,7 +588,10 @@ class SelfdriveD:
                      self.state_machine.soft_disable_timer, pers]
 
     alerts = self.events.create_alerts(self.state_machine.current_alert_types, callback_args)
-    alerts_sp = self.events_sp.create_alerts(self.state_machine.current_alert_types, callback_args)
+    event_args = ({custom.OnroadEventSP.EventName.experimentalModeSwitched: [self.bosch_a_controls.cruise._experimental_mode]}
+                  if self.bosch_a_controls is not None else None)
+    alerts_sp = self.events_sp.create_alerts(self.state_machine.current_alert_types, callback_args,
+                                           callback_args_by_event=event_args)
 
     self.AM.add_many(self.sm.frame, alerts + alerts_sp)
     self.AM.process_alerts(self.sm.frame, clear_event_types)
@@ -593,6 +605,7 @@ class SelfdriveD:
     ss.active = self.active
     ss.state = self.state_machine.state
     ss.engageable = not self.events.contains(ET.NO_ENTRY)
+    ss.experimentalMode = self.experimental_mode
     ss.personality = self.personality
 
     ss.alertText1 = self.AM.current_alert.alert_text_1
@@ -659,7 +672,10 @@ class SelfdriveD:
       self.is_metric = self.params.get_bool("IsMetric")
       self.is_ldw_enabled = self.params.get_bool("IsLdwEnabled")
       self.disengage_on_accelerator = self.params.get_bool("DisengageOnAccelerator")
-      self.personality = self.params.get("LongitudinalPersonality", return_default=True)
+      self.experimental_mode = bool(self.bosch_a_controls is not None and self.params.get_bool("ExperimentalMode")
+                                    and self.CP.openpilotLongitudinalControl)
+      self.personality = longitudinal_personality(self.params.get("LongitudinalPersonality", return_default=True),
+                                                 self.bosch_a_controls is not None)
 
       self.mads.read_params()
       time.sleep(0.1)

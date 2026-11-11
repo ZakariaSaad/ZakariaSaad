@@ -1,0 +1,18 @@
+{
+  "openpilot/nrdr/features/longitudinal/bosch_a/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "openpilot/nrdr/features/longitudinal/bosch_a/bosch_a_coast_first.py": "6939fa9a8fb4da2c43b1253f541c11f0b1a69dea40507c508c8fe207e6bd9360",
+  "openpilot/nrdr/features/longitudinal/bosch_a/bosch_a_onset_ramp.py": "126a1386aeb66cf9b0d33168be41fdd60a29373100e22a9a6bb7f9796c9d6f39",
+  "openpilot/nrdr/features/longitudinal/bosch_a/bosch_a_release_coast.py": "1ecb376987c12b9e0b8f9383fc1a46b45226ae91a4258addf55762839e3a1eb4",
+  "openpilot/nrdr/features/longitudinal/bosch_a/bosch_a_smooth.py": "2a4a6f20cc490fcdb6760c550993b3cac217f874f45e5c219b9580529c66c003",
+  "openpilot/nrdr/features/longitudinal/bosch_a/bosch_a_stop_gap.py": "b3d77028df790e247bb83f1f2380b8709906fae77be7d45a663174ca476514d3",
+  "openpilot/nrdr/features/longitudinal/bosch_a/gate.py": "0749694c8f8e30d68568b624995efa87d759efdb78042ae5313475631e4a114a",
+  "openpilot/nrdr/features/longitudinal/bosch_a/honda_bosch_a_long.py": "6866b7a38094699a0281d64cbdab0007e17e6e4265494b06a74c3484f44d7efd",
+  "openpilot/nrdr/features/longitudinal/bosch_a/human_acceleration.py": "05d43e2254b83244cef6917f8f663dd20c587723c75af4725060f08350a744e0",
+  "openpilot/nrdr/features/longitudinal/bosch_a/human_following.py": "f047c5bc0a842e7f29545a3e9a69b8aa5169b3ff144976933afb83de669e0d52",
+  "openpilot/nrdr/features/longitudinal/bosch_a/learning_params.py": "37eba9407354c43d8bc44460ef9e1be1aaf6cc21f078c084d97153b6a9176ccf",
+  "openpilot/nrdr/features/longitudinal/bosch_a/model_lead_qualification.py": "5adeb1c226aa8c5ee9850a76f6e667679ef77fbbebdd071458c329364e8fad64",
+  "openpilot/nrdr/features/longitudinal/long_tune.py": "64b54e2b9f494e00c21cc05ecd8a1d4037ff616030e4779e1c215ed55b8e1f16",
+  "openpilot/nrdr/features/longitudinal/longitudinal_mpc.py": "a9da1ea04e109e8b181aff2a68b209641e56b874587cd8e9863f4afcd1abcc08",
+  "openpilot/nrdr/features/longitudinal/policy.py": "a56511bb3e36deb3d818d2b8be2f799d2eb500a057af41b19d82243880094d81",
+  "openpilot/nrdr/params/store.py": "c44e49e4308ddea050db363cabb117ab832dfcc2234d52df0c5b12cd7622adc8"
+}

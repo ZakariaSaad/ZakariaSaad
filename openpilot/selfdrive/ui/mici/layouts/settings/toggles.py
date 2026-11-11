@@ -6,6 +6,9 @@ from openpilot.system.ui.lib.application import gui_app
 from openpilot.selfdrive.ui.layouts.settings.common import restart_needed_callback
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.mici.layouts.settings.initial_cruise_speed import InitialCruiseSpeedButton
+from openpilot.nrdr.ui.honda_longitudinal import (
+  EXPERIMENTAL_DESCRIPTION, donor_bosch_a_mode, personality_value, save_experimental_choice,
+)
 
 PERSONALITY_TO_INT = log.LongitudinalPersonality.schema.enumerants
 
@@ -14,11 +17,16 @@ class TogglesLayoutMici(NavScroller):
   def __init__(self):
     super().__init__()
 
-    self._personality_toggle = BigMultiParamToggle("following distance", "LongitudinalPersonality", ["aggressive", "standard", "relaxed"],
+    self._personality_options = ["aggressive", "standard", "relaxed", "econ"]
+    self._personality_toggle = BigMultiParamToggle("following distance", "LongitudinalPersonality", self._personality_options,
                                                    description="Standard is recommended.\n" +
                                                                "Aggressive follows closer, with firmer gas and braking.\n" +
                                                                "Relaxed leaves more space.\n" +
                                                                "Use the steering wheel distance button on supported cars.")
+    self._experimental_mode = BigToggle("experimental mode", initial_state=ui_state.params.get_bool("ExperimentalMode"),
+                                        toggle_callback=self._set_experimental_mode, description=EXPERIMENTAL_DESCRIPTION)
+    self._experimental_mode.set_visible(lambda: donor_bosch_a_mode(ui_state.CP))
+    self._experimental_mode.set_enabled(lambda: donor_bosch_a_mode(ui_state.CP))
     self._initial_cruise_speed = InitialCruiseSpeedButton()
     self._initial_cruise_speed.set_visible(lambda: ui_state.CP is not None and ui_state.has_longitudinal_control and not ui_state.CP.pcmCruise)
     is_metric_toggle = BigToggle("use metric units", initial_state=ui_state.params.get_bool("IsMetric"), toggle_callback=self._on_metric_toggle)
@@ -40,6 +48,7 @@ class TogglesLayoutMici(NavScroller):
 
     self._scroller.add_widgets([
       self._personality_toggle,
+      self._experimental_mode,
       self._initial_cruise_speed,
       is_metric_toggle,
       ldw_toggle,
@@ -51,6 +60,7 @@ class TogglesLayoutMici(NavScroller):
 
     # Toggle lists
     self._refresh_toggles = (
+      ("ExperimentalMode", self._experimental_mode),
       ("IsMetric", is_metric_toggle),
       ("IsLdwEnabled", ldw_toggle),
       ("AlwaysOnDM", always_on_dm_toggle),
@@ -71,9 +81,12 @@ class TogglesLayoutMici(NavScroller):
 
   def _update_state(self):
     super()._update_state()
+    self._personality_toggle._options = self._personality_options[:4 if donor_bosch_a_mode(ui_state.CP) else 3]
+    if self._personality_toggle.value not in self._personality_toggle._options:
+      self._personality_toggle.set_value(self._personality_toggle._options[-1])
 
     if ui_state.sm.updated["selfdriveState"]:
-      personality = PERSONALITY_TO_INT[ui_state.sm["selfdriveState"].personality]
+      personality = personality_value(ui_state.CP, PERSONALITY_TO_INT[ui_state.sm["selfdriveState"].personality])
       if personality != ui_state.personality and ui_state.started:
         self._personality_toggle.set_value(self._personality_toggle._options[personality])
       ui_state.personality = personality
@@ -86,9 +99,16 @@ class TogglesLayoutMici(NavScroller):
     ui_state.params.put_bool("IsMetric", state, block=True)
     self._update_toggles()
 
+  def _set_experimental_mode(self, value):
+    save_experimental_choice(ui_state, value)
+    self._experimental_mode.set_checked(ui_state.params.get_bool("ExperimentalMode"))
+
   def _update_toggles(self):
     ui_state.update_params()
     self._initial_cruise_speed.refresh()
+    self._personality_toggle._options = self._personality_options[:4 if donor_bosch_a_mode(ui_state.CP) else 3]
+    selected = personality_value(ui_state.CP, ui_state.params.get("LongitudinalPersonality", return_default=True))
+    self._personality_toggle.set_value(self._personality_options[selected])
 
     if ui_state.CP is not None:
       self._personality_toggle.set_visible(ui_state.has_longitudinal_control)

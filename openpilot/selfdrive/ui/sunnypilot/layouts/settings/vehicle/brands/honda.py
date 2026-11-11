@@ -11,6 +11,10 @@ from openpilot.system.ui.lib.multilang import tr, tr_noop
 from openpilot.system.ui.widgets import DialogResult
 from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog
 from openpilot.system.ui.sunnypilot.widgets.list_view import toggle_item_sp
+from openpilot.nrdr.ui.honda_longitudinal import (
+  MVL_DESCRIPTION, RADAR_DESCRIPTION, live_gas_available, save_live_gas_choice, save_radar_choice,
+)
+from openpilot.nrdr.ui.settings.live_gas_reset import large_reset_button
 
 DESCRIPTIONS = {
   'enforce_stock_longitudinal': tr_noop(
@@ -31,7 +35,28 @@ class HondaSettings(BrandSettings):
       enabled=lambda: not ui_state.engaged,
     )
 
-    self.items = [self.enforce_stock_longitudinal, ]
+    self.live_learning_gas = toggle_item_sp(
+      lambda: tr("Live Learning Gas - Full MVL Longitudinal"),
+      description=lambda: tr(MVL_DESCRIPTION),
+      initial_state=ui_state.params.get_bool("HondaLiveLearningGas"),
+      callback=self._set_live_gas,
+    )
+    self.bosch_a_radar = toggle_item_sp(
+      lambda: tr("Honda Bosch-A Radar (Default: ON)"),
+      description=lambda: tr(RADAR_DESCRIPTION),
+      initial_state=bool(ui_state.params.get("HondaBoschARadar", return_default=True)),
+      callback=self._set_radar,
+    )
+    self.items = [self.enforce_stock_longitudinal, self.live_learning_gas, large_reset_button(), self.bosch_a_radar]
+    self.update_settings()
+
+  def _set_live_gas(self, value):
+    save_live_gas_choice(ui_state, value)
+    self.update_settings()
+
+  def _set_radar(self, value):
+    save_radar_choice(ui_state, value)
+    self.update_settings()
 
   def _request_onroad_cycle(self):
     # Bosch (alphaLongitudinalAvailable): the CarController applies the change through an onroad cycle
@@ -62,4 +87,8 @@ class HondaSettings(BrandSettings):
       self._request_onroad_cycle()
 
   def update_settings(self):
-    pass
+    self.live_learning_gas.action_item.set_enabled(
+      ui_state.is_offroad() and live_gas_available(ui_state.CP, ui_state.CP_SP, ui_state.params))
+    self.live_learning_gas.action_item.set_state(ui_state.params.get_bool("HondaLiveLearningGas"))
+    self.bosch_a_radar.action_item.set_enabled(getattr(ui_state.CP, "brand", None) == "honda")
+    self.bosch_a_radar.action_item.set_state(bool(ui_state.params.get("HondaBoschARadar", return_default=True)))

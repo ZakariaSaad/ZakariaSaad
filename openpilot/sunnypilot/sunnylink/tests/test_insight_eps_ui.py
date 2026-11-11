@@ -70,13 +70,19 @@ def test_mici_rejection_restores_requested_toggle_and_shows_error(gui):
     draw(app.get_active_widget())
 
 
-def test_mici_toggles_use_upstream_longitudinal_controls_without_legacy_modes(gui):
+def test_mici_toggles_preserve_inactive_controls_and_hide_imported_mode(gui, monkeypatch):
   from openpilot.selfdrive.ui.mici.layouts.settings.toggles import TogglesLayoutMici
+  from openpilot.selfdrive.ui.ui_state import ui_state
   app, _ = gui
+  monkeypatch.setattr(ui_state, 'CP', None)
   page = TogglesLayoutMici()
   app.push_widget(page)
   assert not hasattr(page, "_experimental_btn")
-  assert all(key not in {"ExperimentalMode", "DynamicExperimentalControl"} for key, _ in page._refresh_toggles)
+  assert all(key != "DynamicExperimentalControl" for key, _ in page._refresh_toggles)
+  assert not page._experimental_mode.is_visible
+  assert not page._experimental_mode.enabled
+  page._update_toggles()
+  assert page._personality_toggle._options == ['aggressive', 'standard', 'relaxed']
   assert page._initial_cruise_speed in page._scroller.items
   draw(page)
 
@@ -94,25 +100,29 @@ def test_tici_steering_uses_same_guarded_owner_settings(gui):
     enable.assert_called_once_with(params, True)
 
 
-def test_tici_toggles_use_upstream_longitudinal_controls_without_legacy_modes(gui):
+def test_tici_toggles_preserve_inactive_controls_and_hide_imported_mode(gui, monkeypatch):
   from openpilot.selfdrive.ui.layouts.settings.toggles import TogglesLayout
+  from openpilot.selfdrive.ui.ui_state import ui_state
   app, _ = gui
+  monkeypatch.setattr(ui_state, 'CP', None)
   page = TogglesLayout()
   app.push_widget(page)
-  assert 'ExperimentalMode' not in page._toggles
+  assert not page._toggles['ExperimentalMode'].is_visible
   assert 'DynamicExperimentalControl' not in page._toggles
   assert 'InitialCruiseSpeedKph' in page._toggles
+  page._update_toggles()
+  assert len(page._long_personality_setting.action_item.buttons) == 3
   draw(page)
 
 
 @pytest.mark.parametrize('layout', ['onroad', 'mici.onroad'])
-def test_camera_choice_uses_longitudinal_capability_without_deprecated_mode_state(gui, layout):
+def test_camera_choice_keeps_existing_longitudinal_capability_rule(gui, layout):
   from opendbc.car import structs
   module = importlib.import_module(f'openpilot.selfdrive.ui.{layout}.augmented_road_view')
   view = SimpleNamespace(available_streams=[module.NARROW_ROAD_CAM, module.WIDE_CAM],
                          stream_type=module.NARROW_ROAD_CAM, switch_stream=Mock())
-  # The current wire contract has no active experimentalMode setting. Maps and
-  # navigation driving are independent of this ordinary camera selection path.
+  # Restoring a planner selector does not import the donor's camera policy.
+  # Maps/navigation and this ordinary camera selection path remain independent.
   cp = structs.CarParams.new_message(openpilotLongitudinalControl=True)
   messages = {'carParams': cp, 'carState': structs.CarState.new_message(vEgo=0.)}
   module.AugmentedRoadView._switch_stream_if_needed(view, messages)

@@ -17,7 +17,7 @@ from openpilot.sunnypilot.system.params_migration import _migrate_model_bundle_s
 
 
 class TestRetiredLongitudinalSettings(OpenpilotTestCase):
-  LEGACY_KEYS = ('ExperimentalMode', 'ExperimentalModeConfirmed', 'DynamicExperimentalControl')
+  LEGACY_KEYS = ('ExperimentalModeConfirmed', 'DynamicExperimentalControl')
 
   def _seed_previous_install(self, params):
     # An update keeps the old files even though the new native registry no
@@ -35,6 +35,9 @@ class TestRetiredLongitudinalSettings(OpenpilotTestCase):
       'ModelManager_ActiveBundleChestnut': {'ref': 'existing-ordinary-big'},
       'LongitudinalPersonality': 1,
       'InitialCruiseSpeedKph': 50,
+      # NRDR's manual mode selector is restored only for the imported path;
+      # startup cleanup must preserve the choice, not revive DEC/confirmation.
+      'ExperimentalMode': True,
     }
     for key, value in persistent.items():
       params.put(key, value, block=True)
@@ -82,9 +85,25 @@ class TestRetiredLongitudinalSettings(OpenpilotTestCase):
     manager.params = params
     backup = manager._collect_config_data()
     assert set(self.LEGACY_KEYS).isdisjoint(backup)
+    assert base64.b64decode(backup['ExperimentalMode']) == b'True'
     assert base64.b64decode(backup['HondaEpsFirmwareEnabled']) == b'True'
     assert 'HondaEpsFirmwareVerifiedSha256' not in backup
     assert 'NavigationModelManifest' not in backup
+
+  def test_manual_mode_round_trips_without_restoring_retired_automatic_modes(self):
+    from openpilot.sunnypilot.sunnylink.backups.manager import BackupManagerSP
+
+    params = Params()
+    params.put_bool('ExperimentalMode', True, block=True)
+    manager = object.__new__(BackupManagerSP)
+    manager.params = params
+    manager._apply_config({'ExperimentalMode': base64.b64encode(b'False').decode(),
+                           'DynamicExperimentalControl': base64.b64encode(b'True').decode()})
+    assert params.get('ExperimentalMode') is False
+    params.clear_all(ParamKeyFlag.CLEAR_ON_MANAGER_START)
+    run_migration(params)
+    assert params.get('ExperimentalMode') is False
+    assert not Path(params.get_param_path('DynamicExperimentalControl')).exists()
 
 
 class TestModelBundleSlotMigration(OpenpilotTestCase):

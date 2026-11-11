@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import math
 import os
 import time
 import numpy as np
@@ -9,6 +10,10 @@ from openpilot.common.swaglog import cloudlog
 # WARNING: imports outside of constants will not trigger a rebuild
 from openpilot.selfdrive.modeld.constants import index_function
 from openpilot.selfdrive.controls.radard import _LEAD_ACCEL_TAU
+from openpilot.nrdr.features.longitudinal.longitudinal_mpc import NrdrLongitudinalMpc, apply_standstill_gap
+from openpilot.nrdr.features.longitudinal.policy import longitudinal_personality
+ECON_T_FOLLOW = 2.25
+ECON_JERK_FACTOR = 1.5
 
 if __name__ == '__main__':  # generating code
   from acados.acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
@@ -64,6 +69,8 @@ def get_jerk_factor(personality=log.LongitudinalPersonality.standard):
     return 1.0
   elif personality==log.LongitudinalPersonality.aggressive:
     return 0.5
+  elif personality==log.LongitudinalPersonality.econ:
+    return ECON_JERK_FACTOR
   else:
     raise NotImplementedError("Longitudinal personality not supported")
 
@@ -75,6 +82,8 @@ def get_T_FOLLOW(personality=log.LongitudinalPersonality.standard):
     return 1.45
   elif personality==log.LongitudinalPersonality.aggressive:
     return 1.25
+  elif personality==log.LongitudinalPersonality.econ:
+    return ECON_T_FOLLOW
   else:
     raise NotImplementedError("Longitudinal personality not supported")
 
@@ -212,14 +221,23 @@ def gen_long_ocp():
 
 
 class LongitudinalMpc:
-  def __init__(self, dt=DT_MDL):
+  def __init__(self, dt=DT_MDL, honda_bosch_a_radar: bool = False, *, nrdr_enabled: bool = False,
+               mvl_enabled: bool = False, human_following: bool = False):
     self.dt = dt
+    self.mvl_enabled = mvl_enabled
+    self.nrdr = NrdrLongitudinalMpc(
+      dt, T_IDXS, T_DIFFS, ACCEL_MIN, ACCEL_MAX, MIN_X_LEAD_FACTOR, ACCEL_MIN, cloudlog.warning,
+      honda_bosch_a_radar=honda_bosch_a_radar, human_following=human_following,
+    ) if nrdr_enabled and not mvl_enabled else None
+    self.tune = self.nrdr.tune if self.nrdr is not None else None
     self.solver = AcadosOcpSolverCython(MODEL_NAME, ACADOS_SOLVER_TYPE, N)
     self.reset()
     self.source = LongitudinalPlanSource.cruise
 
   def reset(self):
     self.solver.reset()
+    if self.nrdr is not None:
+      self.nrdr.reset()
 
     self.x_sol = np.zeros((N+1, X_DIM))
     self.u_sol = np.zeros((N, 1))
@@ -243,6 +261,8 @@ class LongitudinalMpc:
     # timers
     self.solve_time = 0.0
     self.x0 = np.zeros(X_DIM)
+    self.lead_xv_0 = np.zeros((N+1, 2))
+    self.lead_xv_1 = np.zeros((N+1, 2))
     self.set_weights()
 
   def set_cost_weights(self, cost_weights, constraint_cost_weights):
@@ -262,9 +282,15 @@ class LongitudinalMpc:
       self.solver.cost_set(i, 'Zl', Zl)
 
   def set_weights(self, prev_accel_constraint=True, personality=log.LongitudinalPersonality.standard):
-    jerk_factor = get_jerk_factor(personality)
+    if self.nrdr is not None or self.mvl_enabled:
+      personality = longitudinal_personality(personality, True)
+    if self.nrdr is not None:
+      jerk_factor = self.nrdr.base_jerk(personality, get_jerk_factor)
+      a_change_factor, jerk_factor = self.nrdr.jerk_factors(personality, jerk_factor, self.x0[1])
+    else:
+      a_change_factor = jerk_factor = get_jerk_factor(personality)
     a_change_cost = A_CHANGE_COST if prev_accel_constraint else 0
-    cost_weights = [X_EGO_OBSTACLE_COST, X_EGO_COST, V_EGO_COST, A_EGO_COST, jerk_factor * a_change_cost, jerk_factor * J_EGO_COST]
+    cost_weights = [X_EGO_OBSTACLE_COST, X_EGO_COST, V_EGO_COST, A_EGO_COST, a_change_factor * a_change_cost, jerk_factor * J_EGO_COST]
     constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST, DANGER_ZONE_COST]
     self.set_cost_weights(cost_weights, constraint_cost_weights)
 
@@ -307,8 +333,12 @@ class LongitudinalMpc:
     lead_xv = self.extrapolate_lead(x_lead, v_lead, a_lead, a_lead_tau)
     return lead_xv
 
-  def update(self, radarstate, personality=log.LongitudinalPersonality.standard):
+  def update(self, radarstate, personality=log.LongitudinalPersonality.standard, *, model=None, v_cruise=None,
+             extra_stop_distance=0.0, acceleration_max=None, lead_paths=None):
+    if self.nrdr is not None or self.mvl_enabled:
+      personality = longitudinal_personality(personality, True)
     t_follow = get_T_FOLLOW(personality)
+    v_ego = self.x0[1]
 
     lead_xv_0 = self.process_lead(radarstate.leadOne)
     lead_xv_1 = self.process_lead(radarstate.leadTwo)
@@ -320,6 +350,25 @@ class LongitudinalMpc:
     lead_1_obstacle = lead_xv_1[:,0] + get_stopped_equivalence_factor(lead_xv_1[:,1])
 
     x_obstacles = np.column_stack([lead_0_obstacle, lead_1_obstacle])
+    lead_probability = radarstate.leadOne.modelProb
+
+    if self.nrdr is not None and model is not None:
+      cruise_target = v_ego if v_cruise is None else v_cruise
+      result = self.nrdr.prepare(cruise_target, model, radarstate, personality, v_ego,
+                                 self.nrdr.t_follow(personality, t_follow),
+                                 raw_lead_trajectories=(lead_xv_0, lead_xv_1), human_lead_paths=lead_paths)
+      lead_xv_0, lead_xv_1 = result.lead_0, result.lead_1
+      self.status = result.status
+      t_follow = result.t_follow
+      # MVL's planner handles cruise and e2e as separate acceleration candidates.
+      # Keep the tuned NRDR lead trajectories while retaining that newer split.
+      x_obstacles = result.obstacles[:, :2]
+      lead_probability = result.lead_probability
+
+    if self.nrdr is not None:
+      x_obstacles = apply_standstill_gap(x_obstacles, radarstate, extra_stop_distance)
+
+    self.lead_xv_0, self.lead_xv_1 = lead_xv_0, lead_xv_1
     self.source = MPC_SOURCES[np.argmin(x_obstacles[0])]
 
     self.yref[:,:] = 0.0
@@ -329,6 +378,9 @@ class LongitudinalMpc:
 
     self.params[:,0] = ACCEL_MIN
     self.params[:,1] = ACCEL_MAX
+    # BOSCH-A (HumanAcceleration): only the planner passes this, and only for Bosch-A with MVL off. Same bound check as SOURCE.
+    if acceleration_max is not None and math.isfinite(acceleration_max) and 0.0 <= acceleration_max <= ACCEL_MAX:
+      self.params[:,1] = acceleration_max
     self.params[:,2] = np.min(x_obstacles, axis=1)
     self.params[:,3] = np.copy(self.a_prev)
     self.params[:,4] = t_follow
@@ -336,7 +388,7 @@ class LongitudinalMpc:
 
     self.run()
     if (np.any(lead_xv_0[FCW_IDXS,0] - self.x_sol[FCW_IDXS,0] < CRASH_DISTANCE) and
-            radarstate.leadOne.modelProb > 0.9):
+            lead_probability > 0.9 and (self.nrdr is None or self.nrdr.fcw_authorized(radarstate.leadOne, v_ego))):
       self.crash_cnt += 1
     else:
       self.crash_cnt = 0

@@ -12,7 +12,7 @@ import pytest
 
 from opendbc.car import gen_empty_fingerprint
 from opendbc.car.honda.interface import CarInterface
-from opendbc.car.honda.values import CAR
+from opendbc.car.honda.values import CAR, HondaFlags
 from opendbc.car.interfaces import ACCEL_MIN, ACCEL_MAX
 from openpilot.cereal import log, messaging
 from openpilot.common.params import Params
@@ -72,6 +72,9 @@ def planner(*, speed=20., openpilot_long=True):
   cp = CarInterface.get_params(CAR.HONDA_INSIGHT, fingerprint, [], False, False, False)
   cp_sp = CarInterface.get_params_sp(cp, CAR.HONDA_INSIGHT, fingerprint, [], False, False, False)
   cp.openpilotLongitudinalControl = openpilot_long
+  # These regressions exercise the retained baseline/MVL path; NRDR has its own matrix.
+  if openpilot_long:
+    cp.flags |= int(HondaFlags.MVL_LONGITUDINAL)
   return LongitudinalPlanner(cp, cp_sp, init_v=speed)
 
 
