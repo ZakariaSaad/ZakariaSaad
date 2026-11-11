@@ -271,6 +271,8 @@ class ModelState(ModelStateBase):
 
   def warmup(self) -> None:
     dummy_frames, transforms, dummy_inputs = self.adapter.get_dummy_inputs()
+    if 'fidx' in self.numpy_inputs:
+      dummy_inputs['fidx'] = np.full(self.numpy_inputs['fidx'].shape, 3.0, dtype=np.float32)
     self.run(dummy_frames, transforms, dummy_inputs)
     self.adapter.reset_warmup_buffers()
     self.prev_desire[:] = 0
@@ -319,6 +321,9 @@ class ModelState(ModelStateBase):
     for key in ('traffic_convention', 'lateral_control_params', 'action_t'):
       if key in self.numpy_inputs and key in inputs:
         self.numpy_inputs[key][:] = inputs[key]
+
+    if 'fidx' in self.numpy_inputs:
+      self.numpy_inputs['fidx'][:] = inputs['fidx']
 
     for name in NAV_INPUT_NAMES:
       if name in self.numpy_inputs:
@@ -745,6 +750,10 @@ def main(demo=False):
 
     if 'action_t' in model.numpy_inputs:
       inputs['action_t'] = np.array([lat_action_t, long_action_t], dtype=np.float32)
+
+    # Upstream Fidx models use a default future anchor of 3 seconds.
+    if 'fidx' in model.numpy_inputs:
+      inputs['fidx'] = np.full(model.numpy_inputs['fidx'].shape, 3.0, dtype=np.float32)
 
     mt1 = time.perf_counter()
     try:

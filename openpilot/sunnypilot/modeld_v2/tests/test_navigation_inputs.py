@@ -114,7 +114,8 @@ class TestNavigationModelInputs(OpenpilotTestCase):
     state.numpy_inputs = {'desire': np.zeros(8, np.float32), 'tfm': np.zeros((2, 3, 3), np.float32),
                           'nav_map': np.zeros((1, 1, 256, 256), np.uint8), 'navigation': np.zeros((1, 47), np.float32)}
     state.navigation_input_specs = {'nav_map': ((1, 1, 256, 256), np.uint8, 'NPY'), 'navigation': ((1, 47), np.float32, 'NPY')}
-    state.adapter = SimpleNamespace(is_native=True, copy_frames=Mock(), run=Mock(return_value=SimpleNamespace(numpy=lambda: np.zeros(1, np.float32))))
+    state.adapter = SimpleNamespace(is_native=True, copy_frames=Mock(), advance_state=Mock(),
+                                    run=Mock(return_value=SimpleNamespace(numpy=lambda: np.zeros(1, np.float32))))
     state._desire_key = 'desire'
     state.prev_desire = np.zeros(8, np.float32)
     state._vision_input_names = ['img', 'big_img']
