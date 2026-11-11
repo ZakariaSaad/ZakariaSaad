@@ -64,6 +64,14 @@ but enabling decoded radar can change its lead inputs. Equality tests of the
 old and retained planners use identical inputs and do not establish identical
 driving behavior when radar inputs change.
 
+This is radar plus the preserved target MVL implementation, not wholesale
+replacement with current NRDR MVL. NRDR's separate MVL planner gates its model
+candidate/boost on Experimental Mode and supports Econ. This target retains its
+unconditional model candidate, existing boost lifecycle and three MVL profiles.
+The examined ordinary boost formula and 145 km/h cruise ceiling match. These
+boundaries preserve the requested existing mode rather than importing unrelated
+MVL behavior with the Bosch-A feature.
+
 ### Comma 4 procedure, keeping the Insight in READY
 
 1. Keep the car parked in READY, disengaged, and select the existing forced
@@ -206,9 +214,32 @@ Important retained donor behavior: ACC mode excludes the model stop candidate;
 an existing event therefore changes from baseline +0.090114/stop=true to donor
 +1.427885/stop=false. Another existing braking target changes from −2.425615
 to −0.780. These match the donor and are reported rather than silently clamped.
-A positive planner target during stopping can still produce positive encoded
-ACCEL_COMMAND with braking/standstill bits asserted. Encoded requests do not
+A positive supplied CarControl acceleration during stopping can still produce
+positive encoded ACCEL_COMMAND with braking/standstill bits asserted. Planner
+targets pass through LongControl first; the isolated actuator probe does not
+reproduce that complete route pipeline. Encoded requests do not
 prove positive physical force, stopping distance or ECU acceptance.
+
+The braking follow-up crossed recorded versus rebuilt radar inputs and explicit
+Experimental OFF/ON over five more chronological prefixes (184,915 native
+solves, no raw errors). Donor and port with Experimental ON also match all
+36,983 rows, including native arrays. ON restores the illustrated model stop,
+but the other illustrated model target of -2.425615 still becomes -0.810 with
+rebuilt radar, or -1.479113 with recorded leads. The unchanged donor stock-feel
+soft-exit/TTC jerk rules account for this post-selection weakening. With the
+rebuilt lead opening and recent stock-feel activity, the soft-exit rule is
+`max(selected_target, previous_target - 0.6 * 0.05)`; previous -0.780 therefore
+permits only -0.810 on that update. No stronger-braking clamp was introduced.
+
+The old recorded Experimental wire field was deprecated and ignored by the
+baseline, which always included the model. Its false value does not establish
+an owner-selected ACC mode. OFF is an explicit donor-default reconstruction;
+ON is the controlled comparison that includes the model on both sides. The
+crossed runs also demonstrate that new radar leads can change retained MVL
+outputs despite unchanged formulas. These findings verify causes and donor
+parity, not appropriate braking or restart behavior on this Insight. Public
+development refs and the newer donor nightly were checked; their relevant
+shaping code is identical and no corrective upstream patch was found.
 
 The real-controller 270-tick comparison matches 270 packed donor ACC frames;
 it validates port wiring, not the physical correctness of the donor law. The
